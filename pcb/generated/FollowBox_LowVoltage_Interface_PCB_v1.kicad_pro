@@ -1,0 +1,24 @@
+{
+    "board": {
+        "design_settings": {
+            "defaults": {},
+            "rules": {}
+        }
+    },
+    "libraries": {
+        "pinned_footprint_libs": [],
+        "pinned_symbol_libs": []
+    },
+    "meta": {
+        "version": 1
+    },
+    "net_settings": {
+        "classes": [],
+        "meta": {
+            "version": 0
+        }
+    },
+    "project": {
+        "files": []
+    }
+}

@@ -1,0 +1,27 @@
+{
+  "timestamp": "2026-06-15T08:38:05.464381+00:00",
+  "scope": [
+    "firmware/src/web/"
+  ],
+  "files_reviewed": [
+    "firmware\\src\\web\\h5_command_handler.cpp",
+    "firmware\\src\\web\\h5_request_parser.cpp",
+    "firmware\\src\\web\\h5_web_server.cpp",
+    "firmware\\src\\web\\telemetry_api.cpp",
+    "firmware\\src\\web\\h5_command_handler.h",
+    "firmware\\src\\web\\h5_request_parser.h",
+    "firmware\\src\\web\\h5_web_server.h",
+    "firmware\\src\\web\\telemetry_api.h"
+  ],
+  "lint_findings": [],
+  "autogen_rounds": 1,
+  "autogen_messages": [
+    "[user] Review the H5 web server and command handler for safety violations: check that no GPIO/PWM operations happen in the transport layer, verify the fault reset chain, check for race conditions, and ensure..."
+  ],
+  "fusion_score": null,
+  "fusion_models": [],
+  "findings": [],
+  "confirmed_correct": [],
+  "fixes_applied": [],
+  "build_status": "FAILED"
+}

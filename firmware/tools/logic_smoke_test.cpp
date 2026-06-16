@@ -1,0 +1,737 @@
+#include <cassert>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <vector>
+
+#include "app/app.h"
+#include "app/command_pipeline.h"
+#include "app/mode_manager.h"
+#include "control/follow_controller_uwb.h"
+#include "control/motion_mixer.h"
+#include "control/obstacle_manager.h"
+#include "core/system_state.h"
+#include "safety/safety_manager.h"
+#include "sensors/jy61p_imu.h"
+#include "sensors/lidar_ld19.h"
+#include "sensors/obstacle_fusion.h"
+#include "sensors/uwb_gc_p2304.h"
+#include "web/h5_command_handler.h"
+#include "web/h5_request_parser.h"
+#include "web/telemetry_api.h"
+
+using namespace followbox;
+
+namespace {
+
+// --- Existing safety / mode / mixer regression checks ---------------------
+void testSafetyAndMixer() {
+  SafetyManager safety;
+  ModeManager modes;
+
+  SystemState state;
+  state.now_ms = 1000;
+  state.estop_active = false;
+  state.install_wizard_complete = true;
+  state.mode = RunMode::MANUAL_RC;
+  state.rc.online = true;
+  state.rc.last_update_ms = 980;
+  state.rc.throttle = 0.5f;
+  state.rc.steering = 0.0f;
+
+  state.safety = safety.evaluate(state);
+  assert(state.safety.motion_allowed);
+  assert(state.safety.stop_reason == StopReason::NONE);
+  assert(modes.selectMode(state, state.safety) == RunMode::MANUAL_RC);
+
+  MotionMixer mixer;
+  MotionIntent intent;
+  intent.source = ControlSource::DS600_RC;
+  intent.request_motion = true;
+  intent.forward = 0.5f;
+  intent.turn = 0.5f;
+  MotorCommand mixed = mixer.mix(intent, 1.0f, 1100);
+  assert(mixed.enable);
+  assert(!mixed.brake);
+  assert(mixed.left_target >= mixed.right_target);
+
+  SafetyManager estop_safety;
+  state.estop_active = true;
+  state.safety = estop_safety.evaluate(state);
+  MotorCommand gated = estop_safety.applyFinalGate(mixed, state);
+  assert(!gated.enable);
+  assert(gated.brake);
+  assert(std::fabs(gated.left_target) < 0.0001f);
+  assert(std::fabs(gated.right_target) < 0.0001f);
+
+  SafetyManager rc_loss_safety;
+  state = SystemState{};
+  state.now_ms = 5000;
+  state.estop_active = false;
+  state.mode = RunMode::MANUAL_RC;
+  state.heartbeat.sensor_task_ms = 4990;
+  state.heartbeat.uwb_task_ms = 4990;
+  state.rc.online = false;
+  state.rc.last_update_ms = 0;
+  state.safety = rc_loss_safety.evaluate(state);
+  assert(!state.safety.motion_allowed);
+  assert(!state.safety.fault_latched);
+  assert(state.safety.stop_reason == StopReason::RC_LOST);
+
+  state.rc.online = true;
+  state.rc.last_update_ms = 5000;
+  state.safety = rc_loss_safety.evaluate(state);
+  assert(state.safety.motion_allowed);
+  assert(!state.safety.fault_latched);
+  assert(state.safety.stop_reason == StopReason::NONE);
+
+  SafetyManager auto_safety;
+  state = SystemState{};
+  state.now_ms = 2000;
+  state.estop_active = false;
+  state.mode = RunMode::AUTO_FOLLOW;
+  state.install_wizard_complete = true;
+  state.throttle_calibrated = true;
+  state.obstacle.valid = true;
+  state.obstacle.last_update_ms = 2000;
+  state.uwb.valid = false;
+  state.safety = auto_safety.evaluate(state);
+  assert(!state.safety.motion_allowed);
+  assert(state.safety.stop_reason == StopReason::UWB_LOST);
+
+  SafetyManager cloud_safety;
+  state = SystemState{};
+  state.now_ms = 9000;
+  state.estop_active = false;
+  state.mode = RunMode::MANUAL_CLOUD_LOW_SPEED;
+  state.heartbeat.sensor_task_ms = 8990;
+  state.heartbeat.uwb_task_ms = 8990;
+  state.cloud.connected = true;
+  state.cloud.last_update_ms = 8990;
+  state.cloud.unlock_request = true;
+  state.safety = cloud_safety.evaluate(state);
+  assert(state.safety.motion_allowed);
+  assert(state.safety.stop_reason == StopReason::NONE);
+
+  state.cloud.last_update_ms = 8000;
+  state.safety = cloud_safety.evaluate(state);
+  assert(!state.safety.motion_allowed);
+  assert(state.safety.stop_reason == StopReason::CLOUD_LOST);
+}
+
+// --- UWB GC-P2304 parser --------------------------------------------------
+void feedUwb(UwbGcP2304Parser& parser, const std::vector<uint8_t>& bytes,
+             uint32_t now_ms, bool expect_frame) {
+  bool got = false;
+  for (uint8_t b : bytes) {
+    got = parser.pushByte(b, now_ms) || got;
+  }
+  assert(got == expect_frame);
+}
+
+void testUwbParser() {
+  UwbGcP2304Parser parser;
+  parser.reset();
+
+  // Spec sample: ID 0x0003, 115 cm, 20 deg, RSSI 0xBC -> -68 dBm.
+  feedUwb(parser, {0xF0, 0x06, 0x03, 0x00, 0x73, 0x00, 0x14, 0x00, 0xBC, 0xAA},
+          1000, true);
+  const UwbTarget& t = parser.target();
+  assert(t.valid);
+  assert(t.distance_mm == 1150);
+  assert(std::fabs(t.bearing_deg - 20.0f) < 0.001f);
+  assert(t.confidence > 0);
+  assert(parser.stats().frame_count == 1);
+  assert(parser.stats().last_rssi_dbm == -68);
+
+  // Bad tail -> parse error, target stays from the previous good frame.
+  feedUwb(parser, {0xF0, 0x06, 0x03, 0x00, 0x73, 0x00, 0x14, 0x00, 0xBC, 0x00},
+          1010, false);
+  assert(parser.stats().parse_error_count == 1);
+
+  // Re-sync after garbage leading bytes (second frame: 0x0064 = 100 cm).
+  // Reset first so the EMA initialises directly to the new sample.
+  parser.reset();
+  feedUwb(parser, {0x11, 0x22, 0xF0, 0x06, 0x03, 0x00, 0x64, 0x00, 0xF6, 0x00,
+                   0xC0, 0xAA},
+          1020, true);
+  assert(parser.target().distance_mm == 1000);
+
+  // Timeout invalidates the target and clears the filter.
+  parser.update(1020 + 1001);
+  assert(!parser.target().valid);
+  assert(parser.target().confidence == 0);
+}
+
+// --- UWB follow controller ------------------------------------------------
+UwbTarget makeTarget(int distance_mm, float bearing_deg) {
+  UwbTarget t;
+  t.valid = true;
+  t.last_update_ms = 1;
+  t.distance_mm = distance_mm;
+  t.bearing_deg = bearing_deg;
+  t.confidence = 200;
+  return t;
+}
+
+void testFollowController() {
+  FollowControllerUwb controller;
+  ImuSnapshot imu;  // invalid -> no yaw damping
+
+  // Invalid target -> no motion request.
+  controller.reset();
+  MotionIntent idle = controller.update(UwbTarget{}, imu, 10);
+  assert(!idle.request_motion);
+  assert(std::fabs(idle.forward) < 0.0001f);
+
+  // Near target (flat ~568 mm < 800) -> stop band, but still turns.
+  controller.reset();
+  MotionIntent near = controller.update(makeTarget(1150, 20.0f), imu, 20);
+  assert(near.request_motion);
+  assert(std::fabs(near.forward) < 0.0001f);
+  assert(near.turn > 0.0f);  // bearing +20 -> turn toward tag
+
+  // Far target -> full forward, small bearing -> no slow-down.
+  controller.reset();
+  MotionIntent far = controller.update(makeTarget(3000, 5.0f), imu, 30);
+  assert(far.forward > 0.9f);
+  assert(far.turn > 0.0f);
+
+  // Large bearing reduces forward (turn-first behaviour).
+  controller.reset();
+  MotionIntent skew = controller.update(makeTarget(3000, 35.0f), imu, 40);
+  assert(skew.forward < far.forward);
+  assert(skew.forward > 0.0f);
+
+  // Negative bearing -> turn the other way.
+  controller.reset();
+  MotionIntent right = controller.update(makeTarget(3000, -30.0f), imu, 50);
+  assert(right.turn < 0.0f);
+
+  // Hysteresis: once stopped near, stay stopped while inside the dead band.
+  controller.reset();
+  controller.update(makeTarget(1150, 0.0f), imu, 60);  // flat ~568 -> latch
+  MotionIntent band =
+      controller.update(makeTarget(1345, 0.0f), imu, 70);  // flat ~900
+  assert(std::fabs(band.forward) < 0.0001f);  // still latched (resume=950)
+  MotionIntent release = controller.update(makeTarget(3000, 0.0f), imu, 80);
+  assert(release.forward > 0.0f);  // beyond resume -> moves again
+}
+
+// --- LiDAR LD19 parser ----------------------------------------------------
+uint8_t lidarCrc(const uint8_t* data, uint8_t length) {
+  static const uint8_t table[256] = {
+      0x00, 0x4d, 0x9a, 0xd7, 0x79, 0x34, 0xe3, 0xae, 0xf2, 0xbf, 0x68, 0x25,
+      0x8b, 0xc6, 0x11, 0x5c, 0xa9, 0xe4, 0x33, 0x7e, 0xd0, 0x9d, 0x4a, 0x07,
+      0x5b, 0x16, 0xc1, 0x8c, 0x22, 0x6f, 0xb8, 0xf5, 0x1f, 0x52, 0x85, 0xc8,
+      0x66, 0x2b, 0xfc, 0xb1, 0xed, 0xa0, 0x77, 0x3a, 0x94, 0xd9, 0x0e, 0x43,
+      0xb6, 0xfb, 0x2c, 0x61, 0xcf, 0x82, 0x55, 0x18, 0x44, 0x09, 0xde, 0x93,
+      0x3d, 0x70, 0xa7, 0xea, 0x3e, 0x73, 0xa4, 0xe9, 0x47, 0x0a, 0xdd, 0x90,
+      0xcc, 0x81, 0x56, 0x1b, 0xb5, 0xf8, 0x2f, 0x62, 0x97, 0xda, 0x0d, 0x40,
+      0xee, 0xa3, 0x74, 0x39, 0x65, 0x28, 0xff, 0xb2, 0x1c, 0x51, 0x86, 0xcb,
+      0x21, 0x6c, 0xbb, 0xf6, 0x58, 0x15, 0xc2, 0x8f, 0xd3, 0x9e, 0x49, 0x04,
+      0xaa, 0xe7, 0x30, 0x7d, 0x88, 0xc5, 0x12, 0x5f, 0xf1, 0xbc, 0x6b, 0x26,
+      0x7a, 0x37, 0xe0, 0xad, 0x03, 0x4e, 0x99, 0xd4, 0x7c, 0x31, 0xe6, 0xab,
+      0x05, 0x48, 0x9f, 0xd2, 0x8e, 0xc3, 0x14, 0x59, 0xf7, 0xba, 0x6d, 0x20,
+      0xd5, 0x98, 0x4f, 0x02, 0xac, 0xe1, 0x36, 0x7b, 0x27, 0x6a, 0xbd, 0xf0,
+      0x5e, 0x13, 0xc4, 0x89, 0x63, 0x2e, 0xf9, 0xb4, 0x1a, 0x57, 0x80, 0xcd,
+      0x91, 0xdc, 0x0b, 0x46, 0xe8, 0xa5, 0x72, 0x3f, 0xca, 0x87, 0x50, 0x1d,
+      0xb3, 0xfe, 0x29, 0x64, 0x38, 0x75, 0xa2, 0xef, 0x41, 0x0c, 0xdb, 0x96,
+      0x42, 0x0f, 0xd8, 0x95, 0x3b, 0x76, 0xa1, 0xec, 0xb0, 0xfd, 0x2a, 0x67,
+      0xc9, 0x84, 0x53, 0x1e, 0xeb, 0xa6, 0x71, 0x3c, 0x92, 0xdf, 0x08, 0x45,
+      0x19, 0x54, 0x83, 0xce, 0x60, 0x2d, 0xfa, 0xb7, 0x5d, 0x10, 0xc7, 0x8a,
+      0x24, 0x69, 0xbe, 0xf3, 0xaf, 0xe2, 0x35, 0x78, 0xd6, 0x9b, 0x4c, 0x01,
+      0xa8, 0xe5, 0x32, 0x7f, 0xd1, 0x9c, 0x4b, 0x06, 0x5a, 0x17, 0xc0, 0x8d,
+      0x23, 0x6e, 0xb9, 0xf4};
+  uint8_t crc = 0;
+  for (uint8_t i = 0; i < length; ++i) {
+    crc = table[(crc ^ data[i]) & 0xff];
+  }
+  return crc;
+}
+
+std::vector<uint8_t> buildLidarPacket(float start_deg, float end_deg,
+                                      uint16_t dist_mm, uint8_t intensity) {
+  std::vector<uint8_t> p(47, 0);
+  p[0] = 0x54;
+  p[1] = 0x2C;
+  p[2] = 0x00;  // speed lo
+  p[3] = 0x04;  // speed hi
+  const uint16_t start = static_cast<uint16_t>(std::lround(start_deg * 100.0f));
+  const uint16_t end = static_cast<uint16_t>(std::lround(end_deg * 100.0f));
+  p[4] = start & 0xFF;
+  p[5] = (start >> 8) & 0xFF;
+  for (int i = 0; i < 12; ++i) {
+    const int base = 6 + i * 3;
+    p[base] = dist_mm & 0xFF;
+    p[base + 1] = (dist_mm >> 8) & 0xFF;
+    p[base + 2] = intensity;
+  }
+  p[42] = end & 0xFF;
+  p[43] = (end >> 8) & 0xFF;
+  p[44] = 0x00;  // timestamp lo
+  p[45] = 0x00;  // timestamp hi
+  p[46] = lidarCrc(p.data(), 46);
+  return p;
+}
+
+void feedLidar(LidarLd19& lidar, const std::vector<uint8_t>& packet,
+               uint32_t now_ms) {
+  for (uint8_t b : packet) {
+    lidar.pushByte(b, now_ms);
+  }
+}
+
+void testLidarParser() {
+  LidarLd19 lidar;
+  lidar.reset();
+
+  // Packet A: all 12 points at 10 deg (front-center), 1500 mm.
+  feedLidar(lidar, buildLidarPacket(10.0f, 10.0f, 1500, 200), 100);
+  // Packet B: start angle wraps below A -> finalises scan A.
+  feedLidar(lidar, buildLidarPacket(5.0f, 5.0f, 800, 200), 110);
+
+  assert(lidar.stats().packet_count == 2);
+  assert(lidar.stats().crc_error_count == 0);
+  assert(lidar.snapshot().valid);
+  assert(lidar.snapshot().front_center_mm == 1500);
+  // Sectors with no returns stay at the clear sentinel (far), never 0.
+  assert(lidar.snapshot().side_left_mm > 1500);
+
+  // A corrupted CRC byte is rejected.
+  std::vector<uint8_t> bad = buildLidarPacket(50.0f, 50.0f, 1000, 200);
+  bad[46] ^= 0xFF;
+  feedLidar(lidar, bad, 120);
+  assert(lidar.stats().crc_error_count == 1);
+
+  // Timeout invalidates the snapshot.
+  lidar.update(120 + 600);
+  assert(!lidar.snapshot().valid);
+}
+
+// --- JY61P IMU parser (WitMotion 0x55 frames) -----------------------------
+// Build an 11-byte WitMotion frame with a valid checksum.
+std::vector<uint8_t> buildImuFrame(uint8_t type, int16_t a, int16_t b,
+                                   int16_t c, int16_t d) {
+  std::vector<uint8_t> f = {
+      0x55, type,
+      static_cast<uint8_t>(a & 0xFF), static_cast<uint8_t>((a >> 8) & 0xFF),
+      static_cast<uint8_t>(b & 0xFF), static_cast<uint8_t>((b >> 8) & 0xFF),
+      static_cast<uint8_t>(c & 0xFF), static_cast<uint8_t>((c >> 8) & 0xFF),
+      static_cast<uint8_t>(d & 0xFF), static_cast<uint8_t>((d >> 8) & 0xFF)};
+  uint8_t sum = 0;
+  for (uint8_t byte : f) {
+    sum = static_cast<uint8_t>(sum + byte);
+  }
+  f.push_back(sum);
+  return f;
+}
+
+void feedImu(Jy61pImu& imu, const std::vector<uint8_t>& bytes, uint32_t now_ms) {
+  for (uint8_t byte : bytes) {
+    imu.pushByte(byte, now_ms);
+  }
+}
+
+void testImuParser() {
+  Jy61pImu imu;
+  imu.reset();
+
+  // Angle frame: roll/pitch/yaw scaled by 180/32768 deg per count.
+  feedImu(imu, buildImuFrame(0x53, 16384, -16384, 8192, 0), 100);
+  assert(imu.stats().angle_frame_count == 1);
+  assert(imu.stats().checksum_error_count == 0);
+  assert(imu.snapshot().valid);
+  assert(std::fabs(imu.snapshot().roll_deg - 90.0f) < 0.5f);
+  assert(std::fabs(imu.snapshot().pitch_deg + 90.0f) < 0.5f);
+  assert(std::fabs(imu.snapshot().yaw_deg - 45.0f) < 0.5f);
+
+  // Gyro frame: wz scaled by 2000/32768 dps per count (8192 -> 500 dps).
+  feedImu(imu, buildImuFrame(0x52, 0, 0, 8192, 0), 110);
+  assert(imu.stats().gyro_frame_count == 1);
+  assert(std::fabs(imu.snapshot().yaw_rate_dps - 500.0f) < 1.0f);
+
+  // Corrupted checksum is rejected.
+  std::vector<uint8_t> bad = buildImuFrame(0x53, 0, 0, 0, 0);
+  bad[10] ^= 0xFF;
+  feedImu(imu, bad, 120);
+  assert(imu.stats().checksum_error_count == 1);
+
+  // Timeout invalidates and zeroes the yaw rate.
+  imu.update(120 + 600);
+  assert(!imu.snapshot().valid);
+  assert(std::fabs(imu.snapshot().yaw_rate_dps) < 0.0001f);
+}
+
+// --- AUTO_FOLLOW pipeline integration -------------------------------------
+void testFollowPipeline() {
+  CommandPipeline pipeline;
+  SystemState state;
+  state.mode = RunMode::AUTO_FOLLOW;
+  state.now_ms = 500;
+  state.uwb = makeTarget(3000, 10.0f);
+
+  MotionIntent intent = pipeline.buildIntent(state);
+  assert(intent.source == ControlSource::UWB_FOLLOW);
+  assert(intent.request_motion);
+  assert(intent.forward > 0.0f);
+
+  // UWB lost -> the pipeline requests no motion (safety still gates anyway).
+  state.uwb.valid = false;
+  MotionIntent lost = pipeline.buildIntent(state);
+  assert(!lost.request_motion);
+  assert(std::fabs(lost.forward) < 0.0001f);
+}
+
+// --- Obstacle manager P0 (front slow/stop only) ---------------------------
+MotionIntent forwardIntent(float forward, float turn) {
+  MotionIntent intent;
+  intent.source = ControlSource::DS600_RC;
+  intent.request_motion = true;
+  intent.forward = forward;
+  intent.turn = turn;
+  return intent;
+}
+
+ObstacleSnapshot frontSnapshot(int front_center_mm) {
+  ObstacleSnapshot snap;
+  snap.valid = true;
+  snap.last_update_ms = 1;
+  snap.front_left_mm = 0;
+  snap.front_center_mm = front_center_mm;
+  snap.front_right_mm = 0;
+  snap.side_left_mm = 0;
+  snap.side_right_mm = 0;
+  return snap;
+}
+
+void testObstacleManager() {
+  ObstacleManager manager;
+
+  // Invalid snapshot -> pass-through (no sensor yet wired).
+  ObstacleDecision none =
+      manager.apply(forwardIntent(0.8f, 0.2f), ObstacleSnapshot{});
+  assert(std::fabs(none.intent.forward - 0.8f) < 0.0001f);
+  assert(!none.stop_required);
+
+  // Clear ahead (2000 mm > slow 1000) -> no attenuation.
+  ObstacleDecision clear = manager.apply(forwardIntent(0.8f, 0.2f), frontSnapshot(2000));
+  assert(std::fabs(clear.intent.forward - 0.8f) < 0.0001f);
+
+  // Inside slow band (750 mm) -> forward scaled down but non-zero, turn kept.
+  ObstacleDecision slow = manager.apply(forwardIntent(0.8f, 0.2f), frontSnapshot(750));
+  assert(slow.intent.forward > 0.0f);
+  assert(slow.intent.forward < 0.8f);
+  assert(std::fabs(slow.intent.turn - 0.2f) < 0.0001f);
+
+  // Inside stop band (400 mm < 500) -> forward zeroed, stop flagged.
+  ObstacleDecision stop = manager.apply(forwardIntent(0.8f, 0.3f), frontSnapshot(400));
+  assert(stop.stop_required);
+  assert(std::fabs(stop.intent.forward) < 0.0001f);
+  assert(std::fabs(stop.intent.turn - 0.3f) < 0.0001f);  // turn preserved
+
+  // Reverse is never blocked by a front obstacle.
+  ObstacleDecision reverse = manager.apply(forwardIntent(-0.5f, 0.0f), frontSnapshot(300));
+  assert(std::fabs(reverse.intent.forward + 0.5f) < 0.0001f);
+  assert(!reverse.stop_required);
+}
+
+// --- Obstacle fusion (lidar + TOF + ultrasonic -> ObstacleSnapshot) -------
+void testObstacleFusion() {
+  // Empty inputs -> invalid fused snapshot, all sectors 0.
+  ObstacleSnapshot none = fuseObstacles(ObstacleSnapshot{}, TofSnapshot{},
+                                        UltrasonicSnapshot{});
+  assert(!none.valid);
+  assert(none.front_center_mm == 0);
+  assert(none.side_left_mm == 0);
+
+  // Lidar sees the center far; TOF center sees nearer -> closest (TOF) wins.
+  ObstacleSnapshot lidar;
+  lidar.valid = true;
+  lidar.last_update_ms = 100;
+  lidar.front_left_mm = 0;       // no lidar reading this sector
+  lidar.front_center_mm = 1500;
+  lidar.front_right_mm = 900;
+  lidar.side_left_mm = 700;
+  lidar.side_right_mm = 0;
+
+  TofSnapshot tof;
+  tof.valid = true;
+  tof.last_update_ms = 120;
+  tof.front_left_valid = true;   tof.front_left_mm = 600;   // fills missing lidar sector
+  tof.front_center_valid = true; tof.front_center_mm = 800;  // nearer than lidar 1500
+  tof.front_right_valid = false; tof.front_right_mm = 50;    // invalid -> ignored
+
+  UltrasonicSnapshot us;
+  us.valid = true;
+  us.last_update_ms = 110;
+  us.left_valid = true;  us.left_mm = 1200;   // lidar 700 is nearer -> lidar wins
+  us.right_valid = true; us.right_mm = 400;    // fills missing lidar side
+
+  ObstacleSnapshot f = fuseObstacles(lidar, tof, us);
+  assert(f.valid);
+  assert(f.last_update_ms == 120);             // newest contributor
+  assert(f.front_left_mm == 600);              // TOF only
+  assert(f.front_center_mm == 800);            // TOF nearer than lidar
+  assert(f.front_right_mm == 900);             // invalid TOF ignored, lidar kept
+  assert(f.side_left_mm == 700);               // lidar nearer than ultrasonic
+  assert(f.side_right_mm == 400);              // ultrasonic only
+
+  // A dead lidar but live TOF still yields a valid forward picture.
+  ObstacleSnapshot tof_only = fuseObstacles(ObstacleSnapshot{}, tof, UltrasonicSnapshot{});
+  assert(tof_only.valid);
+  assert(tof_only.front_center_mm == 800);
+  assert(tof_only.front_right_mm == 0);        // invalid TOF + no lidar -> no reading
+}
+
+// --- Sensor task ingestion (UART -> parser -> App state) -------------------
+void testSensorIngestion() {
+  // Mirror the firmware path: raw UWB bytes -> parser -> snapshot.
+  UwbGcP2304Parser parser;
+  parser.reset();
+  feedUwb(parser, {0xF0, 0x06, 0x03, 0x00, 0x73, 0x00, 0x14, 0x00, 0xBC, 0xAA},
+          1000, true);
+
+  ObstacleSnapshot obstacle;
+  obstacle.valid = true;
+  obstacle.last_update_ms = 1000;
+  obstacle.front_center_mm = 1500;
+
+  PowerStatus power;
+  power.valid = true;
+  power.last_update_ms = 1000;
+  power.battery_voltage = 37.0f;
+  power.low_battery = false;
+
+  App app;
+  app.begin();
+  app.ingestSensorInputs(parser.target(), obstacle, power, ImuSnapshot{},
+                         TofSnapshot{}, UltrasonicSnapshot{}, CameraStatus{},
+                         false, 1000, 1000);
+  app.tick(1000);
+
+  // Parsed UWB + obstacle + power + heartbeats land in SystemState verbatim.
+  assert(app.state().uwb.valid);
+  assert(app.state().uwb.distance_mm == 1150);
+  assert(app.state().obstacle.valid);
+  assert(app.state().obstacle.front_center_mm == 1500);
+  assert(app.state().power.valid);
+  assert(std::fabs(app.state().power.battery_voltage - 37.0f) < 0.0001f);
+  assert(app.state().heartbeat.uwb_task_ms == 1000);
+  assert(app.state().heartbeat.sensor_task_ms == 1000);
+
+  // RC ingestion populates state.rc for the MANUAL_RC path.
+  RcInput rc;
+  rc.online = true;
+  rc.last_update_ms = 1000;
+  rc.throttle = 0.4f;
+  rc.steering = -0.2f;
+  app.ingestRcInput(rc);
+  assert(app.state().rc.online);
+  assert(std::fabs(app.state().rc.throttle - 0.4f) < 0.0001f);
+  assert(std::fabs(app.state().rc.steering + 0.2f) < 0.0001f);
+}
+
+// --- H5 command handler (panel events -> H5ControlInput) ------------------
+void testH5CommandHandler() {
+  H5CommandHandler h5;
+  h5.reset();
+
+  // No connection -> jog ignored, nothing moves.
+  assert(!h5.onJog(1, 0.5f, 0.0f, true, 10));
+  assert(!h5.input().connected);
+
+  // Connect: present but not yet authorised to move.
+  h5.onConnect(100);
+  assert(h5.input().connected);
+  assert(!h5.input().unlock_request);
+  assert(std::fabs(h5.input().throttle) < 0.0001f);
+
+  // Deadman-held jog -> motion authorised, speed clamped to -1..1.
+  assert(h5.onJog(1, 1.5f, -0.3f, true, 120));
+  assert(h5.input().unlock_request);
+  assert(std::fabs(h5.input().throttle - 1.0f) < 0.0001f);  // clamped
+  assert(std::fabs(h5.input().steering + 0.3f) < 0.0001f);
+
+  // Replayed / out-of-order seq is rejected.
+  assert(!h5.onJog(1, 0.2f, 0.2f, true, 130));
+  assert(std::fabs(h5.input().throttle - 1.0f) < 0.0001f);
+
+  // deadman released -> immediate stop.
+  assert(h5.onJog(2, 0.8f, 0.0f, false, 140));
+  assert(!h5.input().unlock_request);
+  assert(std::fabs(h5.input().throttle) < 0.0001f);
+
+  // AUTO_FOLLOW is only a request; mode flag set, motion stays stopped.
+  h5.onModeRequest(H5ModeRequest::AUTO_FOLLOW_REQUEST, 150);
+  assert(h5.input().auto_request);
+  assert(!h5.input().unlock_request);
+
+  // AUTO request is a valid mode confirmation; mode_manager applies the safety
+  // gates (wizard + calibration + UWB) without requiring a jog unlock.
+  ModeManager modes;
+  SystemState auto_state;
+  auto_state.mode = RunMode::SAFE_IDLE;
+  auto_state.estop_active = false;
+  auto_state.h5 = h5.input();
+  auto_state.install_wizard_complete = true;
+  auto_state.throttle_calibrated = true;
+  auto_state.uwb.valid = true;
+  assert(modes.selectMode(auto_state, SafetyDecision{}) == RunMode::AUTO_FOLLOW);
+
+  auto_state.mode = RunMode::AUTO_FOLLOW;
+  auto_state.h5.safe_idle_request = true;
+  assert(modes.selectMode(auto_state, SafetyDecision{}) == RunMode::SAFE_IDLE);
+
+  SystemState cloud_state;
+  cloud_state.mode = RunMode::SAFE_IDLE;
+  cloud_state.estop_active = false;
+  cloud_state.cloud.connected = true;
+  cloud_state.cloud.unlock_request = true;
+  assert(modes.selectMode(cloud_state, SafetyDecision{}) ==
+         RunMode::MANUAL_CLOUD_LOW_SPEED);
+
+  // Staleness (> H5_LOST_STOP_MS since last command) zeroes motion.
+  h5.onJog(3, 0.6f, 0.0f, true, 160);
+  assert(!h5.input().auto_request);
+  assert(h5.input().unlock_request);
+  h5.update(160 + 1001);
+  assert(!h5.input().unlock_request);
+  assert(std::fabs(h5.input().throttle) < 0.0001f);
+
+  // Disconnect clears everything.
+  h5.onDisconnect();
+  assert(!h5.input().connected);
+
+  // App ingestion plumbs the snapshot into SystemState.
+  App app;
+  app.begin();
+  H5ControlInput snap;
+  snap.connected = true;
+  snap.unlock_request = true;
+  snap.throttle = 0.05f;
+  app.ingestH5Input(snap);
+  assert(app.state().h5.connected);
+  assert(app.state().h5.unlock_request);
+  assert(std::fabs(app.state().h5.throttle - 0.05f) < 0.0001f);
+}
+
+// --- H5 transport: state JSON serialisation -------------------------------
+bool jsonContains(const char* json, const char* needle) {
+  return std::strstr(json, needle) != nullptr;
+}
+
+void testTelemetryJson() {
+  SystemState state;
+  state.now_ms = 123456;
+  state.mode = RunMode::SAFE_IDLE;
+  state.safety.stop_reason = StopReason::NONE;
+  state.uwb.valid = true;
+  state.uwb.distance_mm = 1500;
+  state.obstacle.front_center_mm = 800;
+  state.power.battery_voltage = 37.5f;
+  state.motor_command.brake = true;
+  state.install_wizard_complete = true;
+  state.throttle_calibrated = true;
+  state.cloud.connected = true;
+  state.cloud.last_update_ms = 123400;
+  state.cloud.last_seq = 42;
+
+  char buf[1280];
+  const size_t n = buildStateJson(state, buf, sizeof(buf));
+  assert(n > 0);
+  assert(buf[n] == '\0');
+  assert(jsonContains(buf, "\"mode\":\"SAFE_IDLE\""));
+  assert(jsonContains(buf, "\"stop_reason\":\"NONE\""));
+  assert(jsonContains(buf, "\"cloud\":{\"connected\":true"));
+  assert(jsonContains(buf, "\"last_seq\":42"));
+  assert(jsonContains(buf, "\"distance_mm\":1500"));
+  assert(jsonContains(buf, "\"front_center_mm\":800"));
+  assert(jsonContains(buf, "\"tof\":{"));
+  assert(jsonContains(buf, "\"ultrasonic\":{"));
+  assert(jsonContains(buf, "\"camera\":{\"online\":false,\"stream_url\":\"http://192.168.4.2:81/stream\"}"));
+  assert(jsonContains(buf, "\"battery_voltage\":37.50"));
+  assert(jsonContains(buf, "\"brake\":true"));
+  assert(jsonContains(buf, "\"install_wizard_complete\":true"));
+  assert(jsonContains(buf, "\"throttle_calibrated\":true"));
+
+  // Too-small buffer never emits a malformed fragment.
+  char tiny[16];
+  assert(buildStateJson(state, tiny, sizeof(tiny)) == 0);
+  assert(tiny[0] == '\0');
+
+  // Enum mappings.
+  assert(std::strcmp(modeToString(RunMode::AUTO_FOLLOW), "AUTO_FOLLOW") == 0);
+  assert(std::strcmp(modeToString(RunMode::MANUAL_CLOUD_LOW_SPEED),
+                     "MANUAL_CLOUD_LOW_SPEED") == 0);
+  assert(std::strcmp(stopReasonToString(StopReason::UWB_LOST), "UWB_LOST") == 0);
+  assert(std::strcmp(stopReasonToString(StopReason::CLOUD_LOST),
+                     "CLOUD_LOST") == 0);
+}
+
+// --- H5 transport: request body parsing -----------------------------------
+void testRequestParser() {
+  // Valid jog with deadman held.
+  const char* jog = "{\"seq\":7,\"forward\":0.5,\"turn\":-0.25,\"deadman\":true}";
+  JogRequest a = parseJogRequest(jog, std::strlen(jog));
+  assert(a.valid);
+  assert(a.seq == 7);
+  assert(std::fabs(a.forward - 0.5f) < 0.0001f);
+  assert(std::fabs(a.turn + 0.25f) < 0.0001f);
+  assert(a.deadman);
+
+  // deadman absent -> fail-safe false, still a valid (stop) request.
+  const char* jog2 = "{\"seq\":8,\"forward\":0.0,\"turn\":0.0}";
+  JogRequest b = parseJogRequest(jog2, std::strlen(jog2));
+  assert(b.valid);
+  assert(!b.deadman);
+
+  // Missing mandatory field -> invalid.
+  const char* bad = "{\"forward\":0.5,\"turn\":0.0,\"deadman\":true}";
+  assert(!parseJogRequest(bad, std::strlen(bad)).valid);
+  assert(!parseJogRequest(nullptr, 0).valid);
+
+  // Mode requests.
+  const char* m1 = "{\"requested_mode\":\"MANUAL_H5_LOW_SPEED\"}";
+  assert(parseModeRequest(m1, std::strlen(m1)) == H5ModeRequest::MANUAL_H5_LOW_SPEED);
+  const char* m2 = "{\"requested_mode\":\"AUTO_FOLLOW_REQUEST\"}";
+  assert(parseModeRequest(m2, std::strlen(m2)) == H5ModeRequest::AUTO_FOLLOW_REQUEST);
+  const char* m3 = "{\"requested_mode\":\"MANUAL_RC\"}";  // not H5-settable
+  assert(parseModeRequest(m3, std::strlen(m3)) == H5ModeRequest::NONE);
+
+  // End-to-end: parsed jog drives the handler.
+  H5CommandHandler h5;
+  h5.onConnect(100);
+  assert(h5.onJog(a.seq, a.forward, a.turn, a.deadman, 110));
+  assert(h5.input().unlock_request);
+  assert(std::fabs(h5.input().throttle - 0.5f) < 0.0001f);
+
+  const char* wizard =
+      "{\"complete\":true,\"estop_checked\":true,\"wheels_lifted\":true,"
+      "\"direction_checked\":true,\"throttle_checked\":true}";
+  WizardRequest wr = parseWizardRequest(wizard, std::strlen(wizard));
+  assert(wr.valid);
+  assert(wr.complete);
+  const char* incomplete_wizard =
+      "{\"complete\":true,\"estop_checked\":true,\"wheels_lifted\":true,"
+      "\"direction_checked\":true,\"throttle_checked\":false}";
+  assert(!parseWizardRequest(incomplete_wizard, std::strlen(incomplete_wizard)).valid);
+}
+
+}  // namespace
+
+int main() {
+  testSafetyAndMixer();
+  testUwbParser();
+  testFollowController();
+  testLidarParser();
+  testImuParser();
+  testFollowPipeline();
+  testObstacleManager();
+  testObstacleFusion();
+  testSensorIngestion();
+  testH5CommandHandler();
+  testTelemetryJson();
+  testRequestParser();
+  return 0;
+}

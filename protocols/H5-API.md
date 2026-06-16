@@ -1,0 +1,107 @@
+# H5 本地控制 API v1.0
+
+> H5 只允许状态显示、低速点动、模式请求、人工复位请求。H5 不能直接设置 PWM，不能清除物理急停，不能绕过安装向导。
+
+## WebSocket 状态下发
+
+本节冻结 H5 状态 JSON 字段。
+
+路径：`/ws/state`
+
+```json
+{
+  "now_ms": 123456,
+  "mode": "SAFE_IDLE",
+  "safety": {
+    "motion_allowed": false,
+    "fault_latched": false,
+    "stop_reason": "NONE",
+    "max_speed_scale": 0.0
+  },
+  "rc": {"online": true, "last_update_ms": 123400},
+  "cloud": {"connected": false, "last_update_ms": 0, "last_seq": 0},
+  "uwb": {"valid": false, "distance_mm": 0, "bearing_deg": 0, "confidence": 0},
+  "obstacle": {"front_left_mm": 0, "front_center_mm": 0, "front_right_mm": 0, "side_left_mm": 0, "side_right_mm": 0},
+  "tof": {"valid": false, "front_left_mm": 0, "front_center_mm": 0, "front_right_mm": 0},
+  "ultrasonic": {"valid": false, "left_mm": 0, "right_mm": 0},
+  "camera": {"online": false, "stream_url": "http://192.168.4.2:81/stream"},
+  "power": {"battery_voltage": 0.0, "low_battery": false},
+  "motor": {"enable": false, "left_target": 0.0, "right_target": 0.0, "brake": true},
+  "install_wizard_complete": false,
+  "throttle_calibrated": false
+}
+```
+
+字段说明（避障相关）：
+
+- `obstacle`：**融合后**的避障快照（LiDAR + 前向 TOF + 侧向超声，按扇区取最近有效读数），是安全门控与限速实际使用的数据；`0` 表示该扇区无有效读数。
+- `tof`：前向 TCA9548A + 3×VL53L1X 的原始分路读数，仅用于显示/诊断；`*_valid=false` 或 `0` 表示该路无有效测距。
+- `ultrasonic`：左右 HC-SR04 的原始侧向读数，仅用于显示/诊断（侧向避障 P0 暂不触发停车）。
+- `camera`：ESP32-S3-CAM 视频链路在线状态和 MJPEG 地址，仅用于显示；**视频断流不影响运动安全门控**。默认地址假定摄像头加入 FollowBox AP 后使用静态 IP `192.168.4.2`，流路径为 `:81/stream`。
+- `cloud`：云端低速点动链路状态，仅用于显示和诊断；云端命令仍由本地安全链最终裁决。
+
+## 低速点动请求
+
+路径：`POST /api/jog`
+
+```json
+{
+  "seq": 1,
+  "forward": 0.0,
+  "turn": 0.0,
+  "deadman": true,
+  "client_time_ms": 123456
+}
+```
+
+限制：
+
+- `forward` / `turn` 范围 -1..1，但服务器强制限幅到 `h5_max_speed_percent`。
+- 超过 `remote.h5_lost_stop_ms` 未收到新请求，退出 H5 点动并停车。
+- `deadman=false` 必须停车。
+
+## 模式请求
+
+路径：`POST /api/mode-request`
+
+```json
+{"requested_mode": "MANUAL_H5_LOW_SPEED"}
+```
+
+允许值：`SAFE_IDLE`、`MANUAL_H5_LOW_SPEED`、`AUTO_FOLLOW_REQUEST`。
+
+`AUTO_FOLLOW_REQUEST` 只表示请求，必须由 `mode_manager` 检查安装向导、UWB 有效、DS600 接管状态后决定。
+
+## 人工复位请求
+
+路径：`POST /api/reset-fault`
+
+```json
+{"confirm": true}
+```
+
+限制：
+
+- 只能复位软件故障锁定。
+- 不能复位物理急停；GPIO21 仍为急停状态时必须拒绝。
+- 复位后仍要求油门回中/无运动请求。
+
+## 安装向导完成请求
+
+路径：`POST /api/wizard-complete`
+
+```json
+{
+  "complete": true,
+  "estop_checked": true,
+  "wheels_lifted": true,
+  "direction_checked": true,
+  "throttle_checked": true
+}
+```
+
+限制：
+
+- `complete=true` 时四个确认字段必须都为 `true`，缺失或为 `false` 必须拒绝。
+- 这些确认只代表人工完成了首烧/架空检查，不允许绕过急停、标定、UWB 或 `applyFinalGate()`。
+- 油门标定状态由 `/api/calibrate` 和 NVS schema 决定，不能仅靠安装向导按钮伪造。

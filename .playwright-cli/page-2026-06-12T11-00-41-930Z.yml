@@ -1,0 +1,115 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - paragraph [ref=e5]: FollowBox H5
+      - heading "车端控制台" [level=1] [ref=e6]
+    - generic [ref=e7]: 未连接
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e10]: 当前模式
+      - strong [ref=e11]: "--"
+      - generic [ref=e12]: "--"
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]: 运动许可
+        - strong [ref=e16]: "--"
+      - generic [ref=e17]:
+        - generic [ref=e18]: 限速
+        - strong [ref=e19]: "--"
+  - generic [ref=e20]:
+    - article [ref=e21]:
+      - generic [ref=e22]: 电池
+      - strong [ref=e23]: "--"
+    - article [ref=e25]:
+      - generic [ref=e26]: UWB 目标
+      - strong [ref=e27]: "--"
+      - generic [ref=e28]: "--"
+    - article [ref=e29]:
+      - generic [ref=e30]: 前方障碍
+      - strong [ref=e31]: "--"
+      - generic [ref=e32]: 左 / 中 / 右
+    - article [ref=e33]:
+      - generic [ref=e34]: 电机输出
+      - strong [ref=e35]: "--"
+      - generic [ref=e36]: "--"
+  - generic [ref=e37]:
+    - generic [ref=e38]:
+      - heading "链路状态" [level=2] [ref=e39]
+      - generic [ref=e40]: "--"
+    - generic [ref=e41]:
+      - generic [ref=e42]:
+        - generic [ref=e44]: 遥控
+        - strong [ref=e45]: "--"
+      - generic [ref=e46]:
+        - generic [ref=e48]: 云端
+        - strong [ref=e49]: "--"
+      - generic [ref=e50]:
+        - generic [ref=e52]: TOF
+        - strong [ref=e53]: "--"
+      - generic [ref=e54]:
+        - generic [ref=e56]: 超声
+        - strong [ref=e57]: "--"
+      - generic [ref=e58]:
+        - generic [ref=e60]: 摄像头
+        - strong [ref=e61]: "--"
+  - generic [ref=e62]:
+    - heading "模式与复位" [level=2] [ref=e64]
+    - generic [ref=e65]:
+      - button "安全停" [ref=e66] [cursor=pointer]
+      - button "低速手动" [ref=e67] [cursor=pointer]
+      - button "请求跟随" [ref=e68] [cursor=pointer]
+    - button "复位软件故障" [ref=e69] [cursor=pointer]
+  - generic [ref=e70]:
+    - generic [ref=e71]:
+      - heading "低速点动" [level=2] [ref=e72]
+      - generic [ref=e73]: 松手即停
+    - generic [ref=e74]:
+      - generic [ref=e75]:
+        - generic [ref=e76]: 前后
+        - slider "前后" [ref=e77]: "0"
+      - generic [ref=e78]:
+        - generic [ref=e79]: 转向
+        - slider "转向" [ref=e80]: "0"
+    - button "按住点动" [ref=e81] [cursor=pointer]
+  - generic [ref=e82]:
+    - heading "安装与油门标定" [level=2] [ref=e84]
+    - generic [ref=e85]:
+      - generic [ref=e86]: 安装向导
+      - strong [ref=e87]: 未完成
+      - generic [ref=e88]: 油门标定
+      - strong [ref=e89]: 未完成
+    - generic [ref=e90]:
+      - generic [ref=e91]:
+        - text: 死区 mV
+        - spinbutton "死区 mV" [ref=e92]: "800"
+      - generic [ref=e93]:
+        - text: 起转 mV
+        - spinbutton "起转 mV" [ref=e94]: "1000"
+      - generic [ref=e95]:
+        - text: 最大 mV
+        - spinbutton "最大 mV" [ref=e96]: "3600"
+      - generic [ref=e97]:
+        - text: 满量程 mV
+        - spinbutton "满量程 mV" [ref=e98]: "5000"
+      - generic [ref=e99]:
+        - text: 上升 mV/s
+        - spinbutton "上升 mV/s" [ref=e100]: "800"
+      - generic [ref=e101]:
+        - text: 下降 mV/s
+        - spinbutton "下降 mV/s" [ref=e102]: "1600"
+    - generic [ref=e103]:
+      - generic [ref=e104]:
+        - checkbox "急停已实测有效" [ref=e105]
+        - text: 急停已实测有效
+      - generic [ref=e106]:
+        - checkbox "车轮已架空" [ref=e107]
+        - text: 车轮已架空
+      - generic [ref=e108]:
+        - checkbox "左右方向已确认" [ref=e109]
+        - text: 左右方向已确认
+      - generic [ref=e110]:
+        - checkbox "油门输出已标定" [ref=e111]
+        - text: 油门输出已标定
+    - generic [ref=e112]:
+      - button "保存标定" [ref=e113] [cursor=pointer]
+      - button "完成向导" [ref=e114] [cursor=pointer]

@@ -1,0 +1,69 @@
+chassis:
+  name: brushed_24v_cart
+  chassis_type: differential_wheel
+  battery_nominal_voltage: 24
+  wheel_diameter_mm: 180
+  track_width_mm: 520
+  max_speed_limit_percent: 30
+  accel_limit: 0.3
+  decel_limit: 0.5
+
+drive_adapter:
+  adapter_type: PWM_DIR
+  motor_family: brushed_dc
+  nominal_voltage: 24
+  max_bus_voltage: 30
+  max_current_continuous: 15
+  max_current_peak: 30
+  command_unit: normalized
+  feedback_source: encoder_esp32
+  encoder_mode: AB_QUADRATURE
+  invert_left_motor: false
+  invert_right_motor: false
+  invert_left_encoder: false
+  invert_right_encoder: false
+  enable_polarity: active_high
+  brake_polarity: active_high
+  fault_polarity: active_low
+  pwm_frequency: 20000
+  watchdog_timeout_ms: 300
+
+sensors:
+  uwb:
+    enabled: true
+    model: GC-P2304-GS-2
+    uart_baud: 115200
+    bearing_sign: -1
+    mounting_offset_deg: 0
+    height_offset_m: 0.8
+    stale_slow_ms: 500
+    stale_stop_ms: 1000
+    target_distance_mm: 1500
+  obstacle:
+    tof_front_center: true
+    tof_front_left: true
+    tof_front_right: true
+    ultrasonic_left: true
+    ultrasonic_right: true
+    slow_distance_mm: 1000
+    stop_distance_mm: 500
+    side_clear_min_mm: 600
+    stale_timeout_ms: 300
+  imu:
+    enabled: true
+    yaw_sign: -1
+    yaw_damping_enabled: true
+
+remote:
+  h5_local_enabled: true
+  physical_remote_enabled: true
+  cloud_remote_enabled: false
+  local_packet_timeout_ms: 300
+  local_lost_stop_ms: 1000
+  cloud_max_speed_percent: 20
+
+video_audio:
+  video_module: esp32_s3_cam
+  video_required_for_motion: false
+  ptt_enabled: true
+  ai_voice_command_enabled: false

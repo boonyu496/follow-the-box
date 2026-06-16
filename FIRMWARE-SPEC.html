@@ -1,0 +1,832 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--bg:#fbfaf7;--paper:#fff;--ink:rgba(0,0,0,.95);--muted:#665f56;--line:#e8e1d8;--blue:#0075de;--shadow:0 18px 48px rgba(20,20,20,.08)}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65}.wrap{width:min(1100px,calc(100% - 32px));margin:auto;padding:32px 0 70px}article{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:28px}h1{font-size:36px;margin:0 0 12px}h2{margin-top:28px;border-left:5px solid var(--blue);padding-left:12px}h3{margin-top:20px}pre{background:#111827;color:#edf2ff;border-radius:10px;padding:16px;overflow:auto}code{background:#f1f1ef;padding:2px 5px;border-radius:4px}pre code{background:transparent;padding:0}table{border-collapse:collapse;width:100%;margin:14px 0}td,th{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}blockquote,.lead{color:var(--muted);background:#f2f8ff;border-left:5px solid var(--blue);padding:10px 14px;border-radius:10px}li{margin:4px 0}p{margin:8px 0}</style></head><body><main class="wrap"><article><h1>Follow the Box Firmware Specification</h1>
+<blockquote><strong>代码框架冻结版。</strong> 这份不是给某个 AI 的临时任务，而是后续用 VS Code 手写、Claude/Copilot 辅助、多人维护时共同遵守的固件架构规范。代码框架必须照这里做。</blockquote>
+<h2>0. 权威输入文件</h2>
+<p>正式写代码前必须读取：</p>
+<ol>
+<li><code>PIN-MAP-V1.md</code>：唯一 Pin Map v1.0。</li>
+<li><code>CURRENT-WIRING-AI.md</code>：接线实施依据。</li>
+<li><code>POLARITY-DEFINITIONS.md</code>：GPIO/MOS/控制器线极性定义。</li>
+<li><code>ESTOP-FEEDBACK-CIRCUIT.md</code>：GPIO21 急停反馈隔离接线。</li>
+<li><code>PWM-OUTPUT-CALIBRATION.md</code>：PWM→0-5V 油门校准。</li>
+<li><code>protocols/DS600-PWM.md</code>、<code>protocols/UWB-GC-P2304.md</code>、<code>protocols/H5-API.md</code>、<code>protocols/JY61P.md</code>：接口协议。</li>
+</ol>
+<h2>0. 项目范围</h2>
+<p>当前固件目标是 Follow the Box 首台自动跟随小车/载物车控制盒样机，平台为普通 ESP32-S3-DevKitC-1，驱动两个 36V/48V 350W 有霍尔无刷控制器。</p>
+<p>第一版只做低速安全闭环：</p>
+<ul>
+<li>HOTRC DS600 六通道 PWM 实体遥控。</li>
+<li>H5 本地状态页和低速点动。</li>
+<li>GC-P2304-GS-2 UWB 跟随距离/方位。</li>
+<li>VL53L1X ×3 + TCA9548A 前向避障。</li>
+<li>HC-SR04 ×2 左右侧辅助避障。</li>
+<li>JY61P 姿态/yaw 阻尼。</li>
+<li>PWM 转 0-5V 模拟量模块 ×2，输出左右油门。</li>
+<li>急停、断线、低电压、传感器超时、故障锁定。</li>
+<li>ESP32-S3-CAM 只做视频在线状态和链接显示，不做安全主控。</li>
+</ul>
+<p>不做：高速遥控、复杂 SLAM、无人车路径规划、AI 自动决策、远程公网驾驶。</p>
+<h2>1. 架构原则：必须执行</h2>
+<ol>
+<li><code>main.cpp</code> 只做启动入口，不写业务逻辑，目标 80-120 行以内。</li>
+<li>每个硬件驱动、功能模块、调度模块单独 <code>.h/.cpp</code>。</li>
+<li>所有模块通过统一数据结构交换状态，不允许互相直接改内部变量。</li>
+<li>所有运动命令必须经过 <code>safety_manager</code>。</li>
+<li><code>drive_adapter_analog_bldc</code> 是唯一能写安全重映射后油门 PWM 引脚的模块；旧 GPIO47/GPIO48 油门方案作废。</li>
+<li>DS600、H5、UWB 自动跟随都只能输出 <code>MotionIntent</code>，不能直接控制电机。</li>
+<li>传感器模块只能读传感器，不能写电机输出。</li>
+<li>Web/H5 模块只能发请求和显示状态，不能绕过安全锁。</li>
+<li>H5 源码独立放 <code>web/</code>，不允许大段 raw HTML 塞进 <code>main.cpp</code>。</li>
+<li>配置常量集中在 <code>include/config/</code>，不能散落到业务文件里。</li>
+<li>第一版优先可验证、安全、可调试，不追求复杂功能。</li>
+</ol>
+<h2>2. 固件目录结构</h2>
+<p>正式代码目录使用 <code>firmware/</code>：</p>
+<pre><code>firmware/
+  platformio.ini
+  README.md
+
+  include/
+    config/
+      board_pins.h
+      build_flags.h
+      profile_defaults.h
+      timing_config.h
+      safety_limits.h
+
+    core/
+      types.h
+      system_state.h
+      error_codes.h
+      time_utils.h
+      math_utils.h
+
+  src/
+    main.cpp
+
+    app/
+      app.h
+      app.cpp
+      scheduler.h
+      scheduler.cpp
+      mode_manager.h
+      mode_manager.cpp
+      command_pipeline.h
+      command_pipeline.cpp
+
+    safety/
+      safety_manager.h
+      safety_manager.cpp
+      failsafe_rules.h
+      failsafe_rules.cpp
+      self_test.h
+      self_test.cpp
+      install_wizard.h
+      install_wizard.cpp
+
+    control/
+      rc_input_ds600.h
+      rc_input_ds600.cpp
+      h5_control_input.h
+      h5_control_input.cpp
+      follow_controller_uwb.h
+      follow_controller_uwb.cpp
+      obstacle_manager.h
+      obstacle_manager.cpp
+      speed_limiter.h
+      speed_limiter.cpp
+      motion_mixer.h
+      motion_mixer.cpp
+
+    drive/
+      drive_adapter.h
+      drive_adapter_analog_bldc.h
+      drive_adapter_analog_bldc.cpp
+      motor_output.h
+      motor_output.cpp
+      brake_output.h
+      brake_output.cpp
+
+    sensors/
+      uwb_gc_p2304.h
+      uwb_gc_p2304.cpp
+      tof_vl53l1x_array.h
+      tof_vl53l1x_array.cpp
+      ultrasonic_array.h
+      ultrasonic_array.cpp
+      imu_jy61p.h
+      imu_jy61p.cpp
+      power_monitor.h
+      power_monitor.cpp
+      camera_link.h
+      camera_link.cpp
+
+    hal/
+      gpio_in.h
+      gpio_in.cpp
+      gpio_out.h
+      gpio_out.cpp
+      pwm_input.h
+      pwm_input.cpp
+      pwm_output.h
+      pwm_output.cpp
+      adc_reader.h
+      adc_reader.cpp
+      i2c_bus.h
+      i2c_bus.cpp
+      uart_bus.h
+      uart_bus.cpp
+      watchdog.h
+      watchdog.cpp
+
+    web/
+      h5_web_server.h
+      h5_web_server.cpp
+      telemetry_api.h
+      telemetry_api.cpp
+      web_assets.h
+
+    storage/
+      profile_store.h
+      profile_store.cpp
+      calibration_store.h
+      calibration_store.cpp
+
+    telemetry/
+      telemetry_logger.h
+      telemetry_logger.cpp
+      debug_console.h
+      debug_console.cpp
+
+  web/
+    index.html
+    app.js
+    style.css
+
+  tools/
+    build_web_assets.py
+    serial_log_parser.py
+
+  test/
+    test_safety_manager/
+    test_motion_mixer/
+    test_mode_manager/
+    test_command_pipeline/
+    test_follow_controller/</code></pre>
+<h2>3. 文件职责边界</h2>
+<table>
+<tr><th>层</th><th>文件/模块</th><th>职责</th><th>禁止</th></tr>
+<tr><td>启动层</td><td><code>main.cpp</code></td><td>调用 <code>App::begin()</code> / <code>App::tick()</code> 或启动 FreeRTOS 任务</td><td>禁止写业务逻辑</td></tr>
+<tr><td>应用层</td><td><code>app/app.*</code></td><td>系统初始化、模块持有、任务创建</td><td>禁止直接写 GPIO 油门</td></tr>
+<tr><td>调度层</td><td><code>app/scheduler.*</code></td><td>固定周期调用控制/传感器/通信更新</td><td>禁止做运动决策</td></tr>
+<tr><td>模式层</td><td><code>app/mode_manager.*</code></td><td>BOOT/IDLE/RC/H5/AUTO/FAULT/ESTOP 模式切换</td><td>禁止输出 PWM</td></tr>
+<tr><td>管线层</td><td><code>app/command_pipeline.*</code></td><td>输入合成、优先级裁决、生成运动意图</td><td>禁止绕过 safety</td></tr>
+<tr><td>安全层</td><td><code>safety/*</code></td><td>急停、故障、断线、低电压、障碍、安装向导</td><td>禁止被任何模块跳过</td></tr>
+<tr><td>控制层</td><td><code>control/*</code></td><td>遥控解释、UWB 跟随、避障限速、差速混控</td><td>禁止直接读写硬件输出</td></tr>
+<tr><td>驱动层</td><td><code>drive/*</code></td><td>油门 PWM、刹车、倒车、使能输出</td><td>禁止决定是否安全</td></tr>
+<tr><td>传感器层</td><td><code>sensors/*</code></td><td>UWB/TOF/超声/IMU/电池/摄像头状态</td><td>禁止控制电机</td></tr>
+<tr><td>HAL 层</td><td><code>hal/*</code></td><td>GPIO/PWM/ADC/UART/I2C/Watchdog 封装</td><td>禁止写业务策略</td></tr>
+<tr><td>Web 层</td><td><code>web/*</code></td><td>H5 状态、API、低速点动请求</td><td>禁止解除急停/故障</td></tr>
+<tr><td>存储层</td><td><code>storage/*</code></td><td>Profile、安装向导结果、校准参数</td><td>禁止高频写 Flash</td></tr>
+<tr><td>日志层</td><td><code>telemetry/*</code></td><td>调试日志、状态快照输出</td><td>禁止阻塞控制循环</td></tr>
+</table>
+<h2>4. 运行主链路</h2>
+<p>所有运动控制只能走这一条链：</p>
+<pre><code>传感器/输入采集
+  -&gt; SystemState 快照
+  -&gt; safety_manager 计算 SafetyDecision（预裁决：是否允许进入某模式/某控制源）
+  -&gt; mode_manager 选择当前控制来源
+  -&gt; command_pipeline 生成 MotionIntent
+  -&gt; obstacle_manager / speed_limiter 限速或停车
+  -&gt; motion_mixer 转成左右轮 MotorCommand
+  -&gt; safety_manager.applyFinalGate(MotorCommand)（最终门控：故障/急停/超时强制 enable=false、PWM=0、brake=true）
+  -&gt; drive_adapter_analog_bldc 输出左右油门 PWM/刹车/左右倒车/软件使能</code></pre>
+<p>禁止链路：</p>
+<pre><code>DS600 -&gt; 直接写油门 PWM 引脚      # 禁止
+H5 -&gt; 直接写油门 PWM 引脚         # 禁止
+UWB -&gt; 直接写油门 PWM 引脚        # 禁止
+sensor -&gt; 直接 stop/start 电机      # 禁止
+web api -&gt; clear fault + run motor  # 禁止</code></pre>
+<h2>5. 核心数据结构</h2>
+<p>代码先定义数据结构，再实现模块。结构体放在 <code>include/core/types.h</code> 和 <code>include/core/system_state.h</code>。</p>
+<h3>5.1 枚举</h3>
+<pre><code>enum class RunMode {
+  BOOT_SELF_TEST,
+  SAFE_IDLE,
+  MANUAL_RC,
+  MANUAL_H5_LOW_SPEED,
+  AUTO_FOLLOW,
+  FAULT_LOCKOUT,
+  ESTOP_ACTIVE
+};
+
+enum class StopReason {
+  NONE,
+  ESTOP,
+  RC_LOST,
+  H5_LOST,
+  UWB_LOST,
+  OBSTACLE_STOP,
+  LOW_BATTERY,
+  SENSOR_TIMEOUT,
+  MOTOR_FAULT,
+  INSTALL_WIZARD_NOT_DONE,
+  WATCHDOG_TIMEOUT
+};
+
+enum class ControlSource {
+  NONE,
+  DS600_RC,
+  H5_LOCAL,
+  UWB_FOLLOW
+};</code></pre>
+<h3>5.2 输入和传感器状态</h3>
+<pre><code>struct RcInput {
+  bool online;
+  uint32_t last_update_ms;
+  uint16_t ch_us[6];
+  float throttle;       // -1.0..1.0
+  float steering;       // -1.0..1.0
+  float speed_limit;    // 0.0..1.0
+  bool stop_switch;
+  bool auto_request;
+};
+
+struct H5ControlInput {
+  bool connected;
+  uint32_t last_update_ms;
+  bool unlock_request;
+  bool auto_request;
+  float throttle;       // -1.0..1.0, low speed only
+  float steering;       // -1.0..1.0
+};
+
+struct UwbTarget {
+  bool valid;
+  uint32_t last_update_ms;
+  int distance_mm;
+  float bearing_deg;
+  uint8_t confidence;   // 0..100
+};
+
+struct ObstacleSnapshot {
+  bool valid;
+  uint32_t last_update_ms;
+  int front_left_mm;
+  int front_center_mm;
+  int front_right_mm;
+  int side_left_mm;
+  int side_right_mm;
+};
+
+struct ImuSnapshot {
+  bool valid;
+  uint32_t last_update_ms;
+  float yaw_deg;
+  float yaw_rate_dps;
+  float pitch_deg;
+  float roll_deg;
+};
+
+struct PowerStatus {
+  bool valid;
+  uint32_t last_update_ms;
+  float battery_voltage;
+  bool low_battery;
+  bool motor_fault_left;
+  bool motor_fault_right;
+};</code></pre>
+<h3>5.3 决策和输出</h3>
+<pre><code>struct SafetyDecision {
+  bool motion_allowed;
+  bool fault_latched;
+  float max_speed_scale;    // 0.0..1.0
+  StopReason stop_reason;
+};
+
+struct MotionIntent {
+  ControlSource source;
+  bool request_motion;
+  float forward;            // -1.0..1.0
+  float turn;               // -1.0..1.0
+};
+
+struct MotorCommand {
+  bool enable;
+  bool brake;
+  float left_target;        // -1.0..1.0, signed command before analog output mapping
+  float right_target;       // -1.0..1.0, signed command before analog output mapping
+  bool left_reverse;        // output to PIN_LEFT_REVERSE_OUT / GPIO15
+  bool right_reverse;       // output to PIN_RIGHT_REVERSE_OUT / GPIO16
+};
+
+struct SystemState {
+  RunMode mode;
+  RcInput rc;
+  H5ControlInput h5;
+  UwbTarget uwb;
+  ObstacleSnapshot obstacle;
+  ImuSnapshot imu;
+  PowerStatus power;
+  SafetyDecision safety;
+  MotionIntent intent;
+  MotorCommand motor_command;
+  uint32_t now_ms;
+};</code></pre>
+<h2>6. 模式状态机</h2>
+<pre><code>BOOT_SELF_TEST
+  -&gt; SAFE_IDLE
+  -&gt; MANUAL_RC
+  -&gt; MANUAL_H5_LOW_SPEED
+  -&gt; AUTO_FOLLOW
+  -&gt; FAULT_LOCKOUT
+  -&gt; ESTOP_ACTIVE</code></pre>
+<table>
+<tr><th>模式</th><th>进入条件</th><th>退出条件</th><th>电机权限</th></tr>
+<tr><td><code>BOOT_SELF_TEST</code></td><td>上电</td><td>自检通过/失败</td><td>无</td></tr>
+<tr><td><code>SAFE_IDLE</code></td><td>自检通过但未解锁</td><td>人工选择模式</td><td>无，只读状态</td></tr>
+<tr><td><code>MANUAL_RC</code></td><td>DS600 在线且通道有效</td><td>DS600 丢失/切模式/故障</td><td>有，低速限幅</td></tr>
+<tr><td><code>MANUAL_H5_LOW_SPEED</code></td><td>本地 H5 解锁且 DS600 不接管</td><td>H5 断线/DS600 接管/故障</td><td>有，更低速限幅</td></tr>
+<tr><td><code>AUTO_FOLLOW</code></td><td>安装向导完成、UWB 有效、人工确认</td><td>UWB 丢失/障碍/接管/故障</td><td>有，受避障限速</td></tr>
+<tr><td><code>FAULT_LOCKOUT</code></td><td>严重故障锁定</td><td>人工复位 + 故障消除</td><td>无</td></tr>
+<tr><td><code>ESTOP_ACTIVE</code></td><td>急停触发</td><td>物理恢复 + 人工复位</td><td>无</td></tr>
+</table>
+<p>固定优先级：</p>
+<pre><code>急停 &gt; 故障锁定 &gt; DS600 手动接管 &gt; 避障限速/停车 &gt; 自动跟随 &gt; H5 低速点动</code></pre>
+<h3>6.1 模式 × 故障 × 动作真值表</h3>
+<table>
+<tr><th>事件/故障</th><th>SAFE_IDLE</th><th>MANUAL_RC</th><th>MANUAL_H5_LOW_SPEED</th><th>AUTO_FOLLOW</th><th>是否锁定</th><th>恢复条件</th></tr>
+<tr><td>物理急停 GPIO21 触发</td><td>进入 ESTOP</td><td>立即停车 + ESTOP</td><td>立即停车 + ESTOP</td><td>立即停车 + ESTOP</td><td>是</td><td>急停物理恢复 + 人工复位</td></tr>
+<tr><td>控制器故障输入</td><td>FAULT_LOCKOUT</td><td>立即停车 + FAULT</td><td>立即停车 + FAULT</td><td>立即停车 + FAULT</td><td>是</td><td>故障消除 + 人工复位</td></tr>
+<tr><td>低电压严重</td><td>FAULT_LOCKOUT</td><td>限速/停车，严重时 FAULT</td><td>限速/停车，严重时 FAULT</td><td>限速/停车，严重时 FAULT</td><td>严重时是</td><td>电压恢复 + 人工复位</td></tr>
+<tr><td>DS600 丢失</td><td>记录离线</td><td>立即停车 + RC_LOST</td><td>H5 仍可低速但不得自动升级</td><td>AUTO 中记录，若 DS600 是接管通道则停车</td><td>MANUAL_RC 中锁定</td><td>DS600 恢复 + 油门回中 + 人工确认</td></tr>
+<tr><td>H5/WebSocket 丢失</td><td>无动作</td><td>无动作</td><td>立即停车，退出 H5 模式</td><td>无动作，仅状态离线</td><td>否</td><td>H5 重连 + 重新请求低速点动</td></tr>
+<tr><td>UWB 丢失</td><td>无动作</td><td>无动作</td><td>无动作</td><td>立即停车，退出 AUTO_FOLLOW</td><td>否/可配置锁定</td><td>UWB 恢复 + 人工重新确认 AUTO</td></tr>
+<tr><td>前方障碍 &lt; stop_distance</td><td>保持停止</td><td>立即停车/刹车</td><td>立即停车/刹车</td><td>立即停车/刹车</td><td>否，持续存在时禁止动</td><td>障碍离开 + 命令重新下发</td></tr>
+<tr><td>障碍进入 slow_distance</td><td>无动作</td><td>限速</td><td>限速</td><td>限速</td><td>否</td><td>障碍离开</td></tr>
+<tr><td>sensor_task/uwb_task 心跳 &gt;200ms</td><td>FAULT_LOCKOUT</td><td>立即停车 + FAULT</td><td>立即停车 + FAULT</td><td>立即停车 + FAULT</td><td>是</td><td>任务恢复 + 人工复位</td></tr>
+<tr><td>安装向导未完成</td><td>保持 SAFE_IDLE</td><td>仅允许架空/低速测试</td><td>仅允许低速点动</td><td>禁止进入 AUTO</td><td>否</td><td>完成安装向导</td></tr>
+</table>
+<p>原则：安全事件先由 <code>safety_manager</code> 统一裁决；<code>mode_manager</code> 只能在安全允许范围内选择控制来源；<code>command_pipeline</code> 不得自行忽略上述动作。</p>
+<h2>7. FreeRTOS 任务和频率</h2>
+<p>第一版只开 4 类任务，避免过度复杂：</p>
+<table>
+<tr><th>任务</th><th>频率/方式</th><th>优先级</th><th>内容</th></tr>
+<tr><td><code>control_task</code></td><td>50Hz 固定周期</td><td>最高</td><td>safety、mode、pipeline、mixer、drive 输出</td></tr>
+<tr><td><code>sensor_task</code></td><td>20-50Hz</td><td>高</td><td>TOF/超声/IMU/电池快照更新</td></tr>
+<tr><td><code>uwb_task</code></td><td>串口事件 + 超时检查</td><td>高</td><td>UWB 帧解析、距离/方位更新</td></tr>
+<tr><td><code>comm_task</code></td><td>5-10Hz</td><td>低</td><td>H5、遥测、日志、摄像头在线状态</td></tr>
+</table>
+<p>硬规则：</p>
+<ul>
+<li>电机输出只能在 <code>control_task</code> 中更新。</li>
+<li>H5/WebSocket 不允许阻塞 <code>control_task</code>。</li>
+<li>串口解析失败必须丢帧并记录错误码，不能卡死任务。</li>
+<li>Watchdog 覆盖所有任务，任务超时进入故障锁定。</li>
+<li>传感器读数用快照，控制任务不等待慢速 I2C/网页/串口阻塞。</li>
+</ul>
+<h3>7.1 双核固定与线程安全</h3>
+<p>建议采用 ESP32-S3 双核分工，但不能只靠“多核”保证安全：</p>
+<table>
+<tr><th>任务</th><th>Core 绑定</th><th>说明</th></tr>
+<tr><td><code>control_task</code></td><td>Core 1</td><td>运动与安全闭环，50Hz，最高优先级，唯一更新电机输出</td></tr>
+<tr><td><code>sensor_task</code></td><td>Core 1 或 Core 0</td><td>只更新传感器快照；如果 I2C/超声读数可能阻塞，优先放 Core 0 并用双缓冲交给控制环</td></tr>
+<tr><td><code>uwb_task</code></td><td>Core 0</td><td>串口解析和超时检测，不阻塞控制环</td></tr>
+<tr><td><code>comm_task</code></td><td>Core 0</td><td>WebServer/WebSocket/遥测/摄像头在线状态，低优先级</td></tr>
+</table>
+<p>线程安全硬规则：</p>
+<ul>
+<li><code>SystemState</code> 不能被多个任务无保护地直接读写。</li>
+<li>传感器任务写入 <code>SensorSnapshot</code> 双缓冲，<code>control_task</code> 每 20ms 只读取已经提交的完整快照。</li>
+<li>如果使用 Mutex，锁范围必须极短，只保护结构体拷贝，禁止在持锁期间做 I2C、串口、WebSocket、日志输出。</li>
+<li><code>control_task</code> 不等待网络、网页、慢速串口和阻塞式传感器读取。</li>
+</ul>
+<h3>7.2 软件任务心跳看门狗</h3>
+<p>硬件 WDT 只能作为最后兜底。第一层保护必须是软件任务心跳：</p>
+<ul>
+<li><code>sensor_task</code>、<code>uwb_task</code>、<code>comm_task</code> 每次完成循环后更新各自 <code>heartbeat_ms</code>。</li>
+<li><code>control_task</code> 每轮检查心跳。</li>
+<li><code>sensor_task</code> 或 <code>uwb_task</code> 心跳超过 200ms：进入 <code>FAULT_LOCKOUT</code>，<code>StopReason::WATCHDOG_TIMEOUT</code>，立即 <code>MotorCommand.enable=false</code>、PWM=0、刹车有效。</li>
+<li><code>comm_task</code> 心跳超时只降低通信状态，不允许影响急停/手动遥控停车能力。</li>
+<li>只有故障现场已经安全停机后，硬件 WDT 才作为最后复位兜底。</li>
+</ul>
+<h2>8. 引脚常量</h2>
+<p>引脚只允许定义在 <code>include/config/board_pins.h</code>。</p>
+<blockquote>P0 修订：ESP32-S3-DevKitC-1 N8R8 / 带 PSRAM 核心板上，不再使用 GPIO35、GPIO36、GPIO37、GPIO47、GPIO48 作为外部输出。旧方案中这些脚用于刹车/倒车/使能/油门 PWM，现全部作废。实际 PCB 下单前还要按到货板卡丝印和原厂资料复核。</blockquote>
+<pre><code>#pragma once
+
+// DS600 PWM input. CH6 首版不强制接入，优先释放 GPIO 给安全/驱动。
+constexpr int PIN_RC_CH1_STEERING = 4;
+constexpr int PIN_RC_CH2_THROTTLE = 5;
+constexpr int PIN_RC_CH3_SPEED    = 6;
+constexpr int PIN_RC_CH4_MODE     = 7;
+constexpr int PIN_RC_CH5_STOP     = 8;
+// constexpr int PIN_RC_CH6_AUX   = -1;  // P1 optional
+
+// Ultrasonic: two HC-SR04 share one TRIG to save safe GPIO.
+constexpr int PIN_US_SHARED_TRIG  = 9;
+
+// I2C: TCA9548A + VL53L1X, optional external ADC/PWM monitor.
+constexpr int PIN_I2C_SDA = 10;
+constexpr int PIN_I2C_SCL = 11;
+
+// Drive outputs: safe remap, replacing old GPIO35/36/37/47/48 mapping.
+constexpr int PIN_LEFT_THROTTLE_PWM   = 12;
+constexpr int PIN_RIGHT_THROTTLE_PWM  = 13;
+constexpr int PIN_BRAKE_OUT           = 14;
+constexpr int PIN_LEFT_REVERSE_OUT    = 15;
+constexpr int PIN_RIGHT_REVERSE_OUT   = 16;
+constexpr int PIN_DRIVE_ENABLE_OUT    = 39;
+
+// UWB UART.
+constexpr int PIN_UWB_TX = 17;
+constexpr int PIN_UWB_RX = 18;
+
+// P0 safety feedback and ADC.
+constexpr int PIN_ESTOP_STATUS     = 21;
+constexpr int PIN_BATTERY_ADC      = 1;
+constexpr int PIN_CONTROLLER_FAULT = 2;
+
+// Remaining low-speed sensors / status.
+constexpr int PIN_US_LEFT_ECHO  = 40;
+constexpr int PIN_US_RIGHT_ECHO = 41;
+constexpr int PIN_IMU_RX        = 42;  // JY61P TX -&gt; ESP32 RX; IMU TX/config line is P1 optional.
+// constexpr int PIN_BUZZER     = -1;  // P1 optional or external I/O expander.
+// ESP32-S3-CAM UART is P1 optional; first version uses WiFi video/status instead.</code></pre>
+<p>禁用/保留：</p>
+<ul>
+<li>禁止外部输出：GPIO35、GPIO36、GPIO37、GPIO47、GPIO48。</li>
+<li>禁止占用启动/USB/下载敏感脚：GPIO0、GPIO3、GPIO19、GPIO20、GPIO43、GPIO44、GPIO45、GPIO46。</li>
+<li>GPIO2 当前只作为控制器故障输入候选，必须高阻/光耦/分压输入，不能被外部电路在上电/下载阶段强拉到异常电平；实物确认前不能作为输出。</li>
+<li>GPIO33、GPIO34 在带 OPI Flash/PSRAM 模组上也可能有风险，未按具体模组确认前不作为 P0 输出脚。</li>
+<li>GPIO38 板载 RGB 先保留。</li>
+</ul>
+<h3>8.1 上电物理安全、急停闭环、预充和油门限幅</h3>
+<p>这些是 P0，不是优化项：</p>
+<ol>
+<li><strong>急停状态反馈必须接入 GPIO21。</strong> 首版不允许省略急停反馈。物理急停被拍下时，主控必须同步进入 <code>ESTOP_ACTIVE/FAULT_LOCKOUT</code>，内部油门命令清零；急停旋开后也不能自动恢复，必须人工复位。</li>
+<li><strong>所有驱动输出必须外部 10kΩ 下拉到 GND。</strong> 包括左/右油门 PWM、刹车、左右倒车、软件使能。这样 ESP32 上电、复位、下载、崩溃时，PWM 转 0-5V 输入和控制器使能不会悬空。</li>
+<li><strong>动力主电源需要防火花/预充设计。</strong> 36V 电池接入两个无刷控制器时，控制器输入电容会产生浪涌；正式线束应使用 XT90S/防火花插头，或预充电阻 + 预充开关/继电器，再闭合主回路。</li>
+<li><strong>左右倒车线必须物理拆分。</strong> 左倒车由 GPIO15 控制，右倒车由 GPIO16 控制；不能并联到同一个 GPIO，否则无法一正一反原地转向。</li>
+<li><strong>PWM→0-5V 模块必须做死区和限幅。</strong> 实测每个控制器的转把起转电压、最大安全电压、回零延迟；软件中配置 <code>throttle_deadband_mv</code>、<code>throttle_min_active_mv</code>、<code>throttle_max_mv</code>、<code>throttle_slew_rise_ms</code>、<code>throttle_slew_fall_ms</code>。</li>
+<li><strong>考虑 RC 滤波延迟。</strong> PWM 转模拟模块通常有 50-150ms 响应延迟；避障停车距离和减速度限制必须预留额外滑行距离，不能假设 PWM=0 后模拟电压瞬间为 0。</li>
+<li><strong>电池 ADC 分压统一按 36V-60V 通用设计。</strong> GPIO1 电池采样必须使用 220k/10k 分压，60V 输入约 2.61V；旧 130k/10k 在 48V 满电 54.6V 时约 3.90V，禁止作为当前通用方案。ADC 反算必须读取 Profile 的 <code>battery_adc.divider_top_ohm</code> / <code>divider_bottom_ohm</code>，不能硬编码旧比例。</li>
+<li><strong>油门反馈建议走 ADC。</strong> 若 GPIO 不足，优先用 I2C 外置 ADC（如 ADS1115/ADS1015）读取左/右 0-5V 模块 VOUT 的分压值；没有油门反馈时，自动跟随速度上限必须更保守。</li>
+<li><strong>PWM 参数必须固定并可校准。</strong> 默认 <code>pwm_frequency_hz=1000</code>、<code>pwm_resolution_bits=12</code>；占空比到毫伏按 <code>PWM-OUTPUT-CALIBRATION.md</code> 的公式计算。校准字段必须保存到 NVS/Profile，未校准前禁止 AUTO_FOLLOW。</li>
+</ol>
+<h2>9. 模块接口规范</h2>
+<h3>9.1 <code>safety_manager</code></h3>
+<p>输入：<code>SystemState</code> 快照。  </p>
+<p>输出：<code>SafetyDecision</code>。</p>
+<p>必须检查：</p>
+<ul>
+<li>急停状态。</li>
+<li>DS600 丢失。</li>
+<li>H5 丢失。</li>
+<li>UWB 丢失。</li>
+<li>TOF/超声/IMU/电池超时。</li>
+<li>前方障碍停车距离。</li>
+<li>低电压。</li>
+<li>控制器故障输入。</li>
+<li>安装向导是否完成。</li>
+<li>Watchdog/任务心跳。</li>
+</ul>
+<p>规则：故障锁定后不能自动恢复，必须人工复位。</p>
+<p>必须提供最终门控函数，例如：</p>
+<pre><code>MotorCommand applyFinalGate(const MotorCommand&amp; proposed, const SafetyDecision&amp; safety);</code></pre>
+<p><code>motion_mixer</code> 生成的任何 <code>MotorCommand</code> 在进入 <code>drive_adapter_analog_bldc</code> 前必须再过一次最终门控。最终门控必须<strong>按当前模式裁决</strong>，不能把某个输入源丢失写成全局停车：</p>
+<ul>
+<li>急停、故障锁定、sensor/uwb 关键任务心跳超时、安装向导未完成但请求 AUTO：强制 <code>enable=false</code>、<code>left_target=0</code>、<code>right_target=0</code>、<code>brake=true</code>。</li>
+<li><code>MANUAL_RC</code> 中 DS600 丢失：停车/锁定；但 <code>MANUAL_H5_LOW_SPEED</code> 或 <code>AUTO_FOLLOW</code> 中 DS600 仅作为接管通道离线时，不得无条件全局停车，按真值表处理。</li>
+<li><code>MANUAL_H5_LOW_SPEED</code> 中 H5/WebSocket 丢失：停车并退出 H5 模式；但 <code>MANUAL_RC</code> / <code>AUTO_FOLLOW</code> 中 H5 丢失只标记状态离线，不影响当前运动来源。</li>
+<li><code>AUTO_FOLLOW</code> 中 UWB 丢失：停车并退出 AUTO；但 <code>MANUAL_RC</code> / <code>MANUAL_H5_LOW_SPEED</code> 中 UWB 丢失只标记自动跟随不可用。</li>
+</ul>
+<p>禁止只在链路前半段做一次安全预检查；禁止把“非当前控制源”的 lost-link 误写成全局停车。</p>
+<p>最终门控规则必须按当前模式裁决：只有当前控制源丢失才触发该模式停车，非当前控制源丢失只更新在线状态或禁用对应模式。</p>
+<h3>9.2 <code>mode_manager</code></h3>
+<p>输入：<code>SystemState</code> + <code>SafetyDecision</code>。  </p>
+<p>输出：<code>RunMode</code>。</p>
+<p>必须遵守：</p>
+<ul>
+<li>急停/故障优先。</li>
+<li>DS600 手动接管优先于 AUTO_FOLLOW。</li>
+<li>H5 只能低速点动。</li>
+<li>AUTO_FOLLOW 必须安装向导完成 + UWB 有效 + 人工确认。</li>
+</ul>
+<h3>9.3 <code>command_pipeline</code></h3>
+<p>输入：当前模式 + <code>RcInput</code> + <code>H5ControlInput</code> + <code>UwbTarget</code>。  </p>
+<p>输出：<code>MotionIntent</code>。</p>
+<p>职责：只生成“想怎么动”，不直接控制电机。</p>
+<h3>9.4 <code>motion_mixer</code></h3>
+<p>输入：<code>MotionIntent</code> + 速度限制。  </p>
+<p>输出：<code>MotorCommand</code>。</p>
+<p>差速混控规则：</p>
+<pre><code>left  = forward + turn
+right = forward - turn
+normalize 到 -1.0..1.0
+乘以 speed_limit
+应用加速度/减速度限制
+left_reverse  = left_target &lt; 0
+right_reverse = right_target &lt; 0
+油门 PWM 只使用 abs(target) 映射到 0-5V 模拟量</code></pre>
+<p>要求：<code>MotorCommand.left_reverse</code> 和 <code>MotorCommand.right_reverse</code> 必须能独立表达左右轮方向。原地转向时允许一侧正转、一侧反转；禁止退回单一 <code>reverse</code> 布尔值。</p>
+<h3>9.4.1 极性语义</h3>
+<p>刹车、左右倒车、软件使能必须按 <code>POLARITY-DEFINITIONS.md</code> 实现。Profile 里的 <code>active_high</code> 指的是 <strong>ESP32 GPIO 对 MOS/光耦输入的有效电平</strong>，不是控制器线本身高电平有效。</p>
+<p>当前默认：</p>
+<pre><code>polarity:
+  mcu_brake_out_active_level: high
+  mcu_left_reverse_out_active_level: high
+  mcu_right_reverse_out_active_level: high
+  mcu_drive_enable_out_active_level: high
+  controller_brake_line_active: pull_to_gnd
+  controller_reverse_line_active: pull_to_gnd
+  controller_enable_line_active: isolated_switch_or_relay
+  estop_active_level: high</code></pre>
+<p>即 ESP32 GPIO 高电平只表示“驱动 MOS/光耦导通”，再由 MOS/光耦把控制器低刹/倒车线拉到 GND。代码禁止把 GPIO 直接接到控制器开关量线。</p>
+<h3>9.5 <code>drive_adapter_analog_bldc</code></h3>
+<p>输入：<code>MotorCommand</code>。  </p>
+<p>输出：GPIO12/GPIO13 油门 PWM、GPIO14 刹车、GPIO15/GPIO16 左右独立倒车、GPIO39 软件使能。旧 GPIO35/36/37/47/48 输出方案作废。</p>
+<p>硬要求：</p>
+<ul>
+<li>上电默认 PWM = 0。</li>
+<li>左右倒车必须独立控制：<code>PIN_LEFT_REVERSE_OUT</code> 与 <code>PIN_RIGHT_REVERSE_OUT</code> 不能并联，否则无法原地差速转向。</li>
+<li>禁止输出层只有单一 <code>reverse</code> 字段；<code>drive_adapter_analog_bldc</code> 必须最终独立写 GPIO15/GPIO16。</li>
+<li><code>enable=false</code> 时 PWM = 0。</li>
+<li><code>brake=true</code> 时 PWM = 0 并输出刹车控制。</li>
+<li>未校准 PWM→0-5V 模块前，只允许低占空比架空测试。</li>
+<li>PWM 输出必须经过死区、最大电压限幅、上升/下降斜率限制；禁止直接把 -1..1 命令线性打满 0..5V。</li>
+<li>不允许在此模块里判断 UWB/避障/模式；它只执行上游安全裁决后的命令。</li>
+</ul>
+<h3>9.6 <code>sensors/*</code></h3>
+<p>I2C 总线硬要求：TCA9548A + VL53L1X ×3 的 SDA/SCL 必须外接 4.7kΩ 上拉到 3.3V，不能依赖 ESP32 内部弱上拉。<code>hal/i2c_bus.cpp</code> 必须提供 Bus Clear/软复位：检测 SDA 被拉低或传输超时时，释放 I2C 外设，手动输出约 9 个 SCL 脉冲并产生 STOP，然后重初始化 TCA9548A 和各 TOF 通道。省去 XSHUT 引脚后，Bus Clear 是 P0 防死锁要求。</p>
+<p>每个传感器模块必须提供：</p>
+<pre><code>bool begin();
+void update(uint32_t now_ms);
+Snapshot getSnapshot() const;
+bool isOnline(uint32_t now_ms) const;</code></pre>
+<p>传感器错误不能卡死系统；只能标记无效、过期或错误码。</p>
+<p>VL53L1X ×3 必须用非阻塞状态机读取：启动测距 -&gt; 轮询 dataReady/中断标志 -&gt; 读取已完成结果 -&gt; 清中断/启动下一轮。禁止在 <code>sensor_task</code> 中对 3 个 TOF 依次调用阻塞式等待或 <code>delay()</code>；一次 sensor tick 内只做小步状态推进。I2C 任何异常只能标记传感器无效/过期并触发 Bus Clear，不能卡死控制任务。</p>
+<h3>9.7 <code>web/*</code></h3>
+<p>H5 只能：</p>
+<ul>
+<li>显示 <code>SystemState</code>。</li>
+<li>提交低速点动请求。</li>
+<li>提交模式请求。</li>
+<li>提交人工复位请求。</li>
+</ul>
+<p>H5 不能：</p>
+<ul>
+<li>直接设置 PWM。</li>
+<li>直接清除急停。</li>
+<li>跳过安装向导。</li>
+<li>修改安全红线参数。</li>
+</ul>
+<h2>10. 配置和 Profile</h2>
+<p>默认配置放 <code>include/config/profile_defaults.h</code>，运行时校准和安装向导结果放 NVS/文件系统。</p>
+<p>第一版默认值：</p>
+<pre><code>chassis:
+  name: followbox_ds600_dual_bldc_v1
+  chassis_type: differential_wheel
+  battery_nominal_voltage: 36
+  battery_full_voltage: 42
+  supported_battery_max_voltage: 60
+  max_speed_first_run_percent: 20
+  max_speed_after_install_percent: 30
+  accel_limit: 0.25
+  decel_limit: 0.5
+
+drive_adapter:
+  adapter_type: ANALOG_BLDC
+  throttle_output: pwm_to_0_5v
+  watchdog_timeout_ms: 300
+  invert_left_motor: false
+  invert_right_motor: false
+
+battery_adc:
+  divider_top_ohm: 220000
+  divider_bottom_ohm: 10000
+  adc_max_input_mv: 3300
+  supported_pack_max_mv: 60000
+  old_130k_10k_forbidden: true
+
+sensors:
+  uwb_stale_stop_ms: 1000
+  obstacle_stale_timeout_ms: 300
+  slow_distance_mm: 1000
+  stop_distance_mm: 500
+  target_distance_mm: 1500
+  tof_nonblocking_required: true
+  i2c_external_pullup_ohm: 4700
+  i2c_bus_clear_required: true
+  imu_static_boot_hold_ms: 3000
+  uwb_min_distance_from_dcdc_mm: 50
+
+throttle:
+  left_pwm_pin: 12
+  right_pwm_pin: 13
+  left_reverse_pin: 15
+  right_reverse_pin: 16
+  drive_enable_pin: 39
+  external_pulldown_10k_required: true
+  throttle_deadband_mv: 800
+  throttle_min_active_mv: 1000
+  throttle_max_mv: 3600
+  throttle_rc_delay_ms: 150
+  adc_feedback_recommended: true
+
+remote:
+  physical_lost_stop_ms: 500
+  h5_lost_stop_ms: 1000
+
+alert:
+  buzzer_type: passive_5v
+  buzzer_gpio: -1
+  buzzer_driver: transistor_or_mos_low_side</code></pre>
+<h2>10.1 Profile Schema v1.0</h2>
+<p>Profile 字段名、单位和权限必须稳定，H5 只能修改标记为可调的非安全红线字段。</p>
+<table>
+<tr><th>字段</th><th>单位/类型</th><th>默认</th><th>范围</th><th>H5 可改</th><th>说明</th></tr>
+<tr><td><code>drive_adapter.adapter_type</code></td><td>enum</td><td><code>ANALOG_BLDC</code></td><td>固定</td><td>否</td><td>双 BLDC 控制器 + 模拟转把</td></tr>
+<tr><td><code>drive_adapter.throttle_output</code></td><td>enum</td><td><code>pwm_to_0_5v</code></td><td>固定</td><td>否</td><td>PWM 转 0-5V 模块</td></tr>
+<tr><td><code>drive_adapter.feedback_source</code></td><td>enum</td><td><code>none</code></td><td><code>none/optional_external_adc</code></td><td>否</td><td>首版无控制器闭环反馈</td></tr>
+<tr><td><code>throttle.throttle_deadband_mv</code></td><td>mV</td><td>800</td><td>实测后写入</td><td>安装向导内</td><td>转把死区</td></tr>
+<tr><td><code>throttle.throttle_max_mv</code></td><td>mV</td><td>3600</td><td>&lt;= 实测安全上限</td><td>安装向导内</td><td>最大油门电压限幅</td></tr>
+<tr><td><code>throttle.throttle_rc_delay_ms</code></td><td>ms</td><td>150</td><td>50-300</td><td>否</td><td>PWM 转模拟 RC 延迟冗余</td></tr>
+<tr><td><code>sensors.stop_distance_mm</code></td><td>mm</td><td>500</td><td>&gt;= 500</td><td>否</td><td>安全停车距离红线</td></tr>
+<tr><td><code>remote.h5_lost_stop_ms</code></td><td>ms</td><td>1000</td><td>300-2000</td><td>否</td><td>H5 点动断线停车</td></tr>
+<tr><td><code>pins.left_throttle_pwm</code></td><td>GPIO</td><td>12</td><td>固定</td><td>否</td><td>左油门 PWM</td></tr>
+<tr><td><code>pins.right_throttle_pwm</code></td><td>GPIO</td><td>13</td><td>固定</td><td>否</td><td>右油门 PWM</td></tr>
+<tr><td><code>pins.brake_out</code></td><td>GPIO</td><td>14</td><td>固定</td><td>否</td><td>MOS/光耦输入，不直连控制器线</td></tr>
+<tr><td><code>pins.left_reverse_out</code></td><td>GPIO</td><td>15</td><td>固定</td><td>否</td><td>左倒车 MOS/光耦输入</td></tr>
+<tr><td><code>pins.right_reverse_out</code></td><td>GPIO</td><td>16</td><td>固定</td><td>否</td><td>右倒车 MOS/光耦输入</td></tr>
+<tr><td><code>pins.drive_enable_out</code></td><td>GPIO</td><td>39</td><td>固定</td><td>否</td><td>使能 MOS/继电器输入</td></tr>
+<tr><td><code>pins.estop_status</code></td><td>GPIO</td><td>21</td><td>固定</td><td>否</td><td>急停隔离反馈</td></tr>
+<tr><td><code>pins.ultrasonic_shared_trig</code></td><td>GPIO</td><td>9</td><td>固定</td><td>否</td><td>超声共享 TRIG</td></tr>
+<tr><td><code>pins.ultrasonic_left_echo</code></td><td>GPIO</td><td>40</td><td>固定</td><td>否</td><td>左 Echo 分压后输入</td></tr>
+<tr><td><code>pins.ultrasonic_right_echo</code></td><td>GPIO</td><td>41</td><td>固定</td><td>否</td><td>右 Echo 分压后输入</td></tr>
+<tr><td><code>pins.imu_rx</code></td><td>GPIO</td><td>42</td><td>固定</td><td>否</td><td>JY61P TX 输入</td></tr>
+<tr><td><code>polarity.mcu_brake_out_active_level</code></td><td>enum</td><td><code>high</code></td><td>high/low</td><td>否</td><td>GPIO 对 MOS/光耦输入有效电平</td></tr>
+<tr><td><code>polarity.controller_brake_line_active</code></td><td>enum</td><td><code>pull_to_gnd</code></td><td>固定/实测</td><td>否</td><td>控制器低刹有效方式</td></tr>
+<tr><td><code>polarity.estop_active_level</code></td><td>enum</td><td><code>high</code></td><td>high/low</td><td>否</td><td>GPIO21 急停有效电平</td></tr>
+<tr><td><code>safety.estop_feedback_required</code></td><td>bool</td><td>true</td><td>固定</td><td>否</td><td>P0 必接</td></tr>
+<tr><td><code>safety.estop_feedback_type</code></td><td>enum</td><td><code>second_nc_contact</code></td><td>second_nc_contact/optocoupler_elock_detect</td><td>否</td><td>急停反馈硬件类型</td></tr>
+<tr><td><code>safety.estop_fault_on_open_wire</code></td><td>bool</td><td>true</td><td>固定</td><td>否</td><td>反馈断线按急停处理</td></tr>
+<tr><td><code>throttle.pwm_frequency_hz</code></td><td>Hz</td><td>1000</td><td>500-5000 实测</td><td>否</td><td>PWM→0-5V 输入频率</td></tr>
+<tr><td><code>throttle.pwm_resolution_bits</code></td><td>bit</td><td>12</td><td>10-14</td><td>否</td><td>PWM 分辨率</td></tr>
+<tr><td><code>throttle.measured_module_full_scale_mv</code></td><td>mV</td><td>5000</td><td>实测</td><td>安装向导</td><td>模块满量程输出</td></tr>
+<tr><td><code>throttle.throttle_slew_rise_mv_per_s</code></td><td>mV/s</td><td>800</td><td>实测</td><td>安装向导</td><td>油门上升斜率</td></tr>
+<tr><td><code>throttle.throttle_slew_fall_mv_per_s</code></td><td>mV/s</td><td>1600</td><td>实测</td><td>安装向导</td><td>油门下降斜率</td></tr>
+<tr><td><code>remote.physical_lost_stop_ms</code></td><td>ms</td><td>500</td><td>100-1000</td><td>否</td><td>DS600 丢失停车</td></tr>
+<tr><td><code>video.video_required_for_motion</code></td><td>bool</td><td>false</td><td>固定</td><td>否</td><td>视频断流不影响安全主控</td></tr>
+<tr><td><code>battery_adc.divider_top_ohm</code></td><td>ohm</td><td>220000</td><td>固定</td><td>否</td><td>电池 ADC 上拉分压，36V-60V 通用</td></tr>
+<tr><td><code>battery_adc.divider_bottom_ohm</code></td><td>ohm</td><td>10000</td><td>固定</td><td>否</td><td>电池 ADC 下拉分压；60V 输出约 2.61V</td></tr>
+<tr><td><code>battery_adc.supported_pack_max_mv</code></td><td>mV</td><td>60000</td><td>固定</td><td>否</td><td>预留 48V 满电/60V 上限，不允许旧 130k/10k</td></tr>
+<tr><td><code>sensors.i2c_external_pullup_ohm</code></td><td>ohm</td><td>4700</td><td>固定</td><td>否</td><td>SDA/SCL 外接上拉到 3.3V</td></tr>
+<tr><td><code>sensors.i2c_bus_clear_required</code></td><td>bool</td><td>true</td><td>固定</td><td>否</td><td>无 XSHUT 时必须实现 Bus Clear/软复位</td></tr>
+<tr><td><code>sensors.imu_static_boot_hold_ms</code></td><td>ms</td><td>3000</td><td>固定</td><td>否</td><td>JY61P 上电静止零偏窗口</td></tr>
+<tr><td><code>sensors.uwb_min_distance_from_dcdc_mm</code></td><td>mm</td><td>50</td><td>固定</td><td>否</td><td>UWB 与 DC-DC/Buck 电感最小距离</td></tr>
+<tr><td><code>alert.buzzer_type</code></td><td>enum</td><td><code>passive_5v</code></td><td>passive_5v/none</td><td>否</td><td>默认无源蜂鸣器，LEDC 频率驱动</td></tr>
+</table>
+<h2>10.2 协议定义文件</h2>
+<p>协议不再作为口头占位。正式写驱动前必须读取并遵守：</p>
+<table>
+<tr><th>协议文件</th><th>状态</th><th>要求</th></tr>
+<tr><td><code>protocols/DS600-PWM.md</code></td><td>已冻结首版默认值</td><td>CH1-CH5、脉宽范围、回中死区、丢失判定、5V 分压</td></tr>
+<tr><td><code>protocols/H5-API.md</code></td><td>已冻结 v1.0</td><td>状态 JSON、低速点动、模式请求、人工复位限制</td></tr>
+<tr><td><code>protocols/JY61P.md</code></td><td>半冻结</td><td>接线、电平、常见帧格式；到货后确认波特率/样例帧</td></tr>
+<tr><td><code>protocols/UWB-GC-P2304.md</code></td><td>待厂家协议/抓包冻结</td><td>禁止 AI 编造帧头、校验、字段；协议未冻结前只允许 raw log/mock parser</td></tr>
+</table>
+<p><code>uwb_gc_p2304.cpp</code> 在缺少原厂协议或串口样例前，不得实现猜测性 parser，更不得让 AUTO_FOLLOW 依赖未验证字段。</p>
+<h2>11. 安装向导锁</h2>
+<p>IMU 上电静止要求：JY60/JY61P 在上电最初 2-3 秒会估计静态零偏。BOOT_SELF_TEST 阶段必须保留 IMU 静止窗口；若检测到明显 yaw_rate/加速度扰动，应保持安全锁定并提示“上电后静止 3 秒/请重启或重新标定”。控制盒外观也必须贴静止标识，防止 yaw 灾难性漂移进入 AUTO_FOLLOW。</p>
+<p>蜂鸣器要求：默认 5V 无源蜂鸣器 + 三极管/MOS 低边驱动，使用 LEDC/PWM 产生不同频率提示音；若未分配 GPIO 则 <code>BUZZER_GPIO=-1</code>，不能占用 P0 安全引脚。代码必须区分 active buzzer/passive buzzer，不得把有源蜂鸣器按频率旋律驱动。</p>
+<p>未完成安装向导时：</p>
+<p>允许：</p>
+<ul>
+<li>查看状态。</li>
+<li>传感器只读测试。</li>
+<li>DS600/H5 低速点动。</li>
+<li>架空单轮测试。</li>
+</ul>
+<p>禁止：</p>
+<ul>
+<li>自动跟随。</li>
+<li>绕障前进。</li>
+<li>高速输出。</li>
+<li>远程公网遥控。</li>
+</ul>
+<p>必过项：</p>
+<ol>
+<li>架空车轮确认。</li>
+<li>急停测试。</li>
+<li>左轮方向测试。</li>
+<li>右轮方向测试。</li>
+<li>油门 PWM→0-5V 输出校准。</li>
+<li>电池 ADC 分压核对：确认 220k/10k，按万用表输入电压校准；禁止 130k/10k 用于 48V 底盘。</li>
+<li>I2C 物理上拉和 Bus Clear 测试：拔/短暂扰动某一路 TOF 后系统不能卡死。</li>
+<li>IMU 上电静止 3 秒测试：晃动车体时不得进入 AUTO_FOLLOW。</li>
+<li>UWB 1m/2m 距离测试，并确认 DC-DC 工作时无明显跳变/丢包。</li>
+<li>UWB 左右方向测试。</li>
+<li>前方 1m 限速、0.5m 停车测试。</li>
+<li>DS600 遥控丢失停车测试。</li>
+<li>H5 断线停车测试。</li>
+<li>保存 Profile。</li>
+<li>解锁自动跟随。</li>
+</ol>
+<h2>12. 文件大小和编码规则</h2>
+<table>
+<tr><th>文件类型</th><th>建议上限</th><th>超过后处理</th></tr>
+<tr><td><code>main.cpp</code></td><td>120 行</td><td>必须拆到 <code>app/</code></td></tr>
+<tr><td>单个 <code>.cpp</code></td><td>250-350 行</td><td>拆子模块或提取工具函数</td></tr>
+<tr><td>单个 <code>.h</code></td><td>150 行</td><td>只保留接口、结构体、常量</td></tr>
+<tr><td><code>web/index.html</code></td><td>独立文件</td><td>通过工具生成 <code>web_assets.h</code></td></tr>
+<tr><td>配置常量</td><td>集中配置文件</td><td>不散落在业务文件</td></tr>
+</table>
+<p>编码规则：</p>
+<ul>
+<li>C++ 使用明确类型，时间用 <code>uint32_t now_ms</code>。</li>
+<li>所有超时判断使用 <code>elapsedMs(now, last)</code>，避免 <code>millis()</code> 溢出问题。</li>
+<li>业务模块不直接调用 <code>delay()</code>。</li>
+<li>控制循环不做动态内存分配。</li>
+<li>不在中断里做复杂解析或日志输出。</li>
+<li>日志要短，控制循环日志限频。</li>
+<li>新增模块必须有 <code>.h/.cpp</code>，并在本规范职责表里能找到归属。</li>
+</ul>
+<h2>13. PlatformIO / VS Code 约定</h2>
+<p>推荐使用 PlatformIO 项目：</p>
+<pre><code>[env:esp32-s3-devkitc-1]
+platform = espressif32
+board = esp32-s3-devkitc-1
+framework = arduino
+monitor_speed = 115200
+build_flags =
+  -D ARDUINO_USB_CDC_ON_BOOT=1
+  -D FOLLOWBOX_HW_V1=1</code></pre>
+<p>说明：</p>
+<ul>
+<li>ESP32-S3 原生 USB CDC 可能出现“烧录口”和“Serial 输出口”两个 COM 口。</li>
+<li>Windows 烧录/串口监视以实际设备管理器 COM 口为准。</li>
+<li>如果 Serial Monitor 没输出，优先检查是否连到 CDC 输出口。</li>
+</ul>
+<h2>14. 首批编码顺序</h2>
+<p>必须按顺序来，不要一上来接所有硬件：</p>
+<ol>
+<li>建立 PlatformIO 项目骨架和目录结构。</li>
+<li>新建 <code>board_pins.h</code>、<code>types.h</code>、<code>system_state.h</code>、<code>error_codes.h</code>、<code>time_utils.h</code>。</li>
+<li>实现纯逻辑：<code>safety_manager</code>、<code>mode_manager</code>、<code>motion_mixer</code>。</li>
+<li>给纯逻辑写本地单元测试或最小 host test。</li>
+<li>实现 HAL：GPIO、PWM 输入、PWM 输出、ADC、UART、I2C、Watchdog。</li>
+<li>实现 DS600 PWM 输入，只打印通道值，不接电机。</li>
+<li>实现 <code>drive_adapter_analog_bldc</code>，只做架空低速输出。</li>
+<li>接入 UWB，只读距离/方位和超时状态。</li>
+<li>接入 TOF/超声/IMU，只读和超时保护。</li>
+<li>接入 H5 状态页和低速点动。</li>
+<li>接入安装向导锁。</li>
+<li>最后开启 AUTO_FOLLOW，且只允许低速参数。</li>
+</ol>
+<h2>15. 验收标准</h2>
+<p>每次写代码后至少验证：</p>
+<ul>
+<li>编译通过。</li>
+<li><code>main.cpp</code> 没有业务逻辑膨胀。</li>
+<li>没有模块直接写油门 PWM 输出，除了 <code>drive_adapter_analog_bldc</code>；旧 GPIO47/GPIO48 油门方案作废。</li>
+<li>传感器模块没有直接控制电机。</li>
+<li>H5 模块没有直接解除安全锁。</li>
+<li>急停/故障/断线时 <code>MotorCommand.enable=false</code> 且 PWM=0。</li>
+<li>上电、复位、看门狗恢复时电机不动。</li>
+<li>DS600 断联停车。</li>
+<li>UWB 丢失停车。</li>
+<li>障碍过近停车。</li>
+</ul>
+<h2>16. 给任何开发者/AI 的硬性要求</h2>
+<p>无论是 VS Code 手写、Claude、Copilot，还是后续其他人维护，都必须遵守：</p>
+<ol>
+<li>代码框架以 <code>FIRMWARE-SPEC.md</code> 为准；开始任务必须先读本文件和 <code>CURRENT-WIRING-AI.md</code>。</li>
+</ol>
+<p>1a. 禁止引用 <code>CURRENT-WIRING.html</code> 里的旧引脚；HTML 只能由当前 Markdown 重新生成，不作为手改源。</p>
+<ol>
+<li>不允许把多个模块塞进 <code>main.cpp</code>。</li>
+<li>不允许为了省事跨层调用硬件输出。</li>
+<li>不允许新增全局状态绕开 <code>SystemState</code>。</li>
+<li>不允许把网页大段 HTML 写进 <code>main.cpp</code>。</li>
+<li>不允许未完成安装向导就开启自动跟随。</li>
+<li>不允许传感器异常时默认“安全可通行”。</li>
+<li>不允许故障自动恢复继续行驶。</li>
+<li>改动代码必须说明修改了哪些文件、为什么改、怎么验证。</li>
+</ol>
+<h2>17. 当前结论</h2>
+<p>这份文件就是后续固件代码框架的总规范。以后写代码、审查代码、让 AI 改代码，都先看它；不符合它的实现，哪怕能编译，也要退回重构。</p>
+<p>最终硬边界再次明确：</p>
+<ul>
+<li>main.cpp 只做启动入口，不写业务逻辑。</li>
+<li>每个模块单独 <code>.h/.cpp</code>，不能把多个模块混在一个大文件里。</li>
+<li>总调配代码必须分开：<code>app/app.cpp</code>、<code>app/scheduler.cpp</code>、<code>app/mode_manager.cpp</code>、<code>app/command_pipeline.cpp</code> 分别负责初始化、调度、模式、命令管线。</li>
+<li>drive_adapter_analog_bldc 是唯一能写安全重映射后油门 PWM 输出的模块；旧 GPIO47/GPIO48 方案作废。</li>
+<li>safety_manager 是所有运动命令的安全门。</li>
+<li>传感器模块只能读传感器，不能控制电机。</li>
+<li>H5 不能直接设置 PWM，不能直接解除安全锁，不能绕过安装向导。</li>
+<li>GPIO35/36/37/47/48 禁止作为电机驱动输出；旧方案必须重构。</li>
+<li>Core 1 跑运动安全闭环，Core 0 跑通信/网络；跨任务共享状态必须双缓冲或短锁保护。</li>
+<li>VL53L1X 阵列必须非阻塞读取，禁止 3 路 TOF 阻塞轮询。</li>
+<li>急停状态反馈、输出下拉、预充、防火花、油门死区/限幅属于 P0。</li>
+<li>FIRMWARE-SPEC.md 是固件代码框架总规范。</li>
+</ul></article></main></body></html>

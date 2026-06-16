@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;max-width:1100px;margin:32px auto;line-height:1.65;color:#111}pre{white-space:pre-wrap;background:#f6f8fa;padding:16px;border-radius:8px}h1,h2,h3{color:#0075de}</style></head><body><pre># FollowBox AI 交接记忆（必须短）
+
+&gt; 用途：给 Hermes / Claude / Copilot / VS Code AI / 其他代码代理快速知道“上一个 AI 改了什么、验证了什么、下一步该做什么”。  
+&gt; 这不是完整日志，不写长篇过程；每次改代码、改架构、修文档、排 bug 后，只追加一条短记录。
+
+## 使用规则
+
+1. 任何 AI 修改代码、架构、接线文档、Profile、协议、技能文件后，必须在本文件顶部追加一条记录。
+2. 每条记录控制在 **8-12 行以内**，只写对下一个 AI 有用的信息。
+3. 不写长日志、不贴完整 diff、不贴大段代码、不写 token/API key/密码。
+4. 必须写清：改了哪些文件、当前状态、验证结果、下一步。
+5. 如果本次只是读取/分析、没有改文件，也可以追加一条“分析结论”，但必须非常短。
+6. 新记录放在 `## 最新交接记录` 下面，旧记录往下排。
+7. 如果某条记录已经过期，可以移动到 `## 已过期/归档记录`，不要让顶部堆太长。
+
+## 推荐格式
+
+```markdown
+### YYYY-MM-DD HH:mm - &lt;AI/工具名&gt; - &lt;任务短名&gt;
+- 改动：&lt;1 句话概括&gt;
+- 文件：`path1`, `path2`, `path3`
+- 架构影响：无 / 有，说明是否改模块边界、GPIO、安全链路、协议
+- 安全影响：无 / 有，说明是否碰 motor/e-stop/GPIO/ADC/I2C/电源
+- 验证：&lt;build/test/check/log 结果；没有验证就写 未验证&gt;
+- 当前状态：PASS / NEEDS_VERIFICATION / BLOCKED / NEXT_TASK_READY
+- 下一步：&lt;给下一个 AI 的最短明确动作&gt;
+```
+
+## 最新交接记录
+
+### 2026-05-27 - Hermes - 增加 Codex/Claude/Copilot 交接门禁
+- 改动：新增 AI 运行说明和交接检查脚本，说明单靠记忆文件不能强制所有 AI，需 prompt + skill + 门禁三层约束。
+- 文件：`AI-AGENT-RUNBOOK.md`, `tools/check_ai_handoff.py`, `README.md`, `skills/README.md`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无固件代码架构变更；新增 AI 协作流程门禁。
+- 安全影响：无硬件输出变更；降低代码 AI 忘写交接导致误接续的风险。
+- 验证：`python3 tools/check_ai_handoff.py` 已通过。
+- 当前状态：PASS
+- 下一步：运行 Codex/Claude/Copilot 前复制 `AI-AGENT-RUNBOOK.md` 中固定 prompt，结束后跑交接检查脚本。
+
+### 2026-05-27 - Hermes - 建立项目内 AI 技能包和交接记忆规则
+- 改动：新增 `skills/` 项目内 AI 技能包，并新增本交接记忆文件规则。
+- 文件：`skills/README.md`, `skills/*/SKILL.md`, `README.md`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无代码架构变更；新增 AI 协作流程入口。
+- 安全影响：无硬件输出变更；技能中强化 safety/applyFinalGate/GPIO/ADC/I2C/UWB 红线。
+- 验证：已脚本检查 skills 共 10 个文件，关键约束覆盖 PASS。
+- 当前状态：NEXT_TASK_READY
+- 下一步：任何 AI 开发/审查前先读 `skills/README.md` 和本文件，再按路由读对应技能。
+
+## 已过期/归档记录
+
+暂无。
+</pre></body></html>

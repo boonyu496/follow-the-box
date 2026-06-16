@@ -1,0 +1,5 @@
+FollowBox cloud deploy package
+built_at=2026-06-14T17:45:00+08:00
+cache_policy=no-store
+path=https://www.boonai.cn/fb/
+feature=cloud-video-relay

@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="color-scheme" content="light dark" />
+    <title>FollowBox 控制台</title>
+    <link rel="stylesheet" href="./pico.min.css" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <!-- ═══ Sticky Header ═══ -->
+    <header class="fb-app-header">
+      <div class="fb-app-header__brand">
+        <strong>FollowBox</strong>
+        <span id="mode">--</span>
+      </div>
+      <span id="conn" class="fb-pill fb-pill--danger">未连接</span>
+    </header>
+
+    <!-- ═══ Quick Strip ═══ -->
+    <div class="fb-quick-strip">
+      <div><span>许可</span><strong id="motion-allowed">--</strong></div>
+      <div><span>停车</span><strong id="stop-reason">--</strong></div>
+      <div><span>电池</span><strong id="battery">--</strong></div>
+      <div><span>UWB</span><strong id="uwb-mini">--</strong></div>
+    </div>
+
+    <!-- ═══ Main Content ═══ -->
+    <main class="fb-shell">
+
+      <!-- ──── Tab 1: Drive ──── -->
+      <section id="view-drive" class="fb-view active">
+        <div class="fb-drive-stage">
+          <img id="camera-stream" alt="ESP32-S3-CAM 实时画面" />
+          <div id="camera-placeholder" class="fb-cam-placeholder">
+            <strong>视频离线</strong>
+            <span id="camera-status">等待画面</span>
+          </div>
+          <div class="fb-video-top">
+            <span id="camera">摄像头 --</span>
+            <span id="speed-scale">限速 --</span>
+          </div>
+          <div class="fb-video-bottom">
+            <div class="fb-drive-readout">
+              <span>左轮</span><strong id="drive-left">--</strong>
+              <span>右轮</span><strong id="drive-right">--</strong>
+            </div>
+            <div id="joy" class="fb-joystick" aria-label="低速点动摇杆">
+              <div class="fb-joy-cross"></div>
+              <div id="stick" class="fb-stick"></div>
+            </div>
+          </div>
+        </div>
+        <div class="fb-mode-dock">
+          <button class="fb-mode-btn fb-mode-btn--safe" data-mode="SAFE_IDLE">安全停</button>
+          <button class="fb-mode-btn fb-mode-btn--manual" data-mode="MANUAL_H5_LOW_SPEED">手动</button>
+          <button class="fb-mode-btn fb-mode-btn--auto" data-mode="AUTO_FOLLOW_REQUEST">跟随</button>
+        </div>
+      </section>
+
+      <!-- ──── Tab 2: Sensors ──── -->
+      <section id="view-sensors" class="fb-view">
+        <div class="fb-viz-grid">
+          <article class="fb-panel">
+            <header class="fb-section-head">
+              <strong>UWB 方位</strong>
+              <span id="uwb-detail">--</span>
+            </header>
+            <div class="fb-canvas-wrap">
+              <canvas id="uwb-canvas" width="420" height="420"></canvas>
+              <div class="fb-canvas-badge">
+                <strong id="uwb">--</strong>
+                <span id="uwb-bearing">--</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="fb-panel">
+            <header class="fb-section-head">
+              <strong>雷达/融合障碍</strong>
+              <span id="obstacle">--</span>
+            </header>
+            <canvas id="obstacle-canvas" width="520" height="300"></canvas>
+          </article>
+
+          <article class="fb-panel">
+            <header class="fb-section-head">
+              <strong>TOF 前向</strong>
+              <span id="tof">--</span>
+            </header>
+            <div class="fb-bar-row">
+              <div><span id="tof-left-bar" class="fb-bar"></span><strong id="tof-left">--</strong><em>左</em></div>
+              <div><span id="tof-center-bar" class="fb-bar"></span><strong id="tof-center">--</strong><em>中</em></div>
+              <div><span id="tof-right-bar" class="fb-bar"></span><strong id="tof-right">--</strong><em>右</em></div>
+            </div>
+          </article>
+
+          <article class="fb-panel">
+            <header class="fb-section-head">
+              <strong>超声侧向</strong>
+              <span id="ultrasonic">--</span>
+            </header>
+            <div class="fb-side-range">
+              <div><span>左</span><strong id="ultra-left">--</strong></div>
+              <div><span>右</span><strong id="ultra-right">--</strong></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ──── Tab 3: Status ──── -->
+      <section id="view-status" class="fb-view">
+        <div class="grid">
+          <article class="fb-metric">
+            <span>运动许可</span><strong id="motion-card">--</strong>
+            <small id="safety-detail">--</small>
+          </article>
+          <article class="fb-metric">
+            <span>电机输出</span><strong id="motor">--</strong>
+            <small id="motor-detail">--</small>
+          </article>
+          <article class="fb-metric">
+            <span>遥控链路</span><strong id="rc">--</strong>
+            <small id="rc-age">--</small>
+          </article>
+          <article class="fb-metric">
+            <span>云端链路</span><strong id="cloud">--</strong>
+            <small id="cloud-age">--</small>
+          </article>
+        </div>
+        <article class="fb-panel">
+          <header class="fb-section-head">
+            <strong>系统状态</strong>
+            <span id="sys-time">--</span>
+          </header>
+          <div class="fb-status-list">
+            <div><span>安装向导</span><strong id="wizard-status">未完成</strong></div>
+            <div><span>油门标定</span><strong id="throttle-cal-status">未完成</strong></div>
+            <div><span>摄像头</span><strong id="camera-link">--</strong></div>
+            <div><span>文件系统</span><strong>LittleFS</strong></div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ──── Tab 4: Settings ──── -->
+      <section id="view-settings" class="fb-view">
+        <article class="fb-panel">
+          <header class="fb-section-head">
+            <strong>本地授权</strong>
+            <span id="local-key-status">未设置</span>
+          </header>
+          <label>控制 Key <input id="local-api-key" type="password" maxlength="64" placeholder="X-FollowBox-Key" /></label>
+          <div class="grid">
+            <button id="btn-local-key-save">保存 Key</button>
+            <button id="reset-fault" class="contrast outline">复位软件故障</button>
+          </div>
+        </article>
+
+        <article class="fb-panel">
+          <header class="fb-section-head">
+            <strong>视频地址</strong>
+            <span id="camera-url-state">--</span>
+          </header>
+          <div class="fb-url-row">
+            <input id="camera-url" type="url" value="http://192.168.4.2:81/stream" />
+            <button id="btn-camera-reload">保存查看</button>
+          </div>
+        </article>
+
+        <article class="fb-panel">
+          <header class="fb-section-head">
+            <strong>WiFi 配网</strong>
+            <span id="wifi-sta-status">未配置</span>
+          </header>
+          <div class="fb-status-row">
+            <span>STA IP</span><strong id="wifi-sta-ip">--</strong>
+          </div>
+          <label>WiFi 名称 <input id="wifi-ssid" type="text" maxlength="32" placeholder="2.4G SSID" /></label>
+          <label>WiFi 密码 <input id="wifi-pass" type="password" maxlength="63" placeholder="8-63 位" /></label>
+          <button id="btn-wifi-save">保存并连接</button>
+        </article>
+
+        <details>
+          <summary>安装与油门标定</summary>
+          <div class="fb-detail-body">
+            <div class="grid">
+              <label>死区 mV <input id="cal-deadband" type="number" value="800" /></label>
+              <label>起转 mV <input id="cal-min-active" type="number" value="1000" /></label>
+              <label>最大 mV <input id="cal-max" type="number" value="3600" /></label>
+              <label>满量程 mV <input id="cal-full-scale" type="number" value="5000" /></label>
+              <label>上升 mV/s <input id="cal-rise" type="number" value="800" /></label>
+              <label>下降 mV/s <input id="cal-fall" type="number" value="1600" /></label>
+            </div>
+            <fieldset>
+              <label><input id="wiz-estop" type="checkbox" /> 急停已实测</label>
+              <label><input id="wiz-wheels" type="checkbox" /> 车轮已架空</label>
+              <label><input id="wiz-direction" type="checkbox" /> 方向已确认</label>
+              <label><input id="wiz-throttle" type="checkbox" /> 油门已标定</label>
+            </fieldset>
+            <div class="grid">
+              <button id="btn-save-cal" class="secondary">保存标定</button>
+              <button id="btn-wizard-complete">完成向导</button>
+            </div>
+          </div>
+        </details>
+      </section>
+    </main>
+
+    <!-- ═══ Bottom Navigation ═══ -->
+    <nav class="fb-bottom-nav" aria-label="分类导航">
+      <button class="fb-nav-btn active" data-view="drive"><span>驾驶</span></button>
+      <button class="fb-nav-btn" data-view="sensors"><span>传感器</span></button>
+      <button class="fb-nav-btn" data-view="status"><span>状态</span></button>
+      <button class="fb-nav-btn" data-view="settings"><span>设置</span></button>
+    </nav>
+
+    <script src="../shared/helpers.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

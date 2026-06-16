@@ -1,0 +1,94 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--bg:#fbfaf7;--paper:#fff;--ink:rgba(0,0,0,.95);--muted:#665f56;--line:#e8e1d8;--blue:#0075de;--shadow:0 18px 48px rgba(20,20,20,.08)}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65}.wrap{width:min(1100px,calc(100% - 32px));margin:auto;padding:32px 0 70px}article{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:28px}h1{font-size:36px;margin:0 0 12px}h2{margin-top:28px;border-left:5px solid var(--blue);padding-left:12px}h3{margin-top:20px}pre{background:#111827;color:#edf2ff;border-radius:10px;padding:16px;overflow:auto}code{background:#f1f1ef;padding:2px 5px;border-radius:4px}pre code{background:transparent;padding:0}table{border-collapse:collapse;width:100%;margin:14px 0}td,th{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}blockquote,.lead{color:var(--muted);background:#f2f8ff;border-left:5px solid var(--blue);padding:10px 14px;border-radius:10px}li{margin:4px 0}p{margin:8px 0}</style></head><body><main class="wrap"><article><h1>Follow the Box 当前盒子设计方案</h1>
+<h2>1. 产品形态</h2>
+<p>首台样机采用“控制盒 + 外部电机控制器”结构：</p>
+<pre><code>控制盒：ESP32-S3 / UWB / DS600 接收机 / TOF / IMU / DC-DC / 急停链 / 接口端子
+外部驱动：左/右 36V 350W 无刷控制器
+视频：独立 ESP32-S3-CAM 模块</code></pre>
+<p>原因：控制核心和大电流驱动分开，布线更安全，后续换底盘时只改驱动适配和 Profile。</p>
+<h2>2. 外观布局</h2>
+<h3>顶部</h3>
+<table>
+<tr><th>位置</th><th>放什么</th><th>目的</th></tr>
+<tr><td>顶部最高处</td><td>UWB 外置天线</td><td>保持无遮挡，远离金属和动力线</td></tr>
+<tr><td>顶部容易拍到的位置</td><td>蘑菇头急停</td><td>任何人一眼看到、一手拍下</td></tr>
+<tr><td>顶部或前上方</td><td>状态灯/导光柱</td><td>显示上电、手动、跟随、故障、急停</td></tr>
+<tr><td>顶部可选</td><td>提手/安装耳</td><td>方便搬运和维护</td></tr>
+</table>
+<p>UWB 天线周围 50mm 内尽量不要有金属、电池、大电流线、DC-DC Buck 电感/模块；若盒体较小，UWB 天线优先外置到顶部。</p>
+<h3>前面板</h3>
+<table>
+<tr><th>位置</th><th>放什么</th><th>说明</th></tr>
+<tr><td>前中</td><td>TOF 中路窗口/端口</td><td>正前方障碍</td></tr>
+<tr><td>左前/右前</td><td>TOF 左/右窗口/端口</td><td>判断绕行空间</td></tr>
+<tr><td>前上方</td><td>摄像头窗口/支架</td><td>H5 远程看车前画面</td></tr>
+<tr><td>前面板</td><td>FRONT 方向箭头</td><td>防止盒子装反</td></tr>
+</table>
+<h3>后面板</h3>
+<table>
+<tr><th>位置</th><th>放什么</th><th>说明</th></tr>
+<tr><td>后下方</td><td>BAT IN</td><td>电池输入，线最短</td></tr>
+<tr><td>后下方</td><td>CTRL L / CTRL R</td><td>左右无刷控制器信号线</td></tr>
+<tr><td>后下方</td><td>MOTOR/POWER 走线出口</td><td>动力线远离 UWB 和传感器</td></tr>
+<tr><td>后侧</td><td>保险丝维护口</td><td>方便更换，避免手碰裸铜</td></tr>
+</table>
+<h3>左右侧</h3>
+<table>
+<tr><th>位置</th><th>放什么</th><th>说明</th></tr>
+<tr><td>左侧</td><td>US LEFT</td><td>左侧超声端口</td></tr>
+<tr><td>右侧</td><td>US RIGHT</td><td>右侧超声端口</td></tr>
+<tr><td>侧面</td><td>USB 调试/维护口</td><td>开发阶段保留，产品版加防水盖</td></tr>
+<tr><td>侧面</td><td>蜂鸣器/扬声器孔</td><td>声音外放，避开麦克风</td></tr>
+</table>
+<h2>3. 盒内分区</h2>
+<pre><code>┌────────────────────────────────────────────┐
+│ 低压控制区：ESP32 / DS600 RX / UWB / IMU      │  ← 上层，远离电机线
+├────────────────────────────────────────────┤
+│ 传感器接口区：TOF / 超声 / I2C / UART 端口     │  ← 前侧/左右侧
+├────────────────────────────────────────────┤
+│ 电源区：DC-DC / F2 / F3 / 分压 / 端子排        │  ← 靠近 BAT IN，远离 UWB
+├────────────────────────────────────────────┤
+│ 信号驱动区：PWM→0-5V ×2 / 光耦/MOS / CTRL端子 │  ← 靠近控制器线出口
+└────────────────────────────────────────────┘</code></pre>
+<p>当前首台样机不建议把两个 350W 控制器塞进小控制盒；控制器可贴底盘或独立固定，便于散热和走粗线。</p>
+<h2>4. 尺寸建议</h2>
+<table>
+<tr><th>版本</th><th>建议尺寸</th><th>适合内容</th></tr>
+<tr><td>信号控制盒</td><td>160-220mm × 120-160mm × 60-90mm</td><td>ESP32、UWB、DC-DC、接口板、保险、PWM转模拟模块</td></tr>
+<tr><td>动力一体盒</td><td>240-350mm × 160-240mm × 90-140mm</td><td>控制器、接触器、大电流端子、散热风道</td></tr>
+</table>
+<p>首台建议先做信号控制盒；大功率控制器放盒外或底盘散热位置。</p>
+<h2>5. 材料选择</h2>
+<table>
+<tr><th>材料</th><th>建议</th></tr>
+<tr><td>ABS/PC 塑料盒</td><td>首台更友好，射频不容易被屏蔽，开孔方便</td></tr>
+<tr><td>铝合金盒</td><td>强度和散热好，但 UWB/WiFi 需要外置天线或塑料窗口</td></tr>
+<tr><td>铝盒 + 塑料天线窗</td><td>产品版更好，结构复杂一点</td></tr>
+<tr><td>3D 打印外壳</td><td>适合临时验证，不适合作为长期户外外壳</td></tr>
+</table>
+<h2>6. 端口标签</h2>
+<p>建议盒子外部直接印或贴这些标签：</p>
+<pre><code>BAT IN
+ESTOP
+CTRL L
+CTRL R
+UWB ANT
+TOF L / TOF C / TOF R
+US LEFT / US RIGHT
+CAM
+USB DEBUG
+5V OUT
+GND</code></pre>
+<p>每个端口都要有方向、防呆、线号；不能只靠颜色记忆。</p>
+<h2>7. 装配规则</h2>
+<ol>
+<li>低压板固定在绝缘柱上，不靠杜邦线吊着。</li>
+<li>DC-DC 预留散热空间，先空载调到 5.0V 再接负载。</li>
+<li>动力线和相线不要与 UWB、TOF、PWM 油门线捆在一起。</li>
+<li>DC-DC Buck 与 UWB 模块/天线保持至少 50mm，5V 输出端并联低 ESR 电解电容 + 0.1uF 陶瓷电容。</li>
+<li>主负极使用星型汇流：两个控制器 BAT-、电池 BAT-、DC-DC VIN- 走粗线到主负极点；ESP32/传感器/转把 GND 只作低压信号参考，不能成为控制器 BAT- 断线后的回流路径。</li>
+<li>外壳醒目位置贴“上电后静止 3 秒”标识，避免 JY60/JY61P 上电零偏标定期间推晃导致 yaw 漂移。</li>
+<li>穿盒孔必须加护线圈，防止割线。</li>
+<li>外露传感器线必须有应力释放。</li>
+<li>每根线两端贴线号，拍照存档。</li>
+<li>盒内预留手能插拔保险和 USB 的空间。</li>
+</ol></article></main></body></html>

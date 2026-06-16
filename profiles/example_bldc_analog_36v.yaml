@@ -1,0 +1,140 @@
+chassis:
+  name: followbox_ds600_dual_bldc_v1
+  chassis_type: differential_wheel
+  battery_nominal_voltage: 36
+  battery_full_voltage: 42
+  supported_battery_max_voltage: 60
+  max_speed_first_run_percent: 20
+  max_speed_after_install_percent: 30
+  accel_limit: 0.25
+  decel_limit: 0.5
+
+drive_adapter:
+  adapter_type: ANALOG_BLDC
+  throttle_output: pwm_to_0_5v
+  motor_family: hall_bldc_controller
+  nominal_voltage: 36
+  command_unit: normalized_signed
+  feedback_source: none
+  feedback_note: optional_external_adc_after_hardware_added_and_calibrated
+  encoder_mode: none
+  encoder_note: wheel_hall_wires_go_to_controller_not_esp32_in_p0
+  watchdog_timeout_ms: 300
+
+pins:
+  rc_ch1_steering: 4
+  rc_ch2_throttle: 5
+  rc_ch3_speed: 6
+  rc_ch4_mode: 7
+  rc_ch5_stop: 8
+  rc_ch6_aux: -1
+  ultrasonic_shared_trig: 9
+  i2c_sda: 10
+  i2c_scl: 11
+  left_throttle_pwm: 12
+  right_throttle_pwm: 13
+  brake_out: 14
+  left_reverse_out: 15
+  right_reverse_out: 16
+  uwb_tx: 17
+  uwb_rx: 18
+  estop_status: 21
+  battery_adc: 1
+  controller_fault: 2
+  drive_enable_out: 39
+  ultrasonic_left_echo: 40
+  ultrasonic_right_echo: 41
+  imu_rx: 42
+
+polarity:
+  mcu_brake_out_active_level: high
+  mcu_left_reverse_out_active_level: high
+  mcu_right_reverse_out_active_level: high
+  mcu_drive_enable_out_active_level: high
+  controller_brake_line_active: pull_to_gnd
+  controller_reverse_line_active: pull_to_gnd
+  controller_enable_line_active: isolated_switch_or_relay
+  estop_active_level: high
+  controller_fault_active_level: low_or_unknown_until_measured
+
+throttle:
+  pwm_frequency_hz: 1000
+  pwm_resolution_bits: 12
+  measured_module_full_scale_mv: 5000
+  throttle_deadband_mv: 800
+  throttle_min_active_mv: 1000
+  throttle_max_mv: 3600
+  throttle_slew_rise_mv_per_s: 800
+  throttle_slew_fall_mv_per_s: 1600
+  throttle_rc_delay_ms: 150
+  external_pulldown_10k_required: true
+  adc_feedback_recommended: true
+  calibrated_required_for_auto_follow: true
+
+safety:
+  analog_output_has_hardware_pulldown: true
+  estop_feedback_required: true
+  estop_feedback_type: second_nc_contact
+  estop_fault_on_open_wire: true
+  remote_max_speed_percent: 20
+  h5_max_speed_percent: 10
+  auto_follow_max_speed_percent: 30
+
+remote:
+  physical_remote: HOTRC_DS600_PWM
+  physical_lost_stop_ms: 500
+  h5_lost_stop_ms: 1000
+  h5_local_enabled: true
+
+battery_adc:
+  divider_top_ohm: 220000
+  divider_bottom_ohm: 10000
+  adc_max_input_mv: 3300
+  supported_pack_max_mv: 60000
+  old_130k_10k_forbidden: true
+
+grounding:
+  star_ground_required: true
+  controller_bat_minus_must_not_return_via_signal_ground: true
+  prefer_opto_for_controller_switch_lines: true
+
+sensors:
+  i2c:
+    external_pullup_ohm: 4700
+    bus_clear_required: true
+    xshut_pins_present: false
+  uwb_layout:
+    min_distance_from_dcdc_mm: 50
+    dcdc_output_low_esr_cap_uF_min: 470
+  uwb:
+    model: GC-P2304-GS-2
+    uart_baud: 115200
+    protocol_status: needs_vendor_protocol_or_serial_capture_before_parser
+    target_distance_mm: 1500
+    stale_stop_ms: 1000
+  obstacle:
+    tof_front_left: true
+    tof_front_center: true
+    tof_front_right: true
+    ultrasonic_left: true
+    ultrasonic_right: true
+    slow_distance_mm: 1000
+    stop_distance_mm: 500
+    side_clear_min_mm: 600
+    stale_timeout_ms: 300
+  imu:
+    model: JY61P
+    enabled: true
+    uart_baud: confirm_on_arrival
+    yaw_sign: confirm_in_install_wizard
+    static_boot_hold_ms: 3000
+    require_stillness_label_on_box: true
+
+alert:
+  buzzer_type: passive_5v
+  buzzer_gpio: -1
+  buzzer_driver: transistor_or_mos_low_side
+
+video:
+  module: esp32_s3_cam
+  video_required_for_motion: false

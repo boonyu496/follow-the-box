@@ -1,0 +1,80 @@
+# FollowBox AI 运行与交接门禁
+
+> 目标：尽量确保 Codex / Claude / Copilot / 其他 AI 写完代码后，都会更新 `AI-HANDOFF-MEMORY.md`，避免下一个 AI 重复读大量上下文、浪费 token。
+
+## 结论先说
+
+`AI-HANDOFF-MEMORY.md` 本身不能强制所有 AI 使用。  
+要提高遵守率，必须同时使用三层约束：
+
+1. **启动 prompt 明确要求**：每次启动 Codex/Claude/Copilot 都把交接记忆写入任务要求。
+2. **项目内技能规则**：`skills/README.md` 和每个 `skills/*/SKILL.md` 都要求修改后更新交接记忆。
+3. **结束后门禁检查**：运行 `python3 tools/check_ai_handoff.py`，检查本次改动后是否更新过 `AI-HANDOFF-MEMORY.md`。
+
+## 所有 AI 启动前必须读取
+
+每次启动任何代码 AI，任务 prompt 前面都加：
+
+```text
+你在 FollowBox 项目中工作。开始前必须读取：
+1. README.md
+2. AI-HANDOFF-MEMORY.md
+3. skills/README.md
+4. 根据任务类型读取对应 skills/*/SKILL.md
+5. FIRMWARE-SPEC.md、CURRENT-WIRING-AI.md、PIN-MAP-V1.md、profiles/example_bldc_analog_36v.yaml
+
+只读问答可按 skills/README.md 的轻量读取规则执行；涉及固件、安全、GPIO、电源、上电、运动测试时必须读取全部权威文件。skills 中的样机事实只是摘要，若与 PIN-MAP-V1.md/FIRMWARE-SPEC.md/CURRENT-WIRING-AI.md 冲突，以权威文件为准并先报告冲突。
+
+如果你修改了任何代码、架构、文档、Profile、协议、测试方案或技能文件，结束前必须在 AI-HANDOFF-MEMORY.md 的“## 最新交接记录”下方顶部追加 8-12 行短交接记录，包含：改动、文件、架构影响、安全影响、验证、当前状态、下一步。
+
+禁止跳过交接记忆；如果没有验证，写“验证：未验证”，不能假装通过。
+```
+
+## Codex 推荐启动 prompt
+
+```bash
+codex exec --full-auto '
+你在 FollowBox 项目中工作。开始前必须读取 README.md、AI-HANDOFF-MEMORY.md、skills/README.md，并按任务类型读取对应 skills/*/SKILL.md。
+必须遵守 FIRMWARE-SPEC.md、CURRENT-WIRING-AI.md、PIN-MAP-V1.md、profiles/example_bldc_analog_36v.yaml。
+只读问答可按 skills/README.md 的轻量读取规则执行；涉及固件、安全、GPIO、电源、上电、运动测试时必须读取全部权威文件。skills 中的样机事实只是摘要，冲突时以权威文件为准并先报告冲突。
+如果修改任何文件，结束前必须更新 AI-HANDOFF-MEMORY.md：在“## 最新交接记录”下方顶部追加 8-12 行，写清改动、文件、架构影响、安全影响、验证、当前状态、下一步。
+完成后运行或说明验证结果，并确保 python3 tools/check_ai_handoff.py 通过。
+
+任务：<这里写具体任务>
+'
+```
+
+## Claude Code / Copilot 推荐 prompt
+
+```text
+你在 FollowBox 项目中工作。先读 README.md、AI-HANDOFF-MEMORY.md、skills/README.md，并按任务读取对应 skills/*/SKILL.md。
+必须遵守 FIRMWARE-SPEC.md、CURRENT-WIRING-AI.md、PIN-MAP-V1.md、profiles/example_bldc_analog_36v.yaml。
+只读问答可按 skills/README.md 的轻量读取规则执行；涉及固件、安全、GPIO、电源、上电、运动测试时必须读取全部权威文件。skills 中的样机事实只是摘要，冲突时以权威文件为准并先报告冲突。
+如果修改任何文件，结束前必须更新 AI-HANDOFF-MEMORY.md，在“## 最新交接记录”下方顶部追加 8-12 行短记录：改动、文件、架构影响、安全影响、验证、当前状态、下一步。
+不要贴大段代码，不要写密钥，不要假装验证。
+完成后运行或说明：python3 tools/check_ai_handoff.py
+
+任务：<这里写具体任务>
+```
+
+## Hermes 委托其他 AI 的规则
+
+Hermes 调 Codex/Claude/Copilot 前，必须把上面的交接规则放进 prompt。  
+Hermes 收到代码 AI 完成后，必须自己再运行：
+
+```bash
+python3 tools/check_ai_handoff.py
+```
+
+如果检查失败，不能宣布任务完成；要要求该 AI 补写，或由 Hermes 根据实际 diff 补写交接记录。
+
+## 门禁脚本用途
+
+`tools/check_ai_handoff.py` 检查：
+
+- `AI-HANDOFF-MEMORY.md` 是否存在；
+- 是否含推荐字段；
+- 如果当前目录是 git 仓库且有文件变更，是否也修改了 `AI-HANDOFF-MEMORY.md`；
+- 如果不是 git 仓库，做静态格式检查。
+
+它不能证明 AI 写得“好”，但能防止最常见的“改完代码忘记写交接”。

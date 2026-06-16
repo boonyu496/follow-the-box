@@ -1,0 +1,77 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--bg:#fbfaf7;--paper:#fff;--ink:rgba(0,0,0,.95);--muted:#665f56;--line:#e8e1d8;--blue:#0075de;--shadow:0 18px 48px rgba(20,20,20,.08)}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65}.wrap{width:min(1100px,calc(100% - 32px));margin:auto;padding:32px 0 70px}article{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:28px}h1{font-size:36px;margin:0 0 12px}h2{margin-top:28px;border-left:5px solid var(--blue);padding-left:12px}h3{margin-top:20px}pre{background:#111827;color:#edf2ff;border-radius:10px;padding:16px;overflow:auto}code{background:#f1f1ef;padding:2px 5px;border-radius:4px}pre code{background:transparent;padding:0}table{border-collapse:collapse;width:100%;margin:14px 0}td,th{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}blockquote,.lead{color:var(--muted);background:#f2f8ff;border-left:5px solid var(--blue);padding:10px 14px;border-radius:10px}li{margin:4px 0}p{margin:8px 0}</style></head><body><main class="wrap"><article><h1>Follow the Box 当前配件清单</h1>
+<h2>1. 当前样机架构</h2>
+<pre><code>HOTRC DS600 接收机 PWM
+  -&gt; ESP32-S3-DevKitC-1
+  -&gt; PWM 转 0-5V 模拟量模块 ×2
+  -&gt; 左/右 36V 350W 有霍尔无刷控制器
+  -&gt; 左/右轮毂电机</code></pre>
+<p>辅助模块：</p>
+<pre><code>UWB GC-P2304-GS-2 -&gt; 跟随距离/方位
+VL53L1X ×3 + TCA9548A -&gt; 前左/前中/前右避障
+HC-SR04 ×2 -&gt; 左/右侧辅助避障
+JY61P -&gt; 姿态/yaw 阻尼
+ESP32-S3-CAM + OV5640 -&gt; 独立视频，不参与安全控制</code></pre>
+<p>数量原则：首台样机按实际安装位购买，不默认多买备品。</p>
+<h2>2. 已有核心件</h2>
+<table>
+<tr><th>模块</th><th>物料</th><th>数量</th><th>当前判断</th><th>用途</th></tr>
+<tr><td>主控</td><td>ESP32-S3-DevKitC-1</td><td>1</td><td>合适</td><td>控制核心，接遥控、UWB、传感器、安全 I/O、油门输出</td></tr>
+<tr><td>视频</td><td>ESP32-S3-CAM + OV5640</td><td>1</td><td>可用</td><td>独立视频板，只负责 H5 视频</td></tr>
+<tr><td>遥控</td><td>HOTRC DS600 + 接收机</td><td>1 套</td><td>合适，待拍照确认线序</td><td>现场实体遥控，6 路 PWM 输入</td></tr>
+<tr><td>UWB</td><td>GC-P2304-GS-2</td><td>1 套</td><td>合适</td><td>UART，3.3V，输出距离和方位</td></tr>
+<tr><td>电机控制</td><td>36/48V 350W 有霍尔无刷控制器</td><td>2</td><td>合适</td><td>左右轮各一个控制器</td></tr>
+<tr><td>姿态</td><td>JY61P IMU</td><td>1</td><td>合适</td><td>yaw/yaw_rate、姿态状态</td></tr>
+<tr><td>前向 TOF</td><td>VL53L1X</td><td>3</td><td>合适</td><td>车头左/中/右近距避障</td></tr>
+<tr><td>I2C 扩展</td><td>TCA9548A/PCA9548A</td><td>1</td><td>合适</td><td>解决多个 VL53L1X 同地址问题</td></tr>
+<tr><td>侧向超声</td><td>HC-SR04</td><td>2</td><td>可用</td><td>左/右侧辅助判断；Echo 入 ESP32 前需降压</td></tr>
+<tr><td>低压电源</td><td>9-100V 输入、2-33V 可调、5A DC-DC</td><td>1</td><td>合适</td><td>36V 电池降到 5.0V 低压母线</td></tr>
+<tr><td>急停</td><td>Schneider XB5AS542C 1NC</td><td>1</td><td>合适</td><td>切控制器电门锁/使能线</td></tr>
+<tr><td>低压接插件</td><td>JST 防水对插 2/3/4/6 芯</td><td>12 套</td><td>合适</td><td>传感器、低压信号、小电流接口</td></tr>
+<tr><td>小保险</td><td>5A 防水保险丝盒</td><td>1</td><td>可用于低压支路</td><td>DC-DC 输入/低压支路保护</td></tr>
+<tr><td>制作辅料</td><td>洞洞板、排针、排母、热缩/胶棒</td><td>若干</td><td>只用于低压</td><td>禁止走电机主电流</td></tr>
+<tr><td>射频辅料</td><td>IPEX-SMA 延长线</td><td>1</td><td>待接口确认</td><td>UWB/天线外置可能使用</td></tr>
+<tr><td>机械</td><td>4 寸中型万向轮</td><td>2</td><td>可用</td><td>底盘支撑/结构</td></tr>
+</table>
+<h2>3. 还需要补齐</h2>
+<table>
+<tr><th>优先级</th><th>物料</th><th>数量</th><th>规格要点</th><th>用途</th></tr>
+<tr><td>P0</td><td>PWM 转 0-5V 模拟量模块</td><td>2</td><td>ESP32 3.3V PWM 输入兼容，输出 0-5V，最好可校准</td><td>左右无刷控制器转把输入</td></tr>
+<tr><td>P0</td><td>电池主保险 F1 + 保险座</td><td>1 套</td><td>适配 36V/42V DC，先按 30A 级别准备，最终按电池/BMS/线径确认</td><td>主动力短路保护</td></tr>
+<tr><td>P0</td><td>电门锁/急停支路小保险 F3</td><td>1 套</td><td>1A-3A 小保险 + 保险座</td><td>急停链路保护</td></tr>
+<tr><td>P0</td><td>DC 额定总电源开关</td><td>1</td><td>覆盖 42V DC 和控制器输入电流</td><td>总上电/断电</td></tr>
+<tr><td>P0</td><td>大电流电源接头/端子</td><td>按实际接口</td><td>XT60/XT90/Anderson/接线端子，额定电流足够</td><td>电池到控制器主回路</td></tr>
+<tr><td>P0</td><td>动力线、冷压端子、热缩管</td><td>按车上长度</td><td>主电源建议 12-14AWG 起步</td><td>主回路可靠连接</td></tr>
+<tr><td>P0</td><td>36V 动力电池参数确认</td><td>1</td><td>10 串锂电满电 42V，BMS 持续放电能力满足双控制器</td><td>决定主保险和线径</td></tr>
+<tr><td>P0</td><td>分压/电平转换物料</td><td>1 包</td><td>10k、20k、220k、4.7k、小电容，或小型电平转换/光耦模块</td><td>DS600 PWM、HC-SR04 Echo、JY61P TX 若为 5V 时必须降到 3.3V；电池电压采样统一 220k/10k，I2C SDA/SCL 外接 4.7k 上拉</td></tr>
+<tr><td>P0</td><td>MOS/光耦小板</td><td>4 路</td><td>低压控制、开漏/隔离优先，输入侧兼容 ESP32 3.3V</td><td>刹车、左倒车、右倒车、软件使能；未装前禁止接控制器开关量线</td></tr>
+<tr><td>P0</td><td>低 ESR 电解电容 + 0.1uF 陶瓷电容</td><td>1 套</td><td>5V 端建议 470uF 起步、耐压 ≥10V，靠近低压母线/DC-DC 输出</td><td>抑制 DC-DC Buck 纹波，降低 UWB 跳变/丢包风险</td></tr>
+<tr><td>P1</td><td>5V/GND 分配端子排</td><td>1 套</td><td>螺丝端子更稳</td><td>低压供电分配</td></tr>
+<tr><td>P1</td><td>线标/号码管/扎带/护线圈</td><td>1 套</td><td>每根线两端标号</td><td>装配和排错</td></tr>
+<tr><td>P0</td><td>急停反馈触点模块或隔离检测电路</td><td>1</td><td>首选 XB5 第二触点干接点；次选光耦隔离检测；禁止 GPIO21 直接接 36V 电门锁线</td><td>ESP32 GPIO21 读取急停状态，P0 必接</td></tr>
+<tr><td>P2</td><td>外壳/安装支架/透明窗</td><td>按结构</td><td>UWB/TOF/摄像头位置确定后再买</td><td>控制盒结构件</td></tr>
+</table>
+<h2>4. 线束分组</h2>
+<table>
+<tr><th>编号</th><th>名称</th><th>起点 -&gt; 终点</th><th>线径建议</th><th>接插件建议</th><th>备注</th></tr>
+<tr><td>WH-01</td><td>电池主电源</td><td>电池/主保险 -&gt; 左右控制器 BAT</td><td>12-14AWG 起步</td><td>XT60/XT90/Anderson/大电流端子</td><td>不走 JST/洞洞板/排针</td></tr>
+<tr><td>WH-02</td><td>低压取电</td><td>电池保险后 -&gt; F2 -&gt; DC-DC</td><td>18-22AWG</td><td>保险座/端子</td><td>给 5V 低压母线；DC-DC VIN- 到动力星型地，不串控制器 BAT-</td></tr>
+<tr><td>WH-03</td><td>5V 低压母线</td><td>DC-DC -&gt; ESP32/DS600/传感器/视频</td><td>22-24AWG</td><td>JST-XH/端子排</td><td>建议分支标号</td></tr>
+<tr><td>WH-04</td><td>急停链</td><td>F3 -&gt; 总开关 -&gt; 急停 NC -&gt; 控制器电门锁线</td><td>20-22AWG</td><td>插片/端子台</td><td>断线即停</td></tr>
+<tr><td>WH-05</td><td>DS600 接收机</td><td>CH1-CH5 -&gt; ESP32 GPIO4-GPIO8</td><td>24-26AWG</td><td>杜邦/焊接端子/小 JST</td><td>CH6 首版不接；若 PWM 为 5V，必须分压</td></tr>
+<tr><td>WH-06</td><td>UWB</td><td>ESP32 UART -&gt; UWB</td><td>24-26AWG</td><td>4P JST</td><td>TX/RX 交叉，3.3V 供电</td></tr>
+<tr><td>WH-07</td><td>TOF 前向线</td><td>TCA9548A -&gt; TOF 左/中/右</td><td>26AWG</td><td>4P JST/防水 4 芯</td><td>SDA/SCL/3.3V/GND；SDA/SCL 必须外接 4.7k 上拉到 3.3V</td></tr>
+<tr><td>WH-08</td><td>IMU</td><td>JY61P TX -&gt; ESP32 GPIO42</td><td>26AWG</td><td>3P/4P JST</td><td>首版只读 TX；若 5V 电平需分压</td></tr>
+<tr><td>WH-09</td><td>超声</td><td>GPIO9 共享 TRIG，GPIO40/41 接左右 Echo</td><td>24-26AWG</td><td>4P JST</td><td>Echo 进 ESP32 前降压</td></tr>
+<tr><td>WH-10</td><td>油门输出</td><td>GPIO12/13 -&gt; PWM转0-5V -&gt; 控制器转把线</td><td>屏蔽线优先</td><td>3P/4P 端子</td><td>左右分开标 L/R，PWM 输入外部 10k 下拉；转把 GND 只作信号参考，不承载 BAT- 主电流</td></tr>
+<tr><td>WH-11</td><td>驱动开关量</td><td>GPIO14/15/16/39 -&gt; MOS/光耦 -&gt; 控制器刹车/左倒车/右倒车/使能</td><td>24-26AWG</td><td>JST/端子</td><td>输出外部 10k 下拉，左右倒车不能并联</td></tr>
+<tr><td>WH-12</td><td>急停反馈</td><td>急停第二触点干接点/光耦隔离低压侧 -&gt; GPIO21</td><td>24-26AWG</td><td>JST/端子</td><td>P0 必接；禁止 GPIO21 直接读 36V 电门锁线；急停释放后仍需人工复位</td></tr>
+</table>
+<h2>5. 到货后必须确认</h2>
+<table>
+<tr><th>项目</th><th>需要确认</th></tr>
+<tr><td>DS600 接收机</td><td>S/+/- 排针顺序、供电范围、PWM 高电平、失控保护</td></tr>
+<tr><td>无刷控制器</td><td>电门锁、转把、刹车、倒车、学习、三速、巡航等线色和插头</td></tr>
+<tr><td>轮毂电机</td><td>三相线、霍尔线序、左右方向</td></tr>
+<tr><td>电池</td><td>铭牌、容量、BMS 持续/峰值放电能力；若换 48V/54.6V 底盘，确认 ADC 已为 220k/10k 分压</td></tr>
+<tr><td>急停</td><td>背面端子编号、必须确认第二触点或隔离检测方案给 GPIO21</td></tr>
+</table></article></main></body></html>

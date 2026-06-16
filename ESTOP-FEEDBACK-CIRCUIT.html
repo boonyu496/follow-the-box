@@ -1,0 +1,22 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--bg:#fbfaf7;--paper:#fff;--ink:rgba(0,0,0,.95);--muted:#665f56;--line:#e8e1d8;--blue:#0075de;--shadow:0 18px 48px rgba(20,20,20,.08)}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65}.wrap{width:min(1100px,calc(100% - 32px));margin:auto;padding:32px 0 70px}article{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:28px}h1{font-size:36px;margin:0 0 12px}h2{margin-top:28px;border-left:5px solid var(--blue);padding-left:12px}h3{margin-top:20px}pre{background:#111827;color:#edf2ff;border-radius:10px;padding:16px;overflow:auto}code{background:#f1f1ef;padding:2px 5px;border-radius:4px}pre code{background:transparent;padding:0}table{border-collapse:collapse;width:100%;margin:14px 0}td,th{border:1px solid var(--line);padding:7px 9px;text-align:left}blockquote,.lead{color:var(--muted);background:#f2f8ff;border-left:5px solid var(--blue);padding:10px 14px;border-radius:10px}li{margin:4px 0}p{margin:8px 0}@media(max-width:800px){article{padding:18px}}</style></head><body><main class="wrap"><article><h1>GPIO21 急停反馈隔离接线</h1>
+<p class="lead">目标：让 ESP32 知道急停是否按下，但绝不能把 36V 电门锁链直接接到 GPIO21。</p>
+<h2>硬规则</h2>
+<ol><li>GPIO21 只允许读取 3.3V 逻辑电平。</li><li>禁止：<code>36V 电门锁线 -&gt; 电阻 -&gt; GPIO21</code> 这种直接分压方案，除非经过专门隔离设计并验证故障安全；首版优先不用。</li><li>推荐优先级：<strong>第二触点干接点方案 &gt; 光耦隔离检测方案</strong>。</li><li>急停反馈断线必须按“急停/故障”处理，不能默认安全。</li></ol>
+<h2>方案 A：第二触点干接点（首选）</h2>
+<p>如果 Schneider XB5AS542C 已用 1NC 触点切电门锁，则给急停加第二触点模块，专门给 ESP32 低压侧读取。</p>
+<p>推荐接法（低压 3.3V 侧）：</p>
+<pre><code>ESP32 3V3 -&gt; 10k 上拉 -&gt; GPIO21 -&gt; 急停第二 NC 触点 -&gt; GND</code></pre>
+<p>逻辑定义：</p>
+<table><tr><th>状态</th><th>GPIO21</th><th>含义</th></tr><tr><td>急停未按下，第二 NC 闭合</td><td>0</td><td>ESTOP_RELEASED</td></tr><tr><td>急停按下，第二 NC 断开</td><td>1</td><td>ESTOP_ACTIVE</td></tr><tr><td>线断/插头脱落</td><td>1</td><td>ESTOP_ACTIVE / FAULT_LOCKOUT</td></tr></table>
+<p>说明：这里 GPIO21 的 <code>1</code> 表示危险/急停，便于断线故障安全。也可反向设计，但必须在 <code>POLARITY-DEFINITIONS.md</code> 和 Profile 里同步。</p>
+<h2>方案 B：光耦隔离检测电门锁链</h2>
+<p>当无法加第二触点时，用光耦检测急停后电门锁输出是否存在。36V 侧只驱动光耦 LED，ESP32 只读取光耦晶体管低压侧。</p>
+<pre><code>36V 电门锁链输出 -&gt; 限流电阻/恒流输入 -&gt; 光耦 LED -&gt; 电门锁 GND/回路
+光耦晶体管侧：GPIO21 + 10k 上拉到 3V3，光耦导通时拉低 GPIO21</code></pre>
+<p>必须由实测确定：急停未按下时光耦导通还是断开，并写入 Profile：</p>
+<pre><code>safety:
+  estop_feedback_type: second_nc_contact | optocoupler_elock_detect
+  estop_active_level: high
+  estop_fault_on_open_wire: true</code></pre>
+<h2>禁止给 AI 的误解</h2>
+<ul><li>不能写“电门锁线同时 GPIO21 读取”而不写隔离。</li><li>不能把 GPIO21 直接接控制器电门锁 36V 线。</li><li>不能省略 GPIO21；否则急停释放后可能因内部命令残留导致暴冲。</li></ul></article></main></body></html>

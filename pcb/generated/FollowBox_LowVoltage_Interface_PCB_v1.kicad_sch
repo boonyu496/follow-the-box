@@ -1,0 +1,17 @@
+(kicad_sch (version 20211123) (generator "followbox_kicad_generator")
+    (uuid c89456a5-1139-58ba-ba3f-90866176feaa)
+    (paper "A4")
+    (title_block
+        (title "FollowBox_LowVoltage_Interface_PCB_v1")
+        (comment 1 "PCB-only starter generated from Follow the Box pin map")
+        (comment 2 "Use the PCB document for connector placement, nets, and silkscreen zones")
+    )
+    (lib_symbols)
+    (text "PCB-only starter. Final schematic symbols can be rebuilt in EasyEDA Pro after KiCad import." (at 20.00 20.00 0)
+        (effects (font (size 2.00 2.00)) (justify left bottom))
+        (uuid 86f6835e-918a-57a2-b71c-0385c678c32f)
+    )
+    (sheet_instances
+        (path "/" (page "1"))
+    )
+)

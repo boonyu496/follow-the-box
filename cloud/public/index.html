@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="color-scheme" content="light dark" />
+    <title>FollowBox 云端控制台</title>
+    <link rel="stylesheet" href="./pico.min.css" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <!-- ═══ Sticky Header ═══ -->
+    <header class="fb-app-header">
+      <div class="fb-app-header__brand">
+        <strong>FollowBox</strong>
+        <span>云端控制台</span>
+      </div>
+      <span id="conn" class="fb-pill fb-pill--danger">未连接</span>
+    </header>
+
+    <!-- ═══ Quick Strip ═══ -->
+    <div class="fb-quick-strip">
+      <div><span>模式</span><strong id="mode">--</strong></div>
+      <div><span>许可</span><strong id="motion-allowed">--</strong></div>
+      <div><span>停车</span><strong id="stop-reason">--</strong></div>
+      <div><span>电池</span><strong id="battery">--</strong></div>
+    </div>
+
+    <!-- ═══ Main Content ═══ -->
+    <main class="fb-shell">
+
+      <!-- ──── Tab 1: Drive ──── -->
+      <section id="view-drive" class="fb-view active">
+        <div class="fb-drive-stage">
+          <img id="camera-stream" alt="ESP32-S3-CAM 实时画面" />
+          <div id="camera-placeholder" class="fb-cam-placeholder">
+            <strong>视频离线</strong>
+            <span id="camera-status">等待画面</span>
+          </div>
+          <div class="fb-video-top">
+            <span id="camera">摄像头 --</span>
+            <button id="fullscreen-btn" class="fb-fs-btn">全屏</button>
+          </div>
+          <div class="fb-video-bottom">
+            <div class="fb-drive-readout">
+              <span>左轮</span><strong id="drive-left">--</strong>
+              <span>右轮</span><strong id="drive-right">--</strong>
+            </div>
+            <div id="joy" class="fb-joystick" aria-label="低速点动摇杆">
+              <div class="fb-joy-cross"></div>
+              <div id="stick" class="fb-stick"></div>
+            </div>
+          </div>
+        </div>
+        <div class="fb-mode-dock">
+          <button class="fb-mode-btn fb-mode-btn--safe" id="safe-idle">安全停</button>
+          <button class="fb-mode-btn fb-mode-btn--manual" id="deadman">按住点动</button>
+        </div>
+      </section>
+
+      <!-- ──── Tab 2: Sensors ──── -->
+      <section id="view-sensors" class="fb-view">
+        <!-- Spatial Map (cloud-unique: UWB + TOF + Ultrasonic + Obstacle fusion) -->
+        <article class="fb-panel fb-map-panel">
+          <header class="fb-section-head">
+            <strong>空间地图</strong>
+            <span>UWB + 多传感器融合</span>
+          </header>
+          <div class="fb-map-wrap">
+            <canvas id="spatial-map" width="420" height="420"></canvas>
+            <div class="fb-map-legend">
+              <span><i style="background:#0075de"></i>UWB 目标</span>
+              <span><i style="background:#1aae39"></i>安全 &gt;1m</span>
+              <span><i style="background:#dd5b00"></i>警告 ~0.5m</span>
+              <span><i style="background:#dc2626"></i>危险 &lt;0.5m</span>
+            </div>
+          </div>
+        </article>
+
+        <div class="fb-viz-grid">
+          <article class="fb-panel">
+            <header class="fb-section-head">
+              <strong>UWB 方位</strong>
+              <span id="uwb-detail">--</span>
+            </header>
+            <div class="fb-tof-row">
+              <div class="fb-tof-cell"><em>距离</em><strong id="uwb">--</strong></div>
+              <div class="fb-tof-cell fb-tof-center"><em>方位</em><strong id="uwb-bearing">--</strong></div>
+              <div class="fb-tof-cell"><em>置信度</em><strong id="uwb-conf">--</strong></div>
+            </div>
+          </article>
+
+          <article class="fb-panel">
+            <header class="fb-section-head">
+              <strong>TOF 前向 (mm)</strong>
+              <span id="tof-status">--</span>
+            </header>
+            <div class="fb-tof-row">
+              <div class="fb-tof-cell"><em>左</em><strong id="tof-left">--</strong></div>
+              <div class="fb-tof-cell fb-tof-center"><em>中</em><strong id="tof-center">--</strong></div>
+              <div class="fb-tof-cell"><em>右</em><strong id="tof-right">--</strong></div>
+            </div>
+          </article>
+
+          <article class="fb-panel">
+            <header class="fb-section-head">
+              <strong>超声侧向 (mm)</strong>
+              <span id="ultrasonic-status">--</span>
+            </header>
+            <div class="fb-side-range">
+              <div><span>左</span><strong id="ultra-left">--</strong></div>
+              <div><span>右</span><strong id="ultra-right">--</strong></div>
+            </div>
+          </article>
+
+          <article class="fb-panel">
+            <header class="fb-section-head">
+              <strong>融合障碍 (mm)</strong>
+              <span id="obstacle-status">--</span>
+            </header>
+            <div class="fb-tof-row">
+              <div class="fb-tof-cell"><em>左前</em><strong id="obstacle-left">--</strong></div>
+              <div class="fb-tof-cell fb-tof-center"><em>正前</em><strong id="obstacle-center">--</strong></div>
+              <div class="fb-tof-cell"><em>右前</em><strong id="obstacle-right">--</strong></div>
+            </div>
+          </article>
+
+          <article class="fb-panel">
+            <header class="fb-section-head">
+              <strong>电机输出</strong>
+            </header>
+            <div class="fb-side-range">
+              <div><span>左轮</span><strong id="motor-left">--</strong></div>
+              <div><span>右轮</span><strong id="motor-right">--</strong></div>
+            </div>
+            <small id="motor-detail" style="display:block; text-align:center; padding:4px 0 12px">--</small>
+          </article>
+        </div>
+      </section>
+
+      <!-- ──── Tab 3: Status ──── -->
+      <section id="view-status" class="fb-view">
+        <div class="grid">
+          <article class="fb-metric">
+            <span>运动许可</span><strong id="motion-card">--</strong>
+            <small id="safety-detail">--</small>
+          </article>
+          <article class="fb-metric">
+            <span>命令状态</span><strong id="command-status">空闲</strong>
+            <small id="command-age">--</small>
+          </article>
+          <article class="fb-metric">
+            <span>数据接入</span><strong id="last-ingest">--</strong>
+            <small>最新遥测</small>
+          </article>
+          <article class="fb-metric">
+            <span>链路状态</span><strong id="link-status">--</strong>
+            <small id="sys-time">--</small>
+          </article>
+        </div>
+
+        <!-- Logs (cloud-unique) -->
+        <article class="fb-panel">
+          <header class="fb-section-head">
+            <strong>设备日志</strong>
+            <button id="clear-logs" class="secondary outline small">清空</button>
+          </header>
+          <pre id="logs" class="fb-log-pre">-- 等待日志 --</pre>
+        </article>
+
+        <!-- Raw JSON (cloud-unique) -->
+        <details>
+          <summary>原始 JSON</summary>
+          <pre id="raw" class="fb-raw-json">--</pre>
+        </details>
+      </section>
+
+      <!-- ──── Tab 4: Settings ──── -->
+      <section id="view-settings" class="fb-view">
+        <article class="fb-panel">
+          <header class="fb-section-head">
+            <strong>连接参数</strong>
+            <span id="connection-hint">云端中转模式</span>
+          </header>
+          <label>设备 ID <input id="device-id" type="text" value="followbox-001" placeholder="followbox-001" /></label>
+          <label>操作员 Token <input id="operator-token" type="password" maxlength="128" placeholder="云端鉴权令牌" /></label>
+          <small style="display:block; margin-top:4px; color:var(--pico-secondary-color)">
+            默认 token 与服务端匹配。如服务器未设置 FOLLOWBOX_OPERATOR_TOKEN，可留空。
+          </small>
+          <div class="fb-settings-actions">
+            <button id="save-connection" class="fb-save-btn">💾 保存并重连</button>
+            <span id="save-status" class="fb-save-status"></span>
+          </div>
+        </article>
+
+        <article class="fb-panel">
+          <header class="fb-section-head">
+            <strong>视频地址</strong>
+            <span id="camera-url-state">--</span>
+          </header>
+          <div class="fb-url-row">
+            <input id="camera-url" type="url" placeholder="留空自动使用云端转发" />
+            <button id="save-camera-url" class="fb-save-btn fb-save-btn--sm">保存</button>
+          </div>
+          <small style="display:block; margin-top:4px; color:var(--pico-secondary-color)">
+            留空自动使用 /api/device/{id}/video/stream（云端转发 MJPEG）
+          </small>
+        </article>
+
+        <article class="fb-panel">
+          <header class="fb-section-head">
+            <strong>固件 OTA</strong>
+          </header>
+          <div class="fb-status-row">
+            <span>当前版本</span><strong id="ota-version">--</strong>
+          </div>
+          <div class="fb-settings-actions">
+            <button id="check-ota" class="fb-save-btn">🔍 检查更新</button>
+            <span id="ota-status" class="fb-save-status"></span>
+          </div>
+          <small style="display:block; color:var(--pico-secondary-color)">
+            云端可下发固件更新。请确认车端已连接 WiFi 并接入云端。
+          </small>
+        </article>
+
+        <div style="margin-top:16px; padding:12px; border:1px solid var(--pico-muted-border-color); border-radius:var(--fb-r); background:var(--pico-card-sectioning-background-color)">
+          <small style="color:var(--pico-secondary-color)">
+            ⚠️ WiFi 配网和油门标定需直接连接小车热点，请使用 <strong>FollowBox AP 控制台</strong>（连接小车 WiFi 后访问 192.168.4.1）。
+          </small>
+        </div>
+      </section>
+    </main>
+
+    <!-- ═══ Bottom Navigation ═══ -->
+    <nav class="fb-bottom-nav" aria-label="分类导航">
+      <button class="fb-nav-btn active" data-view="drive"><span>驾驶</span></button>
+      <button class="fb-nav-btn" data-view="sensors"><span>传感器</span></button>
+      <button class="fb-nav-btn" data-view="status"><span>状态</span></button>
+      <button class="fb-nav-btn" data-view="settings"><span>设置</span></button>
+    </nav>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,26 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--bg:#fbfaf7;--paper:#fff;--ink:rgba(0,0,0,.95);--muted:#665f56;--line:#e8e1d8;--blue:#0075de;--shadow:0 18px 48px rgba(20,20,20,.08)}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65}.wrap{width:min(1100px,calc(100% - 32px));margin:auto;padding:32px 0 70px}article{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:28px}h1{font-size:36px;margin:0 0 12px}h2{margin-top:28px;border-left:5px solid var(--blue);padding-left:12px}h3{margin-top:20px}pre{background:#111827;color:#edf2ff;border-radius:10px;padding:16px;overflow:auto}code{background:#f1f1ef;padding:2px 5px;border-radius:4px}pre code{background:transparent;padding:0}table{border-collapse:collapse;width:100%;margin:14px 0}td,th{border:1px solid var(--line);padding:7px 9px;text-align:left}blockquote,.lead{color:var(--muted);background:#f2f8ff;border-left:5px solid var(--blue);padding:10px 14px;border-radius:10px}li{margin:4px 0}p{margin:8px 0}@media(max-width:800px){article{padding:18px}}</style></head><body><main class="wrap"><article><h1>Follow the Box 极性定义 v1.0</h1>
+<p class="lead">本文件定义 Profile 中 <code>active_high/active_low</code> 的语义，防止代码把 MOS/光耦输入极性和控制器线有效极性混为一谈。</p>
+<h2>两层极性必须分开</h2>
+<ol><li><strong>MCU 输出极性</strong>：ESP32 GPIO 对 MOS/光耦输入的含义。</li><li><strong>控制器线有效极性</strong>：无刷控制器刹车/倒车/使能线被拉到什么电平时有效。</li></ol>
+<p>当前首版 <code>example_bldc_analog_36v.yaml</code> 中：</p>
+<pre><code>polarity:
+  mcu_brake_out_active_level: high
+  mcu_left_reverse_out_active_level: high
+  mcu_right_reverse_out_active_level: high
+  mcu_drive_enable_out_active_level: high
+  controller_brake_line_active: pull_to_gnd
+  controller_reverse_line_active: pull_to_gnd
+  controller_enable_line_active: isolated_switch_or_relay
+  estop_active_level: high
+  controller_fault_active_level: low_or_unknown_until_measured</code></pre>
+<p>含义：</p>
+<table><tr><th>字段</th><th>含义</th></tr><tr><td><code>mcu_*_active_level: high</code></td><td>ESP32 GPIO 输出高电平时，MOS/光耦输入导通</td></tr><tr><td><code>controller_brake_line_active: pull_to_gnd</code></td><td>控制器低刹线被 MOS/光耦拉到 GND 时刹车有效</td></tr><tr><td><code>controller_reverse_line_active: pull_to_gnd</code></td><td>控制器倒车线被 MOS/光耦拉到 GND 时倒车有效</td></tr><tr><td><code>controller_enable_line_active</code></td><td>首版不能直接用 ESP32 拉 36V；必须是隔离开关/继电器/MOS 方案</td></tr><tr><td><code>estop_active_level: high</code></td><td>GPIO21 高电平表示急停按下或反馈断线</td></tr></table>
+<h2>输出默认态</h2>
+<p>所有驱动输出 GPIO 必须外部 10k 下拉到 GND：</p>
+<table><tr><th>GPIO</th><th>默认电平</th><th>默认结果</th></tr><tr><td>12/13 油门 PWM</td><td>0</td><td>油门 0</td></tr><tr><td>14 刹车 MOS 输入</td><td>0</td><td>刹车输出不主动动作；故障时软件主动置高触发刹车</td></tr><tr><td>15/16 倒车 MOS 输入</td><td>0</td><td>不倒车</td></tr><tr><td>39 软件使能 MOS/继电器输入</td><td>0</td><td>不使能</td></tr></table>
+<h2>代码要求</h2>
+<p><code>drive_adapter_analog_bldc</code> 不允许直接假设控制器线电平。它只能根据 Profile 的 <code>polarity</code> 字段调用 HAL：</p>
+<pre><code>writeMcuActive(PIN_BRAKE_OUT, command.brake, polarity.mcu_brake_out_active_level);
+writeMcuActive(PIN_LEFT_REVERSE_OUT, command.left_reverse, polarity.mcu_left_reverse_out_active_level);
+writeMcuActive(PIN_RIGHT_REVERSE_OUT, command.right_reverse, polarity.mcu_right_reverse_out_active_level);
+writeMcuActive(PIN_DRIVE_ENABLE_OUT, command.enable, polarity.mcu_drive_enable_out_active_level);</code></pre></article></main></body></html>

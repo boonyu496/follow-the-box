@@ -1,0 +1,36 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--bg:#fbfaf7;--paper:#fff;--ink:rgba(0,0,0,.95);--muted:#665f56;--line:#e8e1d8;--blue:#0075de;--shadow:0 18px 48px rgba(20,20,20,.08)}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65}.wrap{width:min(1100px,calc(100% - 32px));margin:auto;padding:32px 0 70px}article{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:28px}h1{font-size:36px;margin:0 0 12px}h2{margin-top:28px;border-left:5px solid var(--blue);padding-left:12px}h3{margin-top:20px}pre{background:#111827;color:#edf2ff;border-radius:10px;padding:16px;overflow:auto}code{background:#f1f1ef;padding:2px 5px;border-radius:4px}pre code{background:transparent;padding:0}table{border-collapse:collapse;width:100%;margin:14px 0}td,th{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}blockquote,.lead{color:var(--muted);background:#f2f8ff;border-left:5px solid var(--blue);padding:10px 14px;border-radius:10px}li{margin:4px 0}p{margin:8px 0}</style></head><body><main class="wrap"><article><h1>JY61P IMU 串口协议</h1>
+<h2>接线</h2>
+<table>
+<tr><th>JY61P</th><th>ESP32-S3</th></tr>
+<tr><td>VCC</td><td>5V</td></tr>
+<tr><td>GND</td><td>GND</td></tr>
+<tr><td>TX</td><td>GPIO42</td></tr>
+<tr><td>RX</td><td>首版不接</td></tr>
+</table>
+<p>若 JY61P TX 是 5V 电平，GPIO42 前必须分压/电平转换。</p>
+<h2>默认串口参数</h2>
+<p>常见默认值：9600 或 115200 8N1。首版必须用串口工具确认实际波特率后写入 Profile。</p>
+<h2>帧格式</h2>
+<p>JY61P 常见 WitMotion/JY 系列格式为：</p>
+<pre><code>0x55 0x51 ... 加速度帧
+0x55 0x52 ... 角速度帧
+0x55 0x53 ... 角度帧</code></pre>
+<p>但不同固件可能不同。正式驱动必须以到货模块资料或串口样例确认。</p>
+<h2>首版需要字段</h2>
+<pre><code>struct ImuSnapshot {
+  bool valid;
+  uint32_t last_update_ms;
+  float yaw_deg;
+  float yaw_rate_dps;
+  float pitch_deg;
+  float roll_deg;
+};</code></pre>
+<h2>实现规则</h2>
+<ul>
+<li>首版只读 TX，不配置模块。</li>
+<li>串口解析失败丢帧，不能阻塞控制任务。</li>
+<li>IMU 超时只降低 yaw 阻尼能力，不能让系统默认高速通行。</li>
+<li>yaw 方向需要安装向导实测，写入 <code>imu.yaw_sign</code>。</li>
+</ul>
+<h2>上电静止要求</h2>
+<p>JY60/JY61P 类 IMU 通常在上电最初 2-3 秒估计静态零偏。控制盒外观必须贴“上电后静止 3 秒”标识；固件 BOOT_SELF_TEST 应等待静止窗口，若 yaw_rate/加速度扰动明显，应保持安全锁定并提示重新静置/重启。</p></article></main></body></html>

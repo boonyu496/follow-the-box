@@ -1,0 +1,36 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--bg:#fbfaf7;--paper:#fff;--ink:rgba(0,0,0,.95);--muted:#665f56;--line:#e8e1d8;--blue:#0075de;--shadow:0 18px 48px rgba(20,20,20,.08)}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65}.wrap{width:min(1100px,calc(100% - 32px));margin:auto;padding:32px 0 70px}article{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:28px}h1{font-size:36px;margin:0 0 12px}h2{margin-top:28px;border-left:5px solid var(--blue);padding-left:12px}h3{margin-top:20px}pre{background:#111827;color:#edf2ff;border-radius:10px;padding:16px;overflow:auto}code{background:#f1f1ef;padding:2px 5px;border-radius:4px}pre code{background:transparent;padding:0}table{border-collapse:collapse;width:100%;margin:14px 0}td,th{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}blockquote,.lead{color:var(--muted);background:#f2f8ff;border-left:5px solid var(--blue);padding:10px 14px;border-radius:10px}li{margin:4px 0}p{margin:8px 0}</style></head><body><main class="wrap"><article><h1>Follow the Box Pin Map v1.0</h1>
+<blockquote>当前唯一 Pin Map：本文件是当前样机唯一引脚表。<code>FIRMWARE-SPEC.md</code>、<code>CURRENT-WIRING-AI.md</code>、Profile、代码 <code>board_pins.h</code> 必须引用本表。若有差异，以本文件 + <code>CURRENT-WIRING-AI.md</code> 为准，并同步修正所有文档。</blockquote>
+<h2>当前唯一引脚分配</h2>
+<table>
+<tr><th>功能</th><th>GPIO</th><th>方向</th><th>P0/P1</th><th>说明</th></tr>
+<tr><td>DS600 CH1 转向</td><td>4</td><td>输入</td><td>P0</td><td>若 PWM 高电平为 5V，必须分压/电平转换</td></tr>
+<tr><td>DS600 CH2 油门</td><td>5</td><td>输入</td><td>P0</td><td>若 PWM 高电平为 5V，必须分压/电平转换</td></tr>
+<tr><td>DS600 CH3 限速</td><td>6</td><td>输入</td><td>P0</td><td>若 PWM 高电平为 5V，必须分压/电平转换</td></tr>
+<tr><td>DS600 CH4 模式</td><td>7</td><td>输入</td><td>P0</td><td>若 PWM 高电平为 5V，必须分压/电平转换</td></tr>
+<tr><td>DS600 CH5 STOP/刹车</td><td>8</td><td>输入</td><td>P0</td><td>若 PWM 高电平为 5V，必须分压/电平转换</td></tr>
+<tr><td>DS600 CH6</td><td>-1</td><td>不接</td><td>P1</td><td>首版不接；GPIO9 留给超声 TRIG</td></tr>
+<tr><td>超声共享 TRIG</td><td>9</td><td>输出</td><td>P0</td><td>左右 HC-SR04 共用 TRIG</td></tr>
+<tr><td>TOF I2C SDA</td><td>10</td><td>双向</td><td>P0</td><td>TCA9548A + VL53L1X ×3</td></tr>
+<tr><td>TOF I2C SCL</td><td>11</td><td>输出</td><td>P0</td><td>TCA9548A + VL53L1X ×3</td></tr>
+<tr><td>左油门 PWM</td><td>12</td><td>输出</td><td>P0</td><td>到左 PWM→0-5V 模块 PWM IN；外部 10k 下拉</td></tr>
+<tr><td>右油门 PWM</td><td>13</td><td>输出</td><td>P0</td><td>到右 PWM→0-5V 模块 PWM IN；外部 10k 下拉</td></tr>
+<tr><td>刹车输出</td><td>14</td><td>输出</td><td>P0</td><td>只驱动 MOS/光耦输入；不能直连控制器线</td></tr>
+<tr><td>左倒车输出</td><td>15</td><td>输出</td><td>P0</td><td>只驱动 MOS/光耦输入；不能与右倒车并联</td></tr>
+<tr><td>右倒车输出</td><td>16</td><td>输出</td><td>P0</td><td>只驱动 MOS/光耦输入；不能与左倒车并联</td></tr>
+<tr><td>UWB TX</td><td>17</td><td>输出</td><td>P0</td><td>ESP32 TX -&gt; UWB RX</td></tr>
+<tr><td>UWB RX</td><td>18</td><td>输入</td><td>P0</td><td>UWB TX -&gt; ESP32 RX</td></tr>
+<tr><td>急停状态反馈</td><td>21</td><td>输入</td><td>P0</td><td>必须来自第二触点干接点或隔离检测，禁止直接接 36V 电门锁线</td></tr>
+<tr><td>电池电压 ADC</td><td>1</td><td>输入</td><td>P0</td><td>220k/10k 分压，36V-60V 通用；60V 约 2.61V，旧 130k/10k 禁用</td></tr>
+<tr><td>控制器故障输入</td><td>2</td><td>输入</td><td>P1/P0可选</td><td>必须高阻/光耦/分压；不能影响上电/下载；未确认前不作为输出</td></tr>
+<tr><td>软件使能</td><td>39</td><td>输出</td><td>P0</td><td>只驱动 MOS/光耦/继电器输入；不直连 36V 电门锁</td></tr>
+<tr><td>左超声 ECHO</td><td>40</td><td>输入</td><td>P0</td><td>HC-SR04 Echo 必须分压/电平转换</td></tr>
+<tr><td>右超声 ECHO</td><td>41</td><td>输入</td><td>P0</td><td>HC-SR04 Echo 必须分压/电平转换</td></tr>
+<tr><td>IMU RX</td><td>42</td><td>输入</td><td>P0</td><td>接 JY61P TX；若 5V 电平必须分压/电平转换</td></tr>
+</table>
+<h2>明确作废</h2>
+<pre><code>GPIO35 / GPIO36 / GPIO37 作为刹车/倒车/使能输出：作废
+GPIO47 / GPIO48 作为左右油门 PWM：作废
+DS600 CH6 占 GPIO9：作废
+HC-SR04 占 GPIO12/13/14/15：作废
+JY61P 占 GPIO40/41：作废
+单 bool reverse 倒车结构：作废</code></pre></article></main></body></html>

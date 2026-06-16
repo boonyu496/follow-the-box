@@ -1,0 +1,51 @@
+[
+  {
+    "timestamp": "2026-06-15T08:37:40.189498+00:00",
+    "findings_count": 0,
+    "fusion_score": null,
+    "files": [
+      "firmware\\src\\web\\h5_command_handler.cpp",
+      "firmware\\src\\web\\h5_request_parser.cpp",
+      "firmware\\src\\web\\h5_web_server.cpp",
+      "firmware\\src\\web\\telemetry_api.cpp",
+      "firmware\\src\\web\\h5_command_handler.h",
+      "firmware\\src\\web\\h5_request_parser.h",
+      "firmware\\src\\web\\h5_web_server.h",
+      "firmware\\src\\web\\telemetry_api.h"
+    ]
+  },
+  {
+    "timestamp": "2026-06-15T08:38:05.464381+00:00",
+    "findings_count": 0,
+    "fusion_score": null,
+    "files": [
+      "firmware\\src\\web\\h5_command_handler.cpp",
+      "firmware\\src\\web\\h5_request_parser.cpp",
+      "firmware\\src\\web\\h5_web_server.cpp",
+      "firmware\\src\\web\\telemetry_api.cpp",
+      "firmware\\src\\web\\h5_command_handler.h",
+      "firmware\\src\\web\\h5_request_parser.h",
+      "firmware\\src\\web\\h5_web_server.h",
+      "firmware\\src\\web\\telemetry_api.h"
+    ]
+  },
+  {
+    "timestamp": "2026-06-15T08:39:12.235942+00:00",
+    "findings_count": 5,
+    "fusion_score": 7.25,
+    "files": [
+      "firmware\\src\\safety\\safety_manager.cpp",
+      "firmware\\src\\control\\motion_mixer.cpp",
+      "firmware\\src\\drive\\drive_adapter_analog_bldc.cpp",
+      "firmware\\src\\app\\app.cpp",
+      "firmware\\src\\web\\h5_web_server.cpp"
+    ]
+  },
+  {
+    "timestamp": "2026-06-15T09:02:19.956538+00:00",
+    "files": 5,
+    "findings": 0,
+    "fusion_score": null,
+    "build": "SUCCESS"
+  }
+]

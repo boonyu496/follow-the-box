@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Follow the Box 接线思维导图</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --ink: rgba(0,0,0,0.88);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      font-family: "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    }
+    header {
+      max-width: 1400px; margin: 0 auto; padding: 20px 28px 0;
+    }
+    header h1 { font-size: 26px; color: var(--ink); margin-bottom: 2px; }
+    header p  { font-size: 13px; color: #5f6b7a; }
+    .badges {
+      display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0;
+    }
+    .badges b {
+      display: inline-block; padding: 3px 10px; border-radius: 999px;
+      font-size: 11px; font-weight: 600; background: #fff;
+      border: 1px solid #d6d0c4; color: #475467;
+    }
+    .badges .danger { background: #fff1ef; border-color: #f0a59d; color: #b42318; }
+    #mindmap {
+      width: 100%; height: calc(100vh - 120px); display: block;
+    }
+    .markmap-link { stroke: #c0b9ad !important; stroke-width: 1.5px !important; }
+    .mm-toolbar {
+      position: fixed; bottom: 20px; right: 24px;
+      display: flex; gap: 6px; z-index: 100;
+    }
+    .mm-toolbar button {
+      width: 34px; height: 34px; border: 1px solid #d6d0c4;
+      border-radius: 8px; background: #fff; cursor: pointer;
+      font-size: 15px; color: #475467;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    }
+    .mm-toolbar button:hover { background: #f4f1ea; }
+    .legend {
+      position: fixed; bottom: 26px; left: 32px;
+      font-size: 11px; color: #8b95a5; z-index: 100;
+      line-height: 1.6;
+    }
+    .legend span { margin-right: 14px; }
+    .legend .dot {
+      display: inline-block; width: 9px; height: 9px;
+      border-radius: 2px; margin-right: 4px; vertical-align: middle;
+    }
+    .dot-pwr { background: #d97706; }
+    .dot-rc  { background: #2563eb; }
+    .dot-sns { background: #16a34a; }
+    .dot-com { background: #7c3aed; }
+    .dot-drv { background: #a0643a; }
+    .dot-saf { background: #d32f2f; }
+    .dot-adc { background: #8B5E3C; }
+    .supplement {
+      max-width: 1400px;
+      margin: 14px auto 40px;
+      padding: 16px 28px 20px;
+      color: var(--ink);
+    }
+    .supplement h2 {
+      font-size: 20px;
+      margin-bottom: 10px;
+    }
+    .supplement p {
+      font-size: 13px;
+      color: #5f6b7a;
+      margin-bottom: 12px;
+    }
+    .supplement table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      border: 1px solid #d6d0c4;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .supplement th,
+    .supplement td {
+      border-bottom: 1px solid #efe8db;
+      padding: 10px 12px;
+      font-size: 13px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .supplement th {
+      background: #f7f3ea;
+      font-weight: 700;
+      color: #344054;
+    }
+    .supplement tr:last-child td { border-bottom: none; }
+    .supplement .note {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #475467;
+      line-height: 1.7;
+    }
+    @media (max-width: 900px) {
+      .supplement { padding: 14px 14px 18px; }
+      .supplement th,
+      .supplement td { font-size: 12px; padding: 8px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Follow the Box 控制盒接线 — 思维导图</h1>
+  <p>双 36V 电机控制器 · ESP32-S3 上层控制 · PWM 转电压油门 · 8 路 PC817 开关量隔离 · 点击折叠 · 滚轮缩放</p>
+  <div class="badges">
+    <b>两个控制器</b><b>两个 PWM→电压</b><b>8 路 PC817</b>
+    <b>霍尔只接电机</b><b class="danger">1NC 急停只切电门锁</b>
+  </div>
+</header>
+
+<svg id="mindmap"></svg>
+
+<section class="supplement">
+  <h2>双控制器实物接线定版</h2>
+  <p>本页按当前硬件采购方案整理：两个 36V 方波无刷控制器、两个 PWM 转电压模块、一个 8 路 PC817 光耦模块、一个 Schneider XB5AS542C 1NC 急停。所有控制器线先用万用表确认，未确认前按高压处理。</p>
+  <table>
+    <thead>
+      <tr><th>模块/线束</th><th>实际接法</th><th>注意事项</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>左/右控制器相线</td><td>三根粗相线分别接对应轮毂电机三相线。</td><td>不上 ESP32，不进洞洞板，不走排针/杜邦线。</td></tr>
+      <tr><td>左/右控制器霍尔线</td><td>5 芯霍尔插头只接对应轮毂电机霍尔插头。</td><td>ESP32 不串联、不改写霍尔；若以后只读速度，需高阻分压/隔离旁路采样。</td></tr>
+      <tr><td>左/右转把油门</td><td>ESP32 GPIO12/GPIO13 输出 PWM 到两个 PWM 转电压模块；模块 VOUT 分别接左右控制器转把信号。</td><td>PWM 模块模拟侧用对应控制器转把 5V/GND 作参考，首次把最大输出限制在约 3.6V。</td></tr>
+      <tr><td>8 路 PC817 光耦</td><td>首版实装 CH1-CH4：GPIO14 同时驱动 CH1/CH2 做左右低刹，GPIO15 驱动 CH3 左倒车，GPIO16 驱动 CH4 右倒车。</td><td>CH5-CH8 备用；本模块输出侧只接低压小电流开关信号，不接 36V 电门锁。</td></tr>
+      <tr><td>Schneider 1NC 急停</td><td>串在两个控制器电门锁/使能供电线上，按下后同时断开左右控制器电门锁。</td><td>1NC 本体没有第二反馈触点；GPIO21 反馈需另加辅助 NC 触点或 36V 额定隔离反馈。</td></tr>
+      <tr><td>电池与低压供电</td><td>36V 主动力经 F1/总开关给两个控制器；低压经 F2/DC-DC 给 ESP32 和传感器。</td><td>BAT-、控制器负极、DC-DC 输入负极在星型汇流点汇合，主电流不经 ESP32 地线。</td></tr>
+    </tbody>
+  </table>
+  <p class="note">禁止把电池线、相线、霍尔供电/信号线、学习线、报警器电源线、未知高刹线直接接 ESP32 或 PC817。PC817 模块标称输出约 3.3-30V、≤10mA，只适合模拟低压开关。</p>
+</section>
+
+<div class="legend">
+  <span><span class="dot dot-pwr"></span>36V动力</span>
+  <span><span class="dot" style="background:#ca8a04"></span>低压供电</span>
+  <span><span class="dot dot-saf"></span>安全链</span>
+  <span><span class="dot dot-rc"></span>遥控输入</span>
+  <span><span class="dot dot-drv"></span>驱动输出</span>
+  <span><span class="dot dot-sns"></span>传感器</span>
+  <span><span class="dot dot-com"></span>通信/I2C</span>
+  <span><span class="dot dot-adc"></span>ADC</span>
+</div>
+
+<div class="mm-toolbar">
+  <button onclick="window.__mm && window.__mm.fit()" title="适应窗口">⊡</button>
+  <button onclick="window.__mm && window.__mm.rescale(1.2)" title="放大">＋</button>
+  <button onclick="window.__mm && window.__mm.rescale(0.83)" title="缩小">－</button>
+  <button onclick="window.__mm && window.__mm.rescale(1); window.__mm && window.__mm.fit()" title="重置">↺</button>
+</div>
+
+<script src="lib/d3.min.js"></script>
+<script src="lib/markmap-view.js"></script>
+<script src="lib/markmap-lib.iife.js"></script>
+
+<script>
+(function() {
+  if (!window.markmap || !window.markmap.Transformer || !window.markmap.Markmap) {
+    document.getElementById('mindmap').style.display = 'none';
+    var fb = document.getElementById('fallback');
+    if (fb) fb.style.display = 'block';
+    document.querySelector('.mm-toolbar').style.display = 'none';
+    document.querySelector('.legend').style.display = 'none';
+    return;
+  }
+
+  var MARKDOWN =
+"# ⚡ Follow the Box 双 36V 控制器实物接线图\n" +
+"\n" +
+"## ✅ 当前硬件定版\n" +
+"### 两个 36V 350W 方波无刷控制器 [左轮/右轮各 1 个]\n" +
+"### 两个 PWM→0-5V 电压模块 [左油门/右油门各 1 个]\n" +
+"### 一个 8 路 PC817 光耦隔离模块 [买 8 路版本；首版实装 4 路，余量备用]\n" +
+"### 一个 Schneider XB5AS542C 1NC 急停 [只切电门锁/使能，不切主电流]\n" +
+"### 一个 36V→5V DC-DC [给 ESP32 与低压模块供电]\n" +
+"### 所有控制器未知细线先万用表测量；未确认前按高压处理\n" +
+"\n" +
+"## 🔶 36V 电池 BAT+ [正极出发]\n" +
+"### F1 主保险 30A [紧靠电池正极，动力主支路]\n" +
+"#### 总电源开关 [能断左右控制器主电源]\n" +
+"##### 🔶 左控制器 BAT+ [12-14AWG 动力线]\n" +
+"###### 左控制器 BAT- → BAT- 星型汇流点\n" +
+"###### 左控制器 三根粗相线 → 左轮毂电机三相线\n" +
+"###### 左控制器 霍尔5芯 → 左轮毂电机霍尔5芯 [ESP32 不接]\n" +
+"###### 左控制器 学习线 → 仅调试时临时短接；学习完立即断开并绝缘\n" +
+"###### 左控制器 转把红+5V/黑GND → PWM左模块模拟侧 VCC/GND [取同一控制器参考]\n" +
+"####### PWM左模块 PWM_IN ← ESP32 GPIO12 [洞洞板端 10k 下拉到GND]\n" +
+"####### PWM左模块 VOUT → 左控制器转把信号线 [首次校准最大约 3.6V]\n" +
+"###### 左控制器 低电平刹车线 → PC817 CH1 输出C [输出E接左控制器GND]\n" +
+"###### 左控制器 倒车线 → PC817 CH3 输出C [输出E接左控制器GND]\n" +
+"###### 左控制器 三速/限速/巡航线 → 暂不接 [确认低压小电流后再接 CH5/CH7]\n" +
+"###### 左控制器 电门锁线 ← 急停1NC OUT [不是接ESP32 GPIO]\n" +
+"##### 🔶 右控制器 BAT+ [12-14AWG 动力线]\n" +
+"###### 右控制器 BAT- → BAT- 星型汇流点\n" +
+"###### 右控制器 三根粗相线 → 右轮毂电机三相线\n" +
+"###### 右控制器 霍尔5芯 → 右轮毂电机霍尔5芯 [ESP32 不接]\n" +
+"###### 右控制器 学习线 → 仅调试时临时短接；学习完立即断开并绝缘\n" +
+"###### 右控制器 转把红+5V/黑GND → PWM右模块模拟侧 VCC/GND [取同一控制器参考]\n" +
+"####### PWM右模块 PWM_IN ← ESP32 GPIO13 [洞洞板端 10k 下拉到GND]\n" +
+"####### PWM右模块 VOUT → 右控制器转把信号线 [首次校准最大约 3.6V]\n" +
+"###### 右控制器 低电平刹车线 → PC817 CH2 输出C [输出E接右控制器GND]\n" +
+"###### 右控制器 倒车线 → PC817 CH4 输出C [输出E接右控制器GND]\n" +
+"###### 右控制器 三速/限速/巡航线 → 暂不接 [确认低压小电流后再接 CH6/CH8]\n" +
+"###### 右控制器 电门锁线 ← 急停1NC OUT [不是接ESP32 GPIO]\n" +
+"### 🔴 F3 1A-3A 电门锁/使能小保险 [从总开关后BAT+取电]\n" +
+"#### → Schneider 急停 1NC 常闭触点 IN\n" +
+"##### 急停 1NC OUT → 左控制器电门锁线\n" +
+"##### 急停 1NC OUT → 右控制器电门锁线\n" +
+"##### 正常：1NC闭合，两控制器允许上电\n" +
+"##### 按下：1NC断开，两控制器电门锁同时失电\n" +
+"##### ⚠️ 1NC 本体没有第二反馈触点；不能再直接接 GPIO21\n" +
+"###### GPIO21 反馈方案A [推荐]：加装 Schneider 辅助 NC 触点，GPIO21 内部上拉，运行时 NC 拉到GND，按下断开=HIGH\n" +
+"###### GPIO21 反馈方案B：用 36V 额定隔离反馈模块检测急停后电门锁电压；有电时拉低GPIO21，失电时GPIO21上拉为HIGH\n" +
+"###### 不允许：用 8 路 PC817 模块输入侧直接接 36V 电门锁反馈 [该模块输入上限按24V处理]\n" +
+"### F2 5A 低压保险 [给低压系统，先空载调 DC-DC=5.00V]\n" +
+"#### DC-DC VIN+ ← F2 OUT\n" +
+"#### DC-DC VIN- → BAT- 星型汇流点\n" +
+"#### DC-DC VOUT+ → 5V 低压母线 [并 470μF + 0.1μF]\n" +
+"##### 🔵 ESP32-S3 5V/GND [主控]\n" +
+"##### 🔵 DS600 接收机 5V/GND\n" +
+"##### 🟩 HC-SR04 左/右 5V/GND\n" +
+"##### 🟩 JY61P IMU 5V/GND\n" +
+"##### 🟩 激光雷达 5V/GND [就近并100μF+0.1μF]\n" +
+"##### 🟩 ESP32-S3-CAM 5V/GND [独立视频，不参与安全控制]\n" +
+"#### ESP32 3V3 → 3.3V 小母线\n" +
+"##### 🟪 UWB GC-P2304 VCC/GND [3.3V]\n" +
+"##### 🟪 TCA9548A VIN/GND [3.3V I2C]\n" +
+"##### 🟧 PC817 输入侧 VCC/COM [按模块说明使用 3.3V 触发档]\n" +
+"\n" +
+"## 🟧 ESP32-S3 到驱动输出 [只控制油门/开关量]\n" +
+"### GPIO12 → PWM左模块 PWM_IN [10k下拉，失控默认0油门]\n" +
+"### GPIO13 → PWM右模块 PWM_IN [10k下拉，失控默认0油门]\n" +
+"### GPIO14 刹车输出 Active HIGH → 同时驱动 PC817 CH1 + CH2 输入\n" +
+"#### CH1 输出：左低刹线 与 左控制器GND 之间闭合\n" +
+"#### CH2 输出：右低刹线 与 右控制器GND 之间闭合\n" +
+"#### 固件 stopNow 默认刹车有效；上电时应先确认两轮架空\n" +
+"### GPIO15 左倒车 Active HIGH → PC817 CH3 输入\n" +
+"#### CH3 输出：左倒车线 与 左控制器GND 之间闭合\n" +
+"### GPIO16 右倒车 Active HIGH → PC817 CH4 输入\n" +
+"#### CH4 输出：右倒车线 与 右控制器GND 之间闭合\n" +
+"### GPIO39 驱动使能 Active HIGH → 首版预留\n" +
+"#### 不接 36V 电门锁线；如后续使用，只能驱动低压继电器/MOS输入或低压隔离开关\n" +
+"### PC817 CH5-CH8 预留\n" +
+"#### CH5 可给左控制器低速/限速 [确认该线≤30V且≤10mA后]\n" +
+"#### CH6 可给右控制器低速/限速 [确认该线≤30V且≤10mA后]\n" +
+"#### CH7/CH8 备用或第二档三速；当前固件未分配GPIO，不要先接\n" +
+"\n" +
+"## 🟧 8 路 PC817 模块接线规则\n" +
+"### 输入侧 [ESP32 侧]\n" +
+"#### 选择/购买支持 3.3V MCU 触发的 8 路版本\n" +
+"#### 模块输入 G/COM → ESP32 GND\n" +
+"#### IN1/IN2 ← GPIO14 [一根GPIO并到两个输入；若模块输入电流过大则改为三极管缓冲]\n" +
+"#### IN3 ← GPIO15；IN4 ← GPIO16\n" +
+"#### IN5-IN8 暂不接或接预留端子，不在车上悬空乱搭\n" +
+"### 输出侧 [控制器侧]\n" +
+"#### 若端子标 C/E：C 接控制器功能线，E 接对应控制器信号GND\n" +
+"#### 若端子只标 OUT/GND：OUT 接功能线，GND 接对应控制器信号GND\n" +
+"#### 左右控制器输出侧分开接，不把功能线互相短接\n" +
+"#### 只接低刹/倒车/低速这类低压小电流开关线\n" +
+"### 禁止接入\n" +
+"#### 禁止接电池正负、相线、电门锁36V线、报警器电源线\n" +
+"#### 禁止接转把模拟信号 VOUT [油门必须用 PWM→电压模块]\n" +
+"#### 禁止接霍尔5芯中间串改 [霍尔直接控制器到电机]\n" +
+"\n" +
+"## 🔵 ESP32 输入/传感器/遥控\n" +
+"### GPIO1 ← 电池电压ADC：BAT+→220k→GPIO1→10k→GND，并0.1μF\n" +
+"### GPIO2 ← 控制器故障线 [仅经隔离/分压后接；未知故障线先不接]\n" +
+"### GPIO3 ← 激光雷达 TX [若5V电平须分压；150000/230400按实物配置]\n" +
+"### GPIO4 ← DS600 CH1 转向 S，经10k/20k分压\n" +
+"### GPIO5 ← DS600 CH2 油门 S，经10k/20k分压\n" +
+"### GPIO6 ← DS600 CH3 限速 S，经10k/20k分压\n" +
+"### GPIO7 ← DS600 CH4 模式 S，经10k/20k分压\n" +
+"### GPIO8 ← DS600 CH5 STOP S，经10k/20k分压\n" +
+"### GPIO9 → 左/右 HC-SR04 TRIG 共享\n" +
+"### GPIO10 SDA / GPIO11 SCL → TCA9548A I2C [4.7k上拉到3V3]\n" +
+"### GPIO17 TX → UWB RX；GPIO18 RX ← UWB TX [3.3V]\n" +
+"### GPIO21 ← 急停状态 Active HIGH [必须来自辅助NC或36V额定隔离反馈]\n" +
+"### GPIO40 ← 左超声 ECHO，经10k/20k分压\n" +
+"### GPIO41 ← 右超声 ECHO，经10k/20k分压\n" +
+"### GPIO42 ← JY61P TX，经10k/20k分压 [5V须分压]\n" +
+"### GPIO43 → 激光雷达 RX [3.3V，首版可不接]\n" +
+"\n" +
+"## 🔶 36V 电池 BAT- [负极与地线]\n" +
+"### 星型汇流点 [铜排/大端子，靠近电池负极]\n" +
+"#### → 左控制器 BAT- [动力回流]\n" +
+"#### → 右控制器 BAT- [动力回流]\n" +
+"#### → DC-DC VIN- [低压电源输入回流]\n" +
+"#### → 电池电压ADC下端GND参考 [细线，只做测量]\n" +
+"### DC-DC VOUT- 低压GND → 单点接回星型汇流点\n" +
+"### 控制器转把GND / PWM模块GND / ESP32 GND 必须有共同参考\n" +
+"### ❗ 主电流禁止经 ESP32、PC817模块、PWM模块、杜邦线、JST小插头回流\n" +
+"\n" +
+"## ✅ 上电验收顺序 [不能跳步]\n" +
+"### ① 不接控制器：只接 F2/DC-DC，空载测 VOUT=5.00V\n" +
+"### ② 接 ESP32 与传感器，确认 GPIO12/13 上电默认低，PWM模块 VOUT=0V或低于0.8V\n" +
+"### ③ 不接电机动力：测试 PC817 输入输出，GPIO14触发时 CH1/CH2 确实闭合\n" +
+"### ④ 万用表确认左右控制器低刹/倒车线均为低压小电流，短接GND功能正确\n" +
+"### ⑤ 架空车轮，接 F1 主动力；急停弹起后电门锁有电，按下后两控制器电门锁失电\n" +
+"### ⑥ 单独学习左/右控制器相序；学习线只临时短接，完成后断开绝缘\n" +
+"### ⑦ 油门校准：从 0V 起，确认 0.8V以下不转、约1.0V起步、最大先限到约3.6V\n" +
+"### ⑧ 刹车验证：GPIO14或急停触发时，PWM VOUT归零且低刹闭合，两轮立停\n" +
+"### ⑨ 倒车验证：GPIO15只影响左控制器，GPIO16只影响右控制器\n" +
+"### ⑩ 地面低速测试，确认自动跟随前限速、急停、遥控STOP全部有效";
+
+  var T = window.markmap.Transformer;
+  var M = window.markmap.Markmap;
+
+  try {
+    var transformer = new T();
+    var result = transformer.transform(MARKDOWN);
+    var root = result.root;
+
+    var colorMap = {
+      '🔶': '#d97706',
+      '🟨': '#ca8a04',
+      '🔴': '#dc2626',
+      '🔵': '#1d4ed8',
+      '🟧': '#b45309',
+      '🟩': '#16a34a',
+      '🟪': '#7c3aed',
+      '🟫': '#8B5E3C',
+      '✅': '#15803d',
+    };
+    var defaultColors = ['#333', '#5f6b7a', '#8b95a5', '#a0a8b5', '#b8bfcc'];
+
+    function getText(node) {
+      if (!node || !node.content) return '';
+      if (typeof node.content === 'string') return node.content;
+      if (node.content.content) return node.content.content;
+      return '';
+    }
+    function colorizeNode(node, depth) {
+      var text = getText(node);
+      var color = null;
+      for (var emoji in colorMap) {
+        if (text.indexOf(emoji) === 0) {
+          color = colorMap[emoji];
+          break;
+        }
+      }
+      if (!color && text.indexOf('⚠️') === 0) {
+        color = '#dc2626';
+      }
+      node.color = color || defaultColors[Math.min(depth, defaultColors.length - 1)];
+      if (node.children) {
+        node.children.forEach(function(c) { colorizeNode(c, depth + 1); });
+      }
+    }
+    colorizeNode(root, 0);
+
+    var mm = M.create('#mindmap', {
+      autoFit: true,
+      colorFreezeLevel: 3,
+      duration: 400,
+      maxInitialScale: 1.2,
+      paddingX: 16,
+      spacingVertical: 10,
+      spacingHorizontal: 80,
+      nodeMinHeight: 22
+    }, root);
+
+    window.__mm = mm;
+  } catch(e) {
+    document.getElementById('mindmap').style.display = 'none';
+    var fb = document.getElementById('fallback');
+    if (fb) fb.style.display = 'block';
+    document.querySelector('.mm-toolbar').style.display = 'none';
+    document.querySelector('.legend').style.display = 'none';
+  }
+})();
+</script>
+
+</body>
+</html>

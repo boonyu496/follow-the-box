@@ -1,0 +1,90 @@
+{
+  "timestamp": "2026-06-15T08:37:40.189498+00:00",
+  "scope": [
+    "firmware/src/web/"
+  ],
+  "files_reviewed": [
+    "firmware\\src\\web\\h5_command_handler.cpp",
+    "firmware\\src\\web\\h5_request_parser.cpp",
+    "firmware\\src\\web\\h5_web_server.cpp",
+    "firmware\\src\\web\\telemetry_api.cpp",
+    "firmware\\src\\web\\h5_command_handler.h",
+    "firmware\\src\\web\\h5_request_parser.h",
+    "firmware\\src\\web\\h5_web_server.h",
+    "firmware\\src\\web\\telemetry_api.h"
+  ],
+  "lint_findings": [
+    {
+      "file": "D:\\car\\Follow the box\\firmware\\src\\web\\h5_command_handler.cpp",
+      "line": 0,
+      "severity": "info",
+      "rule": "required-pattern",
+      "message": "missing board_pins include",
+      "snippet": ""
+    },
+    {
+      "file": "D:\\car\\Follow the box\\firmware\\src\\web\\h5_request_parser.cpp",
+      "line": 0,
+      "severity": "info",
+      "rule": "required-pattern",
+      "message": "missing board_pins include",
+      "snippet": ""
+    },
+    {
+      "file": "D:\\car\\Follow the box\\firmware\\src\\web\\h5_web_server.cpp",
+      "line": 0,
+      "severity": "info",
+      "rule": "required-pattern",
+      "message": "missing board_pins include",
+      "snippet": ""
+    },
+    {
+      "file": "D:\\car\\Follow the box\\firmware\\src\\web\\telemetry_api.cpp",
+      "line": 0,
+      "severity": "info",
+      "rule": "required-pattern",
+      "message": "missing board_pins include",
+      "snippet": ""
+    },
+    {
+      "file": "D:\\car\\Follow the box\\firmware\\src\\web\\h5_command_handler.h",
+      "line": 0,
+      "severity": "info",
+      "rule": "required-pattern",
+      "message": "missing board_pins include",
+      "snippet": ""
+    },
+    {
+      "file": "D:\\car\\Follow the box\\firmware\\src\\web\\h5_request_parser.h",
+      "line": 0,
+      "severity": "info",
+      "rule": "required-pattern",
+      "message": "missing board_pins include",
+      "snippet": ""
+    },
+    {
+      "file": "D:\\car\\Follow the box\\firmware\\src\\web\\h5_web_server.h",
+      "line": 0,
+      "severity": "info",
+      "rule": "required-pattern",
+      "message": "missing board_pins include",
+      "snippet": ""
+    },
+    {
+      "file": "D:\\car\\Follow the box\\firmware\\src\\web\\telemetry_api.h",
+      "line": 0,
+      "severity": "info",
+      "rule": "required-pattern",
+      "message": "missing board_pins include",
+      "snippet": ""
+    }
+  ],
+  "autogen_rounds": 0,
+  "autogen_messages": [],
+  "fusion_score": null,
+  "fusion_models": [],
+  "findings": [],
+  "confirmed_correct": [],
+  "fixes_applied": [],
+  "build_status": "FAILED"
+}

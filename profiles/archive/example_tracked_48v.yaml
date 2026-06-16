@@ -1,0 +1,28 @@
+chassis:
+  name: tracked_48v_industrial
+  chassis_type: tracked
+  battery_nominal_voltage: 48
+  track_width_mm: 620
+  max_speed_limit_percent: 20
+  accel_limit: 0.2
+  decel_limit: 0.4
+
+drive_adapter:
+  adapter_type: CAN
+  motor_family: brushed_dc
+  nominal_voltage: 48
+  max_bus_voltage: 60
+  command_unit: rpm
+  feedback_source: controller_feedback
+  encoder_mode: controller_feedback
+  enable_polarity: active_high
+  brake_polarity: active_high
+  fault_polarity: active_low
+  watchdog_timeout_ms: 200
+
+safety:
+  main_contactor_required: true
+  current_feedback_required: true
+  tracked_turn_current_limit: true
+  max_pivot_turn_ms: 800
+  cloud_remote_max_speed_percent: 10

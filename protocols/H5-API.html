@@ -1,0 +1,41 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--bg:#fbfaf7;--paper:#fff;--ink:rgba(0,0,0,.95);--muted:#665f56;--line:#e8e1d8;--blue:#0075de;--shadow:0 18px 48px rgba(20,20,20,.08)}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65}.wrap{width:min(1100px,calc(100% - 32px));margin:auto;padding:32px 0 70px}article{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:28px}h1{font-size:36px;margin:0 0 12px}h2{margin-top:28px;border-left:5px solid var(--blue);padding-left:12px}h3{margin-top:20px}pre{background:#111827;color:#edf2ff;border-radius:10px;padding:16px;overflow:auto}code{background:#f1f1ef;padding:2px 5px;border-radius:4px}pre code{background:transparent;padding:0}table{border-collapse:collapse;width:100%;margin:14px 0}td,th{border:1px solid var(--line);padding:7px 9px;text-align:left}blockquote,.lead{color:var(--muted);background:#f2f8ff;border-left:5px solid var(--blue);padding:10px 14px;border-radius:10px}li{margin:4px 0}p{margin:8px 0}</style></head><body><main class="wrap"><article><h1>H5 本地控制 API v1.0</h1>
+<p class="lead">H5 只允许状态显示、低速点动、模式请求、人工复位请求。H5 不能直接设置 PWM，不能清除物理急停，不能绕过安装向导。</p>
+<h2>WebSocket 状态下发</h2>
+<p>本节冻结 H5 状态 JSON 字段。</p>
+<p>路径：<code>/ws/state</code></p>
+<pre><code>{
+  &quot;now_ms&quot;: 123456,
+  &quot;mode&quot;: &quot;SAFE_IDLE&quot;,
+  &quot;safety&quot;: {
+    &quot;motion_allowed&quot;: false,
+    &quot;fault_latched&quot;: false,
+    &quot;stop_reason&quot;: &quot;NONE&quot;,
+    &quot;max_speed_scale&quot;: 0.0
+  },
+  &quot;rc&quot;: {&quot;online&quot;: true, &quot;last_update_ms&quot;: 123400},
+  &quot;uwb&quot;: {&quot;valid&quot;: false, &quot;distance_mm&quot;: 0, &quot;bearing_deg&quot;: 0, &quot;confidence&quot;: 0},
+  &quot;obstacle&quot;: {&quot;front_left_mm&quot;: 0, &quot;front_center_mm&quot;: 0, &quot;front_right_mm&quot;: 0, &quot;side_left_mm&quot;: 0, &quot;side_right_mm&quot;: 0},
+  &quot;power&quot;: {&quot;battery_voltage&quot;: 0.0, &quot;low_battery&quot;: false},
+  &quot;motor&quot;: {&quot;enable&quot;: false, &quot;left_target&quot;: 0.0, &quot;right_target&quot;: 0.0, &quot;brake&quot;: true}
+}</code></pre>
+<h2>低速点动请求</h2>
+<p>路径：<code>POST /api/jog</code></p>
+<pre><code>{
+  &quot;seq&quot;: 1,
+  &quot;forward&quot;: 0.0,
+  &quot;turn&quot;: 0.0,
+  &quot;deadman&quot;: true,
+  &quot;client_time_ms&quot;: 123456
+}</code></pre>
+<p>限制：</p>
+<ul><li><code>forward</code> / <code>turn</code> 范围 -1..1，但服务器强制限幅到 <code>h5_max_speed_percent</code>。</li><li>超过 <code>remote.h5_lost_stop_ms</code> 未收到新请求，退出 H5 点动并停车。</li><li><code>deadman=false</code> 必须停车。</li></ul>
+<h2>模式请求</h2>
+<p>路径：<code>POST /api/mode-request</code></p>
+<pre><code>{&quot;requested_mode&quot;: &quot;MANUAL_H5_LOW_SPEED&quot;}</code></pre>
+<p>允许值：<code>SAFE_IDLE</code>、<code>MANUAL_H5_LOW_SPEED</code>、<code>AUTO_FOLLOW_REQUEST</code>。</p>
+<p><code>AUTO_FOLLOW_REQUEST</code> 只表示请求，必须由 <code>mode_manager</code> 检查安装向导、UWB 有效、DS600 接管状态后决定。</p>
+<h2>人工复位请求</h2>
+<p>路径：<code>POST /api/reset-fault</code></p>
+<pre><code>{&quot;confirm&quot;: true}</code></pre>
+<p>限制：</p>
+<ul><li>只能复位软件故障锁定。</li><li>不能复位物理急停；GPIO21 仍为急停状态时必须拒绝。</li><li>复位后仍要求油门回中/无运动请求。</li></ul></article></main></body></html>

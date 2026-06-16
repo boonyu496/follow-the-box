@@ -1,0 +1,89 @@
+<svg viewBox="0 0 1280 900" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" style="font-family:Segoe UI,Microsoft YaHei,Arial,sans-serif">
+  <title id="title">Follow the Box 当前总接线图</title>
+  <desc id="desc">当前中文总接线图，详细分压、电阻、电容和逐引脚接线见 ASSEMBLY-WIRING-MINDMAP.html 与 complete-wiring-table.md。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#53606f"/></marker>
+    <style>
+      .box{rx:12;stroke-width:1.6}.title{font-size:18px;font-weight:700;fill:#17202a}.sub{font-size:13px;fill:#43505f}.warn{font-size:13px;font-weight:700;fill:#a32018}.wire{fill:none;stroke:#53606f;stroke-width:1.5;marker-end:url(#arrow)}.power{stroke:#b42318}.sig{stroke:#1f5d99}.safe{stroke:#9a5b00}.gnd{stroke:#384250}
+    </style>
+  </defs>
+  <rect width="1280" height="900" fill="#f7f5ef"/>
+  <text x="36" y="42" font-size="26" font-weight="700" fill="#111827">Follow the Box 当前总接线图（中文重写版）</text>
+  <text x="36" y="68" font-size="15" fill="#5b6470">细节施工：ASSEMBLY-WIRING-MINDMAP.html；完整逐引脚表：complete-wiring-table.md；洞洞板摆放：PERFBOARD-LAYOUT.html。</text>
+
+  <rect x="520" y="330" width="240" height="128" class="box" fill="#dceafa" stroke="#1f5d99"/>
+  <text x="640" y="368" text-anchor="middle" class="title">ESP32-S3 主控</text>
+  <text x="640" y="394" text-anchor="middle" class="sub">5V/GND/3V3</text>
+  <text x="640" y="418" text-anchor="middle" class="sub">GPIO1,4-18,21,39-42</text>
+  <text x="640" y="442" text-anchor="middle" class="warn">GPIO 不接 5V/36V 直连</text>
+
+  <rect x="52" y="116" width="258" height="100" class="box" fill="#ffe5d0" stroke="#b65b16"/>
+  <text x="181" y="150" text-anchor="middle" class="title">DS600 接收机</text>
+  <text x="181" y="176" text-anchor="middle" class="sub">CH1-CH5 Signal</text>
+  <text x="181" y="198" text-anchor="middle" class="sub">每路 10k/20k 分压 -> GPIO4-8</text>
+  <path class="wire sig" d="M310 166 C420 180 450 330 520 372"/>
+
+  <rect x="52" y="300" width="286" height="122" class="box" fill="#dcefff" stroke="#2b6f9e"/>
+  <text x="195" y="334" text-anchor="middle" class="title">TCA9548A + VL53L1X x3</text>
+  <text x="195" y="360" text-anchor="middle" class="sub">SDA->GPIO10，SCL->GPIO11</text>
+  <text x="195" y="382" text-anchor="middle" class="sub">SDA/SCL 各 4.7k 上拉到 3V3</text>
+  <text x="195" y="404" text-anchor="middle" class="sub">CH0 前中，CH1 左前，CH2 右前</text>
+  <path class="wire sig" d="M338 360 C420 360 458 380 520 392"/>
+
+  <rect x="52" y="500" width="306" height="138" class="box" fill="#d7f2ec" stroke="#16816b"/>
+  <text x="205" y="534" text-anchor="middle" class="title">超声波雷达 HC-SR04 x2</text>
+  <text x="205" y="560" text-anchor="middle" class="sub">左 VCC/GND->5V/GND，TRIG->GPIO9</text>
+  <text x="205" y="582" text-anchor="middle" class="sub">左 ECHO->10k/20k 分压->GPIO40</text>
+  <text x="205" y="606" text-anchor="middle" class="sub">右 VCC/GND->5V/GND，TRIG->GPIO9</text>
+  <text x="205" y="628" text-anchor="middle" class="sub">右 ECHO->10k/20k 分压->GPIO41</text>
+  <path class="wire sig" d="M358 570 C440 560 482 440 520 420"/>
+
+  <rect x="492" y="106" width="296" height="118" class="box" fill="#dff3df" stroke="#27733e"/>
+  <text x="640" y="142" text-anchor="middle" class="title">UWB GC-P2304-GS-2</text>
+  <text x="640" y="168" text-anchor="middle" class="sub">VCC->3V3，GND->GND</text>
+  <text x="640" y="190" text-anchor="middle" class="sub">TX->GPIO18，RX<-GPIO17</text>
+  <text x="640" y="212" text-anchor="middle" class="warn">远离 DC-DC 至少 50mm</text>
+  <path class="wire sig" d="M640 224 C640 260 640 292 640 330"/>
+
+  <rect x="922" y="112" width="298" height="124" class="box" fill="#f0def4" stroke="#734094"/>
+  <text x="1071" y="148" text-anchor="middle" class="title">JY61P IMU</text>
+  <text x="1071" y="174" text-anchor="middle" class="sub">VCC->5V，GND->GND</text>
+  <text x="1071" y="196" text-anchor="middle" class="sub">TX->GPIO42；若 5V 则 10k/20k 分压</text>
+  <text x="1071" y="218" text-anchor="middle" class="warn">洞洞板中心，上电静止 3 秒</text>
+  <path class="wire sig" d="M922 174 C840 210 788 330 760 372"/>
+
+  <rect x="902" y="314" width="330" height="128" class="box" fill="#fff2d7" stroke="#d17900"/>
+  <text x="1067" y="350" text-anchor="middle" class="title">PWM->0-5V 油门模块 x2</text>
+  <text x="1067" y="376" text-anchor="middle" class="sub">GPIO12->左 PWM IN，GPIO13->右 PWM IN</text>
+  <text x="1067" y="398" text-anchor="middle" class="sub">每个 PWM IN 外部 10k 下拉</text>
+  <text x="1067" y="420" text-anchor="middle" class="sub">VOUT -> 左/右控制器转把信号</text>
+  <path class="wire sig" d="M760 394 C820 390 852 378 902 378"/>
+
+  <rect x="902" y="500" width="330" height="142" class="box" fill="#fbe2df" stroke="#96362f"/>
+  <text x="1067" y="536" text-anchor="middle" class="title">MOS/光耦驱动板 4 路</text>
+  <text x="1067" y="562" text-anchor="middle" class="sub">GPIO14 刹车，GPIO15 左倒车</text>
+  <text x="1067" y="584" text-anchor="middle" class="sub">GPIO16 右倒车，GPIO39 软件使能</text>
+  <text x="1067" y="606" text-anchor="middle" class="sub">每路 IN 外部 10k 下拉</text>
+  <text x="1067" y="628" text-anchor="middle" class="warn">禁止 GPIO 直连控制器开关量线</text>
+  <path class="wire sig" d="M760 430 C830 450 858 548 902 570"/>
+
+  <rect x="472" y="710" width="330" height="112" class="box" fill="#ffe5d0" stroke="#b65b16"/>
+  <text x="637" y="746" text-anchor="middle" class="title">低压电源 DC-DC</text>
+  <text x="637" y="772" text-anchor="middle" class="sub">BAT+ -> F2 5A -> VIN+</text>
+  <text x="637" y="794" text-anchor="middle" class="sub">VOUT+ -> 5V，VOUT- -> GND</text>
+  <text x="637" y="816" text-anchor="middle" class="sub">5V 端并 470uF + 0.1uF</text>
+  <path class="wire power" d="M637 710 C637 620 637 520 637 458"/>
+
+  <rect x="52" y="720" width="328" height="112" class="box" fill="#ffeddc" stroke="#b34b24"/>
+  <text x="216" y="756" text-anchor="middle" class="title">急停链 + GPIO21 反馈</text>
+  <text x="216" y="782" text-anchor="middle" class="sub">F3 -> 总开关 -> 急停 NC -> 控制器电门锁</text>
+  <text x="216" y="804" text-anchor="middle" class="sub">3V3 -> 10k -> GPIO21 -> 第二 NC -> GND</text>
+  <path class="wire safe" d="M380 776 C470 720 510 500 560 458"/>
+
+  <rect x="892" y="720" width="340" height="112" class="box" fill="#f9dddd" stroke="#aa3939"/>
+  <text x="1062" y="756" text-anchor="middle" class="title">电池 ADC 与动力主回路</text>
+  <text x="1062" y="782" text-anchor="middle" class="sub">BAT+ -> 220k -> GPIO1 -> 10k -> GND</text>
+  <text x="1062" y="804" text-anchor="middle" class="sub">GPIO1 -> 0.1uF -> GND</text>
+  <text x="1062" y="826" text-anchor="middle" class="warn">主电流、相线、BAT+/BAT- 不走洞洞板</text>
+  <path class="wire power" d="M892 778 C820 710 745 520 704 458"/>
+</svg>
