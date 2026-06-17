@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "config/network_config.h"
+#include "telemetry/debug_console.h"
 #include "web/h5_request_parser.h"
 #include "web/telemetry_api.h"
 
@@ -27,6 +28,8 @@ portMUX_TYPE g_mux = portMUX_INITIALIZER_UNLOCKED;
  
 uint32_t g_last_push_ms = 0;
 char g_state_buf[1536];
+bool g_state_valid = false;
+portMUX_TYPE g_state_mux = portMUX_INITIALIZER_UNLOCKED;
  
 ProfileStore* g_profile_store = nullptr;
 CalibrationStore* g_calibration_store = nullptr;
@@ -344,6 +347,44 @@ void H5WebServer::begin(ProfileStore* profile_store, CalibrationStore* calibrati
     request->send(200, "application/json", buf);
   });
 
+  // GET /api/state -> read-only state snapshot for HTTP polling fallback.
+  // This mirrors /ws/state and exists only for AP/LAN UI diagnostics when a
+  // browser, proxy, or captive portal interferes with WebSocket transport.
+  g_server.on("/api/state", HTTP_GET, [](AsyncWebServerRequest* request) {
+    char state[sizeof(g_state_buf)];
+    bool valid = false;
+    portENTER_CRITICAL(&g_state_mux);
+    valid = g_state_valid;
+    if (valid) {
+      std::snprintf(state, sizeof(state), "%s", g_state_buf);
+    }
+    portEXIT_CRITICAL(&g_state_mux);
+
+    if (!valid) {
+      request->send(503, "application/json",
+                    "{\"ok\":false,\"reason\":\"state not ready\"}");
+      return;
+    }
+    request->send(200, "application/json", state);
+  });
+
+  // GET /api/logs -> read-only local diagnostics. It does not drain the ring,
+  // so cloud telemetry can still upload the same recent lines.
+  g_server.on("/api/logs", HTTP_GET, [](AsyncWebServerRequest* request) {
+    char logs[2600];
+    if (DebugConsole::copyRecentJson(logs, sizeof(logs)) == 0) {
+      std::snprintf(logs, sizeof(logs), "[]");
+    }
+    char body[2720];
+    const int written = std::snprintf(body, sizeof(body),
+                                      "{\"ok\":true,\"logs\":%s}", logs);
+    if (written < 0 || static_cast<size_t>(written) >= sizeof(body)) {
+      request->send(500, "application/json", "{\"ok\":false}");
+      return;
+    }
+    request->send(200, "application/json", body);
+  });
+
   g_server.onNotFound([](AsyncWebServerRequest* request) {
     request->send(404, "application/json", "{\"ok\":false,\"reason\":\"not found\"}");
   });
@@ -384,16 +425,20 @@ H5ControlInput H5WebServer::pollInput(uint32_t now_ms, App& app, DriveAdapterAna
 
 void H5WebServer::pushState(const SystemState& state, uint32_t now_ms) {
   g_ws.cleanupClients();
-  if (g_ws.count() == 0) {
-    return;
-  }
   if (now_ms - g_last_push_ms < net::STATE_PUSH_INTERVAL_MS) {
     return;
   }
   g_last_push_ms = now_ms;
-  const size_t written = buildStateJson(state, g_state_buf, sizeof(g_state_buf));
+  char state_buf[sizeof(g_state_buf)];
+  const size_t written = buildStateJson(state, state_buf, sizeof(state_buf));
   if (written > 0) {
-    g_ws.textAll(g_state_buf, written);
+    portENTER_CRITICAL(&g_state_mux);
+    std::snprintf(g_state_buf, sizeof(g_state_buf), "%s", state_buf);
+    g_state_valid = true;
+    portEXIT_CRITICAL(&g_state_mux);
+  }
+  if (written > 0 && g_ws.count() > 0) {
+    g_ws.textAll(state_buf, written);
   }
 }
 

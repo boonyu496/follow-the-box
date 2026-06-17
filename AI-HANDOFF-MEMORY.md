@@ -29,6 +29,16 @@
 
 ## 最新交接记录
 
+### 2026-06-17 20:06 - Codex - H5 遥测显示与日志兜底修复
+- 改动：修复云端/本地 H5 HTML 入口结构，补 AP/LAN 本地 `/api/state` HTTP 状态兜底和 `/api/logs` 只读日志接口。
+- 文件：`cloud/public/index.html`, `firmware/web/index.html`, `firmware/web/app.js`, `firmware/src/web/h5_web_server.cpp`, `firmware/src/telemetry/debug_console.*`
+- 架构影响：无运动链路变更；新增只读诊断 API，`/ws/state` 仍为主遥测通道，HTTP 仅兜底。
+- 安全影响：无 PWM/GPIO/急停/安全门控变更；H5 仍不能绕过 `safety_manager/applyFinalGate`。
+- 验证：Node REPL 解析 `cloud/public/app.js` 与 `firmware/web/app.js` PASS；HTML 关键 id 检查 PASS。
+- 未验证：本机 PATH 无 `pio`/`node`，未完成 `pio run` 和 `buildfs`；需在 PlatformIO 环境复跑。
+- 当前状态：NEEDS_VERIFICATION。
+- 下一步：安装/打开 PlatformIO 后运行 `pio run -e esp32-s3-devkitc-1` 与 `pio run -e esp32-s3-devkitc-1 -t buildfs`，再真机访问 AP 和云端页面确认遥测/日志。
+
 ### 2026-06-14 - Codex - 云端 H5 布局优化已部署
 - 改动：优化云端 H5 为宽屏控制台布局，遥测页增加最后上传/云端指令状态，遥控页拆分视频与低速点动面板，并修复摄像头离线破图和摇杆居中算法。
 - 文件：`cloud/public/index.html`, `cloud/public/style.css`, `cloud/public/app.js`, `cloud/public/deploy-version.txt`, `test/05-云端部署文档.md`, `AI-HANDOFF-MEMORY.md`

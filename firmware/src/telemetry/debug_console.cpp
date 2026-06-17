@@ -105,7 +105,9 @@ void DebugConsole::log(LogLevel level, const char* fmt, ...) {
   Serial.printf("%s\n", line);
 }
 
-size_t DebugConsole::drainRecentJson(char* out, size_t out_size) {
+namespace {
+
+size_t recentJson(char* out, size_t out_size, bool drain) {
   if (out == nullptr || out_size < 3) {
     return 0;
   }
@@ -121,7 +123,9 @@ size_t DebugConsole::drainRecentJson(char* out, size_t out_size) {
     const size_t idx = (start + i) % kRingLines;
     std::snprintf(copy[i], kLineBufferSize, "%s", g_ring[idx]);
   }
-  g_count = 0;
+  if (drain) {
+    g_count = 0;
+  }
   portEXIT_CRITICAL(&g_log_mux);
 
   size_t pos = 0;
@@ -147,6 +151,16 @@ size_t DebugConsole::drainRecentJson(char* out, size_t out_size) {
   out[pos++] = ']';
   out[pos] = '\0';
   return pos;
+}
+
+}  // namespace
+
+size_t DebugConsole::drainRecentJson(char* out, size_t out_size) {
+  return recentJson(out, out_size, true);
+}
+
+size_t DebugConsole::copyRecentJson(char* out, size_t out_size) {
+  return recentJson(out, out_size, false);
 }
 
 }  // namespace followbox

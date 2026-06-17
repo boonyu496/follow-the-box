@@ -9,7 +9,6 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <!-- ═══ Sticky Header ═══ -->
     <header class="fb-app-header">
       <div class="fb-app-header__brand">
         <strong>FollowBox</strong>
@@ -18,7 +17,6 @@
       <span id="conn" class="fb-pill fb-pill--danger">未连接</span>
     </header>
 
-    <!-- ═══ Quick Strip ═══ -->
     <div class="fb-quick-strip">
       <div><span>许可</span><strong id="motion-allowed">--</strong></div>
       <div><span>停车</span><strong id="stop-reason">--</strong></div>
@@ -26,10 +24,7 @@
       <div><span>UWB</span><strong id="uwb-mini">--</strong></div>
     </div>
 
-    <!-- ═══ Main Content ═══ -->
     <main class="fb-shell">
-
-      <!-- ──── Tab 1: Drive ──── -->
       <section id="view-drive" class="fb-view active">
         <div class="fb-drive-stage">
           <img id="camera-stream" alt="ESP32-S3-CAM 实时画面" />
@@ -59,7 +54,6 @@
         </div>
       </section>
 
-      <!-- ──── Tab 2: Sensors ──── -->
       <section id="view-sensors" class="fb-view">
         <div class="fb-viz-grid">
           <article class="fb-panel">
@@ -109,7 +103,6 @@
         </div>
       </section>
 
-      <!-- ──── Tab 3: Status ──── -->
       <section id="view-status" class="fb-view">
         <div class="grid">
           <article class="fb-metric">
@@ -141,9 +134,15 @@
             <div><span>文件系统</span><strong>LittleFS</strong></div>
           </div>
         </article>
+        <article class="fb-panel">
+          <header class="fb-section-head">
+            <strong>设备日志</strong>
+            <button id="clear-logs" class="secondary outline small">清空</button>
+          </header>
+          <pre id="logs" class="fb-log-pre">-- 等待日志 --</pre>
+        </article>
       </section>
 
-      <!-- ──── Tab 4: Settings ──── -->
       <section id="view-settings" class="fb-view">
         <article class="fb-panel">
           <header class="fb-section-head">
@@ -207,7 +206,6 @@
       </section>
     </main>
 
-    <!-- ═══ Bottom Navigation ═══ -->
     <nav class="fb-bottom-nav" aria-label="分类导航">
       <button class="fb-nav-btn active" data-view="drive"><span>驾驶</span></button>
       <button class="fb-nav-btn" data-view="sensors"><span>传感器</span></button>

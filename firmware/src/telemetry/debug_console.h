@@ -41,6 +41,11 @@ class DebugConsole {
   // ring is cleared after copying. Intended for low-priority cloud telemetry.
   static size_t drainRecentJson(char* out, size_t out_size);
 
+  // Copy recent log lines into a JSON string array without clearing the ring.
+  // Intended for local H5 diagnostics so AP/LAN log viewing cannot starve the
+  // cloud ingest path.
+  static size_t copyRecentJson(char* out, size_t out_size);
+
  private:
   static bool enabled(LogLevel level) { return level <= level_; }
 

@@ -46,6 +46,8 @@ const els = {
   cameraUrl: $("camera-url"),
   cameraUrlState: $("camera-url-state"),
   btnCameraReload: $("btn-camera-reload"),
+  logs: $("logs"),
+  clearLogs: $("clear-logs"),
   joy: $("joy"),
   stick: $("stick"),
   uwbCanvas: $("uwb-canvas"),
@@ -95,6 +97,7 @@ let activeCameraUrl = "";
 let lastTelemetryCameraUrl = "";
 let userCameraOverride = false;
 let latestState = null;
+let lastStateAt = 0;
 
 // ── Canvas redraw state (RAF throttled) ──
 let canvasDirty = false;
@@ -192,6 +195,7 @@ function switchView(name) {
 
 function renderState(s) {
   latestState = s;
+  lastStateAt = Date.now();
   const mode = s.mode ?? "--";
   els.mode.textContent = modeLabels[mode] ?? mode;
   els.sysTime.textContent = s.now_ms != null ? `${Math.round(s.now_ms / 1000)}s` : "--";
@@ -480,6 +484,34 @@ function connectWs() {
   };
 }
 
+async function pollStateFallback() {
+  if (Date.now() - lastStateAt < 2000) {
+    return;
+  }
+  try {
+    const res = await fetch("/api/state", { cache: "no-store" });
+    if (!res.ok) return;
+    renderState(await res.json());
+    setConn(true);
+  } catch (e) {
+    /* WebSocket reconnect owns the offline indicator. */
+  }
+}
+
+async function refreshLogs() {
+  if (!els.logs) return;
+  try {
+    const res = await fetch("/api/logs", { cache: "no-store" });
+    if (!res.ok) return;
+    const body = await res.json();
+    if (Array.isArray(body.logs) && body.logs.length) {
+      els.logs.textContent = body.logs.slice(-120).join("\n");
+    }
+  } catch (e) {
+    /* keep last visible logs */
+  }
+}
+
 // ── Joystick ──
 
 function sendJog(deadman) {
@@ -708,6 +740,12 @@ if (wifiEls.save) {
 }
 
 // ── Online/Offline detection ──
+if (els.clearLogs) {
+  els.clearLogs.addEventListener("click", () => {
+    els.logs.textContent = "";
+  });
+}
+
 window.addEventListener("online", () => {
   if (!ws || ws.readyState > 1) connectWs();
 });
@@ -717,7 +755,10 @@ window.addEventListener("offline", () => {
 
 // ── Init ──
 
+setInterval(pollStateFallback, 1000);
+setInterval(refreshLogs, 2000);
 setInterval(refreshWifiStatus, 5000);
+refreshLogs();
 refreshWifiStatus();
 refreshLocalKeyUi();
 restoreCameraOverride();

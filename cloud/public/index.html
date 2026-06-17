@@ -9,7 +9,6 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <!-- ═══ Sticky Header ═══ -->
     <header class="fb-app-header">
       <div class="fb-app-header__brand">
         <strong>FollowBox</strong>
@@ -18,7 +17,6 @@
       <span id="conn" class="fb-pill fb-pill--danger">未连接</span>
     </header>
 
-    <!-- ═══ Quick Strip ═══ -->
     <div class="fb-quick-strip">
       <div><span>模式</span><strong id="mode">--</strong></div>
       <div><span>许可</span><strong id="motion-allowed">--</strong></div>
@@ -26,10 +24,7 @@
       <div><span>电池</span><strong id="battery">--</strong></div>
     </div>
 
-    <!-- ═══ Main Content ═══ -->
     <main class="fb-shell">
-
-      <!-- ──── Tab 1: Drive ──── -->
       <section id="view-drive" class="fb-view active">
         <div class="fb-drive-stage">
           <img id="camera-stream" alt="ESP32-S3-CAM 实时画面" />
@@ -58,9 +53,7 @@
         </div>
       </section>
 
-      <!-- ──── Tab 2: Sensors ──── -->
       <section id="view-sensors" class="fb-view">
-        <!-- Spatial Map (cloud-unique: UWB + TOF + Ultrasonic + Obstacle fusion) -->
         <article class="fb-panel fb-map-panel">
           <header class="fb-section-head">
             <strong>空间地图</strong>
@@ -138,7 +131,6 @@
         </div>
       </section>
 
-      <!-- ──── Tab 3: Status ──── -->
       <section id="view-status" class="fb-view">
         <div class="grid">
           <article class="fb-metric">
@@ -159,7 +151,6 @@
           </article>
         </div>
 
-        <!-- Logs (cloud-unique) -->
         <article class="fb-panel">
           <header class="fb-section-head">
             <strong>设备日志</strong>
@@ -168,14 +159,12 @@
           <pre id="logs" class="fb-log-pre">-- 等待日志 --</pre>
         </article>
 
-        <!-- Raw JSON (cloud-unique) -->
         <details>
           <summary>原始 JSON</summary>
           <pre id="raw" class="fb-raw-json">--</pre>
         </details>
       </section>
 
-      <!-- ──── Tab 4: Settings ──── -->
       <section id="view-settings" class="fb-view">
         <article class="fb-panel">
           <header class="fb-section-head">
@@ -184,11 +173,8 @@
           </header>
           <label>设备 ID <input id="device-id" type="text" value="followbox-001" placeholder="followbox-001" /></label>
           <label>操作员 Token <input id="operator-token" type="password" maxlength="128" placeholder="云端鉴权令牌" /></label>
-          <small style="display:block; margin-top:4px; color:var(--pico-secondary-color)">
-            默认 token 与服务端匹配。如服务器未设置 FOLLOWBOX_OPERATOR_TOKEN，可留空。
-          </small>
           <div class="fb-settings-actions">
-            <button id="save-connection" class="fb-save-btn">💾 保存并重连</button>
+            <button id="save-connection" class="fb-save-btn">保存并重连</button>
             <span id="save-status" class="fb-save-status"></span>
           </div>
         </article>
@@ -202,9 +188,6 @@
             <input id="camera-url" type="url" placeholder="留空自动使用云端转发" />
             <button id="save-camera-url" class="fb-save-btn fb-save-btn--sm">保存</button>
           </div>
-          <small style="display:block; margin-top:4px; color:var(--pico-secondary-color)">
-            留空自动使用 /api/device/{id}/video/stream（云端转发 MJPEG）
-          </small>
         </article>
 
         <article class="fb-panel">
@@ -215,23 +198,13 @@
             <span>当前版本</span><strong id="ota-version">--</strong>
           </div>
           <div class="fb-settings-actions">
-            <button id="check-ota" class="fb-save-btn">🔍 检查更新</button>
+            <button id="check-ota" class="fb-save-btn">检查更新</button>
             <span id="ota-status" class="fb-save-status"></span>
           </div>
-          <small style="display:block; color:var(--pico-secondary-color)">
-            云端可下发固件更新。请确认车端已连接 WiFi 并接入云端。
-          </small>
         </article>
-
-        <div style="margin-top:16px; padding:12px; border:1px solid var(--pico-muted-border-color); border-radius:var(--fb-r); background:var(--pico-card-sectioning-background-color)">
-          <small style="color:var(--pico-secondary-color)">
-            ⚠️ WiFi 配网和油门标定需直接连接小车热点，请使用 <strong>FollowBox AP 控制台</strong>（连接小车 WiFi 后访问 192.168.4.1）。
-          </small>
-        </div>
       </section>
     </main>
 
-    <!-- ═══ Bottom Navigation ═══ -->
     <nav class="fb-bottom-nav" aria-label="分类导航">
       <button class="fb-nav-btn active" data-view="drive"><span>驾驶</span></button>
       <button class="fb-nav-btn" data-view="sensors"><span>传感器</span></button>

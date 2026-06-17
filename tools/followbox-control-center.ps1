@@ -1,0 +1,1136 @@
+﻿[CmdletBinding()]
+param(
+  [int]$Port = 8787,
+  [switch]$NoBrowser
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$script:RepoRoot = Split-Path -Parent $PSScriptRoot
+$script:ConfigPath = Join-Path $PSScriptRoot "followbox-control-center.config.json"
+$script:HtmlPath = Join-Path $PSScriptRoot "followbox-control-center.html"
+$script:Listener = $null
+
+function ConvertTo-BoolSafe {
+  param(
+    [object]$Value,
+    [bool]$Default = $false
+  )
+
+  if ($null -eq $Value) { return $Default }
+  if ($Value -is [bool]) { return [bool]$Value }
+  $text = ([string]$Value).Trim().ToLowerInvariant()
+  if ($text -in @("true", "1", "yes", "on")) { return $true }
+  if ($text -in @("false", "0", "no", "off", "")) { return $false }
+  return $Default
+}
+
+function ConvertTo-Hashtable {
+  param([object]$InputObject)
+
+  if ($null -eq $InputObject) { return @{} }
+  if ($InputObject -is [hashtable]) { return $InputObject }
+  if ($InputObject -is [string] -or $InputObject -is [ValueType]) { return $InputObject }
+  if ($InputObject -is [System.Collections.IDictionary]) {
+    $copy = @{}
+    foreach ($key in $InputObject.Keys) {
+      $copy[$key] = ConvertTo-Hashtable -InputObject $InputObject[$key]
+    }
+    return $copy
+  }
+  if ($InputObject -is [System.Collections.IEnumerable] -and -not ($InputObject -is [string])) {
+    $items = @()
+    foreach ($item in $InputObject) {
+      $items += ,(ConvertTo-Hashtable -InputObject $item)
+    }
+    return $items
+  }
+  if ($InputObject.PSObject -and @($InputObject.PSObject.Properties).Count -gt 0) {
+    $hash = @{}
+    foreach ($prop in $InputObject.PSObject.Properties) {
+      $hash[$prop.Name] = ConvertTo-Hashtable -InputObject $prop.Value
+    }
+    return $hash
+  }
+  return $InputObject
+}
+
+function Find-PlatformIoCommand {
+  $candidates = @(
+    "pio",
+    (Join-Path $env:USERPROFILE ".platformio\penv\Scripts\pio.exe"),
+    (Join-Path $env:USERPROFILE ".platformio\penv\Scripts\platformio.exe"),
+    "C:\Users\chenb\.platformio\penv\Scripts\pio.exe"
+  )
+
+  foreach ($candidate in $candidates) {
+    if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+    try {
+      if ($candidate -eq "pio") {
+        $null = & where.exe pio 2>$null
+        if ($LASTEXITCODE -eq 0) { return "pio" }
+      } elseif (Test-Path -LiteralPath $candidate) {
+        return $candidate
+      }
+    } catch {
+    }
+  }
+
+  return "pio"
+}
+
+function Get-DefaultConfig {
+  $remoteUrl = ""
+  try {
+    $remoteUrl = (git -C $script:RepoRoot remote get-url origin 2>$null)
+    if ($LASTEXITCODE -ne 0) { $remoteUrl = "" }
+  } catch {
+    $remoteUrl = ""
+  }
+
+  return [ordered]@{
+    repoPath              = $script:RepoRoot
+    gitRemote             = "origin"
+    gitUserName           = ""
+    gitUserEmail          = ""
+    cloneUrl              = ($remoteUrl | Out-String).Trim()
+    cloneTargetPath       = (Join-Path (Split-Path $script:RepoRoot -Parent) "follow-the-box-clone")
+    gitAddPathspec        = "."
+    cloudPath             = (Join-Path $script:RepoRoot "cloud")
+    cloudHost             = "82.156.85.60"
+    cloudPort             = 51400
+    cloudUser             = "root"
+    cloudPemPath          = "C:\Users\chenb\AppData\Local\Temp\vmware-chenb\VMwareDnD\29853150\codex.pem"
+    cloudRemoteDir        = "/www/wwwroot/followbox-cloud"
+    cloudVerifyUrl        = "https://www.boonai.cn/fb/"
+    firmwarePath          = (Join-Path $script:RepoRoot "firmware")
+    cloudFirmwarePath     = (Join-Path $script:RepoRoot "cloud\firmware")
+    pioCommand            = (Find-PlatformIoCommand)
+    firmwareEnv           = "esp32-s3-devkitc-1"
+    otaEnv                = "ota"
+    serialPort            = "COM18"
+    otaUploadPort         = "192.168.4.1"
+    otaVersion            = (Get-Date -Format "yyyy.MM.dd.HHmm")
+    otaForce              = $false
+    openBrowserOnStart    = $true
+    defaultCommitMessage  = ("chore: deploy followbox " + (Get-Date -Format "yyyy-MM-dd HH:mm"))
+  }
+}
+
+function Load-Config {
+  $defaults = Get-DefaultConfig
+  if (-not (Test-Path -LiteralPath $script:ConfigPath)) {
+    Save-Config -Config $defaults | Out-Null
+    return $defaults
+  }
+
+  $raw = Get-Content -LiteralPath $script:ConfigPath -Raw -Encoding UTF8
+  if ([string]::IsNullOrWhiteSpace($raw)) {
+    Save-Config -Config $defaults | Out-Null
+    return $defaults
+  }
+
+  $loaded = ConvertTo-Hashtable -InputObject ($raw | ConvertFrom-Json)
+  foreach ($key in $defaults.Keys) {
+    if (-not $loaded.ContainsKey($key)) {
+      $loaded[$key] = $defaults[$key]
+    }
+  }
+  return $loaded
+}
+
+function Save-Config {
+  param([hashtable]$Config)
+
+  $json = $Config | ConvertTo-Json -Depth 6
+  Set-Content -LiteralPath $script:ConfigPath -Value $json -Encoding UTF8
+  return $Config
+}
+
+function Assert-PathExists {
+  param(
+    [string]$Path,
+    [string]$Label
+  )
+
+  if (-not (Test-Path -LiteralPath $Path)) {
+    throw "$Label not found: $Path"
+  }
+}
+
+function Test-CommandExists {
+  param([string]$Name)
+
+  try {
+    return ($null -ne (Get-Command -Name $Name -ErrorAction SilentlyContinue))
+  } catch {
+    return $false
+  }
+}
+
+function Join-UrlPath {
+  param(
+    [string]$BaseUrl,
+    [string]$RelativePath
+  )
+
+  if ([string]::IsNullOrWhiteSpace($BaseUrl)) { return $RelativePath }
+  $base = [string]$BaseUrl
+  if (-not $base.EndsWith("/")) {
+    $base += "/"
+  }
+  return ($base + $RelativePath.TrimStart("/"))
+}
+
+function Test-HostReachable {
+  param([string]$Target)
+
+  if ([string]::IsNullOrWhiteSpace($Target)) { return $false }
+
+  try {
+    return [bool](Test-Connection -ComputerName $Target -Count 1 -Quiet -ErrorAction Stop)
+  } catch {
+    return $false
+  }
+}
+
+function Get-HashtableValue {
+  param(
+    [hashtable]$Table,
+    [string]$Key,
+    [object]$Default = $null
+  )
+
+  if ($null -ne $Table -and $Table.ContainsKey($Key) -and $null -ne $Table[$Key]) {
+    return $Table[$Key]
+  }
+  return $Default
+}
+
+function Resolve-PlatformIoCommand {
+  param([string]$Command)
+
+  $candidate = if ([string]::IsNullOrWhiteSpace($Command)) { Find-PlatformIoCommand } else { $Command }
+  if ([string]::IsNullOrWhiteSpace($candidate)) { $candidate = "pio" }
+
+  try {
+    if ($candidate -eq "pio") {
+      $found = Get-Command -Name pio -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($null -ne $found -and -not [string]::IsNullOrWhiteSpace([string]$found.Source)) {
+        return [ordered]@{ ok = $true; command = "pio"; resolvedPath = ([string]$found.Source).Trim(); reason = "" }
+      }
+      return [ordered]@{ ok = $false; command = $candidate; resolvedPath = ""; reason = "pio was not found in PATH." }
+    }
+
+    if (Test-Path -LiteralPath $candidate) {
+      return [ordered]@{ ok = $true; command = $candidate; resolvedPath = $candidate; reason = "" }
+    }
+
+    return [ordered]@{ ok = $false; command = $candidate; resolvedPath = ""; reason = "Configured PlatformIO command was not found: $candidate" }
+  } catch {
+    return [ordered]@{ ok = $false; command = $candidate; resolvedPath = ""; reason = $_.Exception.Message }
+  }
+}
+
+function Get-SerialPortDetails {
+  param([string]$PortName)
+
+  $items = @()
+  try {
+    $query = Get-CimInstance Win32_PnPEntity -ErrorAction Stop |
+      Where-Object { $_.Name -match '\(COM\d+\)' } |
+      Select-Object Name, DeviceID, PNPClass, Manufacturer
+
+    foreach ($entry in $query) {
+      if ($entry.Name -match '\((COM\d+)\)') {
+        $items += [ordered]@{
+          port         = $Matches[1]
+          name         = [string]$entry.Name
+          manufacturer = [string]$entry.Manufacturer
+          deviceId     = [string]$entry.DeviceID
+          pnpClass     = [string]$entry.PNPClass
+        }
+      }
+    }
+  } catch {
+    return [ordered]@{
+      ok        = $false
+      requested = $PortName
+      detected  = @()
+      error     = $_.Exception.Message
+    }
+  }
+
+  $requested = $null
+  if (-not [string]::IsNullOrWhiteSpace($PortName)) {
+    $requested = $items | Where-Object { $_.port -eq $PortName } | Select-Object -First 1
+  }
+
+  return [ordered]@{
+    ok        = $true
+    requested = $PortName
+    matched   = $requested
+    detected  = $items
+  }
+}
+
+function Get-GitCandidateFiles {
+  param([hashtable]$Config)
+
+  $pathspec = if ([string]::IsNullOrWhiteSpace([string]$Config.gitAddPathspec)) { "." } else { [string]$Config.gitAddPathspec }
+  $status = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "status", "--short", "--untracked-files=all", "--", $pathspec) -WorkingDirectory $Config.repoPath
+  $files = @()
+  foreach ($line in ($status.stdout -split "`r?`n")) {
+    $text = $line.TrimEnd()
+    if ([string]::IsNullOrWhiteSpace($text)) { continue }
+    $file = if ($text.Length -gt 3) { $text.Substring(3).Trim() } else { $text.Trim() }
+    $files += [ordered]@{
+      status = if ($text.Length -ge 2) { $text.Substring(0, 2) } else { $text }
+      path   = $file
+    }
+  }
+
+  return [ordered]@{
+    ok       = ($status.exitCode -eq 0)
+    pathspec = $pathspec
+    files    = $files
+    raw      = $status.stdout.Trim()
+    command  = $status.command
+    stderr   = $status.stderr.Trim()
+  }
+}
+
+function Get-GitIdentity {
+  param([hashtable]$Config)
+
+  $repoPath = [string]$Config.repoPath
+  $configuredName = [string](Get-HashtableValue -Table $Config -Key "gitUserName" -Default "")
+  $configuredEmail = [string](Get-HashtableValue -Table $Config -Key "gitUserEmail" -Default "")
+
+  $localName = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $repoPath, "config", "--get", "user.name") -WorkingDirectory $repoPath
+  $localEmail = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $repoPath, "config", "--get", "user.email") -WorkingDirectory $repoPath
+  $globalName = Invoke-ExternalCommand -FilePath "git" -Arguments @("config", "--global", "--get", "user.name") -WorkingDirectory $repoPath
+  $globalEmail = Invoke-ExternalCommand -FilePath "git" -Arguments @("config", "--global", "--get", "user.email") -WorkingDirectory $repoPath
+
+  $effectiveName = ""
+  $effectiveEmail = ""
+  $source = ""
+
+  if (-not [string]::IsNullOrWhiteSpace($configuredName) -and -not [string]::IsNullOrWhiteSpace($configuredEmail)) {
+    $effectiveName = $configuredName.Trim()
+    $effectiveEmail = $configuredEmail.Trim()
+    $source = "config"
+  } elseif (-not [string]::IsNullOrWhiteSpace($localName.stdout) -and -not [string]::IsNullOrWhiteSpace($localEmail.stdout)) {
+    $effectiveName = $localName.stdout.Trim()
+    $effectiveEmail = $localEmail.stdout.Trim()
+    $source = "repo"
+  } elseif (-not [string]::IsNullOrWhiteSpace($globalName.stdout) -and -not [string]::IsNullOrWhiteSpace($globalEmail.stdout)) {
+    $effectiveName = $globalName.stdout.Trim()
+    $effectiveEmail = $globalEmail.stdout.Trim()
+    $source = "global"
+  }
+
+  $reason = ""
+  $ok = $true
+  if ([string]::IsNullOrWhiteSpace($effectiveName) -or [string]::IsNullOrWhiteSpace($effectiveEmail)) {
+    $ok = $false
+    $reason = "Git user.name or user.email is missing. Fill them in before committing."
+  }
+
+  return [ordered]@{
+    ok              = $ok
+    source          = $source
+    effectiveName   = $effectiveName
+    effectiveEmail  = $effectiveEmail
+    configuredName  = $configuredName
+    configuredEmail = $configuredEmail
+    localName       = $localName.stdout.Trim()
+    localEmail      = $localEmail.stdout.Trim()
+    globalName      = $globalName.stdout.Trim()
+    globalEmail     = $globalEmail.stdout.Trim()
+    reason          = $reason
+    checks          = @($localName, $localEmail, $globalName, $globalEmail)
+  }
+}
+
+function Ensure-GitIdentity {
+  param([hashtable]$Config)
+
+  $identity = Get-GitIdentity -Config $Config
+  if (-not $identity.ok) {
+    return [ordered]@{
+      ok       = $false
+      step     = "git-identity"
+      reason   = $identity.reason
+      identity = $identity
+      steps    = @($identity.checks)
+    }
+  }
+
+  $steps = @($identity.checks)
+  if ($identity.source -eq "config") {
+    $setName = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "config", "user.name", $identity.effectiveName) -WorkingDirectory $Config.repoPath
+    $setEmail = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "config", "user.email", $identity.effectiveEmail) -WorkingDirectory $Config.repoPath
+    $steps += @($setName, $setEmail)
+    if ($setName.exitCode -ne 0 -or $setEmail.exitCode -ne 0) {
+      return [ordered]@{
+        ok       = $false
+        step     = "git-identity"
+        reason   = "Failed to write repository-local git identity."
+        identity = $identity
+        steps    = $steps
+      }
+    }
+  }
+
+  $verified = Get-GitIdentity -Config $Config
+  $steps += @($verified.checks)
+  if (-not $verified.ok) {
+    return [ordered]@{
+      ok       = $false
+      step     = "git-identity"
+      reason   = $verified.reason
+      identity = $verified
+      steps    = $steps
+    }
+  }
+
+  return [ordered]@{
+    ok       = $true
+    step     = "git-identity"
+    identity = $verified
+    steps    = $steps
+  }
+}
+
+function Get-GitRemoteHead {
+  param([hashtable]$Config)
+
+  $branch = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "branch", "--show-current") -WorkingDirectory $Config.repoPath
+  if ($branch.exitCode -ne 0 -or [string]::IsNullOrWhiteSpace($branch.stdout)) {
+    return [ordered]@{
+      ok     = $false
+      step   = "git-verify"
+      reason = "Cannot determine current branch."
+      branch = $branch.stdout.Trim()
+      steps  = @($branch)
+    }
+  }
+
+  $branchName = $branch.stdout.Trim()
+  $localHead = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "rev-parse", "HEAD") -WorkingDirectory $Config.repoPath
+  $remoteHead = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "ls-remote", "--heads", $Config.gitRemote, $branchName) -WorkingDirectory $Config.repoPath
+  $steps = @($branch, $localHead, $remoteHead)
+
+  if ($localHead.exitCode -ne 0 -or $remoteHead.exitCode -ne 0) {
+    return [ordered]@{
+      ok         = $false
+      step       = "git-verify"
+      reason     = "Failed to read local or remote HEAD."
+      branch     = $branchName
+      localHead  = $localHead.stdout.Trim()
+      remoteHead = $remoteHead.stdout.Trim()
+      steps      = $steps
+    }
+  }
+
+  $localSha = $localHead.stdout.Trim()
+  $remoteSha = ""
+  foreach ($line in ($remoteHead.stdout -split "`r?`n")) {
+    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+    $parts = $line -split "\s+"
+    if ($parts.Count -ge 1) {
+      $remoteSha = $parts[0].Trim()
+      break
+    }
+  }
+
+  if ([string]::IsNullOrWhiteSpace($remoteSha)) {
+    return [ordered]@{
+      ok         = $false
+      step       = "git-verify"
+      reason     = "Remote branch HEAD was not returned by ls-remote."
+      branch     = $branchName
+      localHead  = $localSha
+      remoteHead = ""
+      steps      = $steps
+    }
+  }
+
+  $ok = ($localSha -eq $remoteSha)
+  return [ordered]@{
+    ok         = $ok
+    step       = "git-verify"
+    reason     = if ($ok) { "" } else { "Remote HEAD does not match local HEAD after push." }
+    branch     = $branchName
+    localHead  = $localSha
+    remoteHead = $remoteSha
+    steps      = $steps
+  }
+}
+function Get-PreflightData {
+  param(
+    [hashtable]$Config,
+    [hashtable]$Body
+  )
+
+  $action = if ($Body.ContainsKey("action")) { [string]$Body.action } else { "" }
+  if ([string]::IsNullOrWhiteSpace($action)) {
+    throw "action is required"
+  }
+
+  $warnings = @()
+  $checks = @()
+  $summary = ""
+  $details = [ordered]@{}
+
+  switch ($action) {
+    "git-commit-push" {
+      $git = Get-GitCandidateFiles -Config $Config
+      $identity = Get-GitIdentity -Config $Config
+      $details.git = $git
+      $details.identity = $identity
+      $summary = "Will run git add / commit / push."
+      $checks += [ordered]@{ label = "Repo path exists"; ok = (Test-Path -LiteralPath $Config.repoPath) }
+      $checks += [ordered]@{ label = "Candidate files found"; ok = ($git.ok -and $git.files.Count -gt 0); value = [string]$git.files.Count }
+      $checks += [ordered]@{ label = "Git identity ready"; ok = [bool]$identity.ok; value = if ($identity.ok) { "$($identity.effectiveName) <$($identity.effectiveEmail)>" } else { $identity.reason } }
+      if ($git.pathspec -eq "." -or $git.pathspec -eq "*") {
+        $warnings += "Current gitAddPathspec covers the whole repo."
+      }
+      if ($git.files.Count -gt 20) {
+        $warnings += "Many files are included. Check that unrelated changes are not being pushed."
+      }
+      if ($git.files.Count -eq 0) {
+        $warnings += "No files matched. Commit will likely fail."
+      }
+    }
+    "cloud-deploy" {
+      $verifyUrl = [string]$Config.cloudVerifyUrl
+      $versionUrl = Join-UrlPath -BaseUrl $verifyUrl -RelativePath "deploy-version.txt"
+      $details.cloud = [ordered]@{
+        host       = $Config.cloudHost
+        port       = $Config.cloudPort
+        remoteDir  = $Config.cloudRemoteDir
+        verifyUrl  = $verifyUrl
+        versionUrl = $versionUrl
+      }
+      $summary = "Will upload cloud artifacts and restart PM2/nginx."
+      $checks += [ordered]@{ label = "Cloud path exists"; ok = (Test-Path -LiteralPath $Config.cloudPath) }
+      $checks += [ordered]@{ label = "SSH key exists"; ok = (Test-Path -LiteralPath $Config.cloudPemPath) }
+      $checks += [ordered]@{ label = "ssh command available"; ok = (Test-CommandExists -Name "ssh") }
+      $checks += [ordered]@{ label = "scp command available"; ok = (Test-CommandExists -Name "scp") }
+      if ([string]::IsNullOrWhiteSpace([string]$Config.cloudVerifyUrl)) {
+        $warnings += "No cloud verify URL is configured."
+      }
+    }
+    "deploy-cloud-all" {
+      $git = Get-GitCandidateFiles -Config $Config
+      $identity = Get-GitIdentity -Config $Config
+      $details.git = $git
+      $details.identity = $identity
+      $details.cloud = [ordered]@{
+        host      = $Config.cloudHost
+        port      = $Config.cloudPort
+        remoteDir = $Config.cloudRemoteDir
+        verifyUrl = $Config.cloudVerifyUrl
+      }
+      $summary = "Will commit/push first, then deploy cloud."
+      $checks += [ordered]@{ label = "Candidate files found"; ok = ($git.ok -and $git.files.Count -gt 0); value = [string]$git.files.Count }
+      $checks += [ordered]@{ label = "Git identity ready"; ok = [bool]$identity.ok; value = if ($identity.ok) { "$($identity.effectiveName) <$($identity.effectiveEmail)>" } else { $identity.reason } }
+      $checks += [ordered]@{ label = "Cloud path exists"; ok = (Test-Path -LiteralPath $Config.cloudPath) }
+      $checks += [ordered]@{ label = "SSH key exists"; ok = (Test-Path -LiteralPath $Config.cloudPemPath) }
+      if ($git.pathspec -eq "." -or $git.pathspec -eq "*") {
+        $warnings += "Deploy-all will commit the full pathspec scope first."
+      }
+    }
+    "ota-publish-cloud" {
+      $targetHost = try { ([uri]$Config.cloudVerifyUrl).Host } catch { "" }
+      $otaVersion = [string](Get-HashtableValue -Table $Body -Key "otaVersion" -Default $Config.otaVersion)
+      $pio = Resolve-PlatformIoCommand -Command ([string]$Config.pioCommand)
+      $details.ota = [ordered]@{
+        firmwareEnv      = $Config.firmwareEnv
+        otaVersion       = $otaVersion
+        cloudFirmwareDir = $Config.cloudFirmwarePath
+        remoteFirmware   = "$($Config.cloudRemoteDir)/firmware"
+        verifyHost       = $targetHost
+        pioCommand       = $pio.command
+        pioResolvedPath  = $pio.resolvedPath
+        pioReason        = $pio.reason
+      }
+      $summary = "Will build OTA package locally and upload it to cloud/firmware."
+      $checks += [ordered]@{ label = "Firmware path exists"; ok = (Test-Path -LiteralPath $Config.firmwarePath) }
+      $checks += [ordered]@{ label = "cloud/firmware path exists"; ok = (Test-Path -LiteralPath $Config.cloudFirmwarePath) }
+      $checks += [ordered]@{ label = "SSH key exists"; ok = (Test-Path -LiteralPath $Config.cloudPemPath) }
+      $checks += [ordered]@{ label = "PlatformIO available"; ok = [bool]$pio.ok; value = if ($pio.ok) { $pio.resolvedPath } else { $pio.reason } }
+      if ([string]::IsNullOrWhiteSpace($otaVersion)) {
+        $warnings += "No OTA version was provided."
+      }
+    }
+    "upload-serial" {
+      $serial = Get-SerialPortDetails -PortName ([string]$Config.serialPort)
+      $pio = Resolve-PlatformIoCommand -Command ([string]$Config.pioCommand)
+      $details.serial = $serial
+      $details.pio = $pio
+      $summary = "Will flash the board over the serial port."
+      $checks += [ordered]@{ label = "Serial port configured"; ok = (-not [string]::IsNullOrWhiteSpace([string]$Config.serialPort)); value = [string]$Config.serialPort }
+      $checks += [ordered]@{ label = "PlatformIO available"; ok = [bool]$pio.ok; value = if ($pio.ok) { $pio.resolvedPath } else { $pio.reason } }
+      $checks += [ordered]@{ label = "Target serial port detected"; ok = ($serial.ok -and $null -ne $serial.matched); value = if ($serial.matched) { $serial.matched.name } else { "" } }
+      $warnings += "Confirm wheels are lifted and the drive chain is safe before serial flashing."
+    }
+    "upload-network" {
+      $reachable = Test-HostReachable -Target ([string]$Config.otaUploadPort)
+      $pio = Resolve-PlatformIoCommand -Command ([string]$Config.pioCommand)
+      $details.network = [ordered]@{
+        target = $Config.otaUploadPort
+      }
+      $details.pio = $pio
+      $summary = "Will upload firmware over network OTA."
+      $checks += [ordered]@{ label = "OTA target configured"; ok = (-not [string]::IsNullOrWhiteSpace([string]$Config.otaUploadPort)); value = [string]$Config.otaUploadPort }
+      $checks += [ordered]@{ label = "Target reachable"; ok = $reachable; value = [string]$Config.otaUploadPort }
+      $checks += [ordered]@{ label = "PlatformIO available"; ok = [bool]$pio.ok; value = if ($pio.ok) { $pio.resolvedPath } else { $pio.reason } }
+      $warnings += "Confirm the target IP belongs to the intended board before OTA."
+    }
+    default {
+      throw "Unsupported action: $action"
+    }
+  }
+
+  $blocking = @($checks | Where-Object { -not $_.ok })
+  return [ordered]@{
+    ok       = ($blocking.Count -eq 0)
+    action   = $action
+    summary  = $summary
+    checks   = $checks
+    warnings = $warnings
+    details  = $details
+  }
+}
+
+function Read-JsonBody {
+  param([System.Net.HttpListenerRequest]$Request)
+
+  $reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
+  $payload = $reader.ReadToEnd()
+  $reader.Dispose()
+  if ([string]::IsNullOrWhiteSpace($payload)) { return @{} }
+  return ConvertTo-Hashtable -InputObject ($payload | ConvertFrom-Json)
+}
+
+function New-JsonResponse {
+  param(
+    [System.Net.HttpListenerResponse]$Response,
+    [int]$StatusCode,
+    [object]$Body
+  )
+
+  $json = $Body | ConvertTo-Json -Depth 12
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+  $Response.StatusCode = $StatusCode
+  $Response.ContentType = "application/json; charset=utf-8"
+  $Response.ContentEncoding = [System.Text.Encoding]::UTF8
+  $Response.AddHeader("Cache-Control", "no-store")
+  $Response.OutputStream.Write($bytes, 0, $bytes.Length)
+  $Response.Close()
+}
+
+function New-HtmlResponse {
+  param(
+    [System.Net.HttpListenerResponse]$Response,
+    [string]$Html
+  )
+
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($Html)
+  $Response.StatusCode = 200
+  $Response.ContentType = "text/html; charset=utf-8"
+  $Response.ContentEncoding = [System.Text.Encoding]::UTF8
+  $Response.AddHeader("Cache-Control", "no-store")
+  $Response.OutputStream.Write($bytes, 0, $bytes.Length)
+  $Response.Close()
+}
+
+function Invoke-ExternalCommand {
+  param(
+    [string]$FilePath,
+    [string[]]$Arguments,
+    [string]$WorkingDirectory
+  )
+
+  $startedAt = Get-Date
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $FilePath
+  $psi.WorkingDirectory = $WorkingDirectory
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  $quotedArguments = $Arguments | ForEach-Object {
+    $text = [string]$_
+    if ($text -match '[\s"]') {
+      '"' + ($text -replace '"', '\"') + '"'
+    } else {
+      $text
+    }
+  }
+  $psi.Arguments = ($quotedArguments -join " ")
+
+  $commandText = ($FilePath + " " + (($Arguments | ForEach-Object {
+        if ($_ -match "\s") { '"' + $_ + '"' } else { $_ }
+      }) -join " "))
+
+  try {
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $psi
+    [void]$process.Start()
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    $finishedAt = Get-Date
+
+    return [ordered]@{
+      ok               = ($process.ExitCode -eq 0)
+      command          = $commandText
+      workingDirectory = $WorkingDirectory
+      exitCode         = $process.ExitCode
+      stdout           = $stdout
+      stderr           = $stderr
+      startedAt        = $startedAt.ToString("s")
+      finishedAt       = $finishedAt.ToString("s")
+      durationMs       = [int][Math]::Round(($finishedAt - $startedAt).TotalMilliseconds)
+    }
+  } catch {
+    $finishedAt = Get-Date
+    return [ordered]@{
+      ok               = $false
+      command          = $commandText
+      workingDirectory = $WorkingDirectory
+      exitCode         = -1
+      stdout           = ""
+      stderr           = $_.Exception.Message
+      startedAt        = $startedAt.ToString("s")
+      finishedAt       = $finishedAt.ToString("s")
+      durationMs       = [int][Math]::Round(($finishedAt - $startedAt).TotalMilliseconds)
+    }
+  }
+}
+
+function Get-SshArgumentPrefix {
+  param(
+    [hashtable]$Config,
+    [ValidateSet("ssh", "scp")]
+    [string]$Tool = "ssh"
+  )
+
+  $portFlag = if ($Tool -eq "scp") { "-P" } else { "-p" }
+
+  return @(
+    "-o", "IdentitiesOnly=yes",
+    "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa",
+    "-o", "HostkeyAlgorithms=+ssh-rsa",
+    "-i", $Config.cloudPemPath,
+    $portFlag, [string]$Config.cloudPort
+  )
+}
+
+function Get-GitStatusData {
+  param([hashtable]$Config)
+
+  Assert-PathExists -Path $Config.repoPath -Label "Repo path"
+  $branch = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "branch", "--show-current") -WorkingDirectory $Config.repoPath
+  $status = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "status", "--short", "--branch") -WorkingDirectory $Config.repoPath
+  $remote = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "remote", "-v") -WorkingDirectory $Config.repoPath
+  $identity = Get-GitIdentity -Config $Config
+  return [ordered]@{
+    branch   = $branch.stdout.Trim()
+    status   = $status.stdout.Trim()
+    remote   = $remote.stdout.Trim()
+    identity = $identity
+  }
+}
+
+function Get-HealthData {
+  param([hashtable]$Config)
+
+  $pio = Resolve-PlatformIoCommand -Command ([string]$Config.pioCommand)
+  $identity = Get-GitIdentity -Config $Config
+
+  return [ordered]@{
+    repoExists      = (Test-Path -LiteralPath $Config.repoPath)
+    cloudExists     = (Test-Path -LiteralPath $Config.cloudPath)
+    firmwareExists  = (Test-Path -LiteralPath $Config.firmwarePath)
+    pemExists       = (Test-Path -LiteralPath $Config.cloudPemPath)
+    pioExists       = [bool]$pio.ok
+    pioCommand      = $pio.command
+    pioResolvedPath = $pio.resolvedPath
+    pioReason       = $pio.reason
+    gitUserName     = $identity.effectiveName
+    gitUserEmail    = $identity.effectiveEmail
+    serialPort      = $Config.serialPort
+    otaUploadPort   = $Config.otaUploadPort
+  }
+}
+
+function Publish-OtaFilesLocal {
+  param(
+    [hashtable]$Config,
+    [hashtable]$Body
+  )
+
+  Assert-PathExists -Path $Config.firmwarePath -Label "Firmware path"
+  Assert-PathExists -Path $Config.cloudFirmwarePath -Label "Cloud firmware path"
+
+  $envName = if ($Body.ContainsKey("firmwareEnv") -and $Body.firmwareEnv) { [string]$Body.firmwareEnv } else { [string]$Config.firmwareEnv }
+  $version = if ($Body.ContainsKey("otaVersion") -and $Body.otaVersion) { [string]$Body.otaVersion } else { [string]$Config.otaVersion }
+  $force = if ($Body.ContainsKey("otaForce")) { ConvertTo-BoolSafe -Value $Body.otaForce -Default $false } else { ConvertTo-BoolSafe -Value $Config.otaForce -Default $false }
+  $pioCommand = if ($Body.ContainsKey("pioCommand") -and $Body.pioCommand) { [string]$Body.pioCommand } else { [string]$Config.pioCommand }
+  $pio = Resolve-PlatformIoCommand -Command $pioCommand
+  if (-not $pio.ok) {
+    return [ordered]@{
+      ok     = $false
+      step   = "platformio"
+      reason = $pio.reason
+      pio    = $pio
+    }
+  }
+
+  $build = Invoke-ExternalCommand -FilePath $pioCommand -Arguments @("run", "-d", $Config.firmwarePath, "-e", $envName) -WorkingDirectory $Config.firmwarePath
+  if ($build.exitCode -ne 0) {
+    return [ordered]@{ ok = $false; step = "build"; result = $build }
+  }
+
+  $binPath = Join-Path $Config.firmwarePath ".pio\build\$envName\firmware.bin"
+  Assert-PathExists -Path $binPath -Label "Built firmware"
+
+  $targetBin = Join-Path $Config.cloudFirmwarePath "firmware.bin"
+  Copy-Item -LiteralPath $binPath -Destination $targetBin -Force
+
+  $hash = Get-FileHash -LiteralPath $targetBin -Algorithm MD5
+  $item = Get-Item -LiteralPath $targetBin
+  $manifest = [ordered]@{
+    version = $version
+    file    = "firmware.bin"
+    md5     = $hash.Hash.ToLowerInvariant()
+    size    = [int64]$item.Length
+    force   = $force
+  }
+  Set-Content -LiteralPath (Join-Path $Config.cloudFirmwarePath "manifest.json") -Value ($manifest | ConvertTo-Json -Depth 4) -Encoding UTF8
+
+  return [ordered]@{
+    ok       = $true
+    step     = "publish-local"
+    manifest = $manifest
+    build    = $build
+    binPath  = $targetBin
+  }
+}
+
+function Invoke-CloudDeploy {
+  param([hashtable]$Config)
+
+  Assert-PathExists -Path $Config.cloudPath -Label "Cloud path"
+  Assert-PathExists -Path $Config.cloudPemPath -Label "SSH key"
+
+  $sshPrefix = Get-SshArgumentPrefix -Config $Config -Tool "ssh"
+  $scpPrefix = Get-SshArgumentPrefix -Config $Config -Tool "scp"
+  $remote = "$($Config.cloudUser)@$($Config.cloudHost)"
+  $remoteDir = [string]$Config.cloudRemoteDir
+
+  $mkdir = Invoke-ExternalCommand -FilePath "ssh" -Arguments ($sshPrefix + @($remote, "mkdir -p '$remoteDir/public' '$remoteDir/firmware'")) -WorkingDirectory $Config.cloudPath
+  $backend = Invoke-ExternalCommand -FilePath "scp" -Arguments ($scpPrefix + @(
+        (Join-Path $Config.cloudPath "server.js"),
+        (Join-Path $Config.cloudPath "package.json"),
+        (Join-Path $Config.cloudPath "deploy-clean-cache.sh"),
+        (Join-Path $Config.cloudPath "followbox-nginx.conf"),
+        "$remote`:$remoteDir/"
+      )) -WorkingDirectory $Config.cloudPath
+  $public = Invoke-ExternalCommand -FilePath "scp" -Arguments ($scpPrefix + @("-r", (Join-Path $Config.cloudPath "public"), "$remote`:$remoteDir/")) -WorkingDirectory $Config.cloudPath
+  $firmware = Invoke-ExternalCommand -FilePath "scp" -Arguments ($scpPrefix + @("-r", (Join-Path $Config.cloudPath "firmware"), "$remote`:$remoteDir/")) -WorkingDirectory $Config.cloudPath
+  $restart = Invoke-ExternalCommand -FilePath "ssh" -Arguments ($sshPrefix + @($remote, "cd '$remoteDir' && chmod +x deploy-clean-cache.sh && npm install && bash ./deploy-clean-cache.sh '$remoteDir'")) -WorkingDirectory $Config.cloudPath
+  $remoteVerify = Invoke-ExternalCommand -FilePath "ssh" -Arguments ($sshPrefix + @($remote, "cd '$remoteDir' && test -f server.js && test -f public/index.html && test -f public/deploy-version.txt && test -f firmware/manifest.json && (pm2 list 2>/dev/null | grep -i followbox-cloud || true)")) -WorkingDirectory $Config.cloudPath
+
+  $verify = [ordered]@{
+    app         = ""
+    deployStamp = ""
+  }
+  try {
+    $response = Invoke-WebRequest -Uri $Config.cloudVerifyUrl -UseBasicParsing -Method Get -TimeoutSec 15
+    $verify.app = "HTTP $($response.StatusCode)"
+  } catch {
+    $verify.app = $_.Exception.Message
+  }
+
+  try {
+    $versionResponse = Invoke-WebRequest -Uri (Join-UrlPath -BaseUrl $Config.cloudVerifyUrl -RelativePath "deploy-version.txt") -UseBasicParsing -Method Get -TimeoutSec 15
+    $verify.deployStamp = ($versionResponse.Content | Out-String).Trim()
+  } catch {
+    $verify.deployStamp = $_.Exception.Message
+  }
+
+  return [ordered]@{
+    ok     = ($mkdir.exitCode -eq 0 -and $backend.exitCode -eq 0 -and $public.exitCode -eq 0 -and $firmware.exitCode -eq 0 -and $restart.exitCode -eq 0 -and $remoteVerify.exitCode -eq 0)
+    verify = $verify
+    steps  = @($mkdir, $backend, $public, $firmware, $restart, $remoteVerify)
+  }
+}
+
+function Invoke-OtaPublishCloud {
+  param(
+    [hashtable]$Config,
+    [hashtable]$Body
+  )
+
+  $local = Publish-OtaFilesLocal -Config $Config -Body $Body
+  if (-not $local.ok) { return $local }
+
+  Assert-PathExists -Path $Config.cloudPemPath -Label "SSH key"
+  $sshPrefix = Get-SshArgumentPrefix -Config $Config -Tool "ssh"
+  $scpPrefix = Get-SshArgumentPrefix -Config $Config -Tool "scp"
+  $remote = "$($Config.cloudUser)@$($Config.cloudHost)"
+  $remoteDir = "$($Config.cloudRemoteDir)/firmware"
+
+  $mkdir = Invoke-ExternalCommand -FilePath "ssh" -Arguments ($sshPrefix + @($remote, "mkdir -p '$remoteDir'")) -WorkingDirectory $Config.cloudPath
+  $upload = Invoke-ExternalCommand -FilePath "scp" -Arguments ($scpPrefix + @(
+        (Join-Path $Config.cloudFirmwarePath "firmware.bin"),
+        (Join-Path $Config.cloudFirmwarePath "manifest.json"),
+        "$remote`:$remoteDir/"
+      )) -WorkingDirectory $Config.cloudPath
+
+  return [ordered]@{
+    ok    = ($mkdir.exitCode -eq 0 -and $upload.exitCode -eq 0)
+    local = $local
+    steps = @($mkdir, $upload)
+  }
+}
+
+function Invoke-GitCommitPush {
+  param(
+    [hashtable]$Config,
+    [hashtable]$Body
+  )
+
+  $commitMessage = if ($Body.ContainsKey("commitMessage") -and -not [string]::IsNullOrWhiteSpace([string]$Body.commitMessage)) {
+    [string]$Body.commitMessage
+  } else {
+    [string]$Config.defaultCommitMessage
+  }
+
+  $identity = Ensure-GitIdentity -Config $Config
+  if (-not $identity.ok) {
+    return [ordered]@{
+      ok            = $false
+      step          = $identity.step
+      reason        = $identity.reason
+      commitMessage = $commitMessage
+      identity      = $identity.identity
+      steps         = $identity.steps
+      git           = Get-GitStatusData -Config $Config
+    }
+  }
+
+  $add = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "add", $Config.gitAddPathspec) -WorkingDirectory $Config.repoPath
+  $commit = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "commit", "-m", $commitMessage) -WorkingDirectory $Config.repoPath
+  $push = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "push", $Config.gitRemote) -WorkingDirectory $Config.repoPath
+  $verify = if ($add.exitCode -eq 0 -and $commit.exitCode -eq 0 -and $push.exitCode -eq 0) { Get-GitRemoteHead -Config $Config } else { $null }
+  $status = Get-GitStatusData -Config $Config
+
+  return [ordered]@{
+    ok            = ($add.exitCode -eq 0 -and $commit.exitCode -eq 0 -and $push.exitCode -eq 0 -and ($null -eq $verify -or $verify.ok))
+    commitMessage = $commitMessage
+    steps         = @($identity.steps + @($add, $commit, $push) + @($verify.steps))
+    verify        = $verify
+    git           = $status
+  }
+}
+
+function Get-AppHtml {
+  Assert-PathExists -Path $script:HtmlPath -Label "HTML file"
+  return [System.IO.File]::ReadAllText($script:HtmlPath, [System.Text.Encoding]::UTF8)
+}
+
+function Merge-Config {
+  param(
+    [hashtable]$Base,
+    [hashtable]$Incoming
+  )
+
+  foreach ($entry in $Incoming.GetEnumerator()) {
+    $Base[$entry.Key] = $entry.Value
+  }
+  return $Base
+}
+
+function Handle-ApiRequest {
+  param([System.Net.HttpListenerContext]$Context)
+
+  $request = $Context.Request
+  $response = $Context.Response
+  $path = $request.Url.AbsolutePath
+
+  if ($path -eq "/" -or $path -eq "/index.html") {
+    New-HtmlResponse -Response $response -Html (Get-AppHtml)
+    return
+  }
+
+  $config = Load-Config
+
+  try {
+    switch ($path) {
+      "/api/state" {
+        $git = Get-GitStatusData -Config $config
+        $health = Get-HealthData -Config $config
+        New-JsonResponse -Response $response -StatusCode 200 -Body @{
+          ok     = $true
+          config = $config
+          git    = $git
+          health = $health
+        }
+        return
+      }
+      "/api/config/save" {
+        $body = Read-JsonBody -Request $request
+        $updated = Merge-Config -Base $config -Incoming $body
+        Save-Config -Config $updated | Out-Null
+        New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = $true; config = $updated }
+        return
+      }
+      "/api/git/status" {
+        $body = Read-JsonBody -Request $request
+        $updated = Merge-Config -Base $config -Incoming $body
+        Save-Config -Config $updated | Out-Null
+        $status = Get-GitStatusData -Config $updated
+        New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = $true; git = $status }
+        return
+      }
+      "/api/git/fetch" {
+        $fetch = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $config.repoPath, "fetch", $config.gitRemote) -WorkingDirectory $config.repoPath
+        $status = Get-GitStatusData -Config $config
+        New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = ($fetch.exitCode -eq 0); result = $fetch; git = $status }
+        return
+      }
+      "/api/git/pull" {
+        $pull = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $config.repoPath, "pull", $config.gitRemote) -WorkingDirectory $config.repoPath
+        $status = Get-GitStatusData -Config $config
+        New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = ($pull.exitCode -eq 0); result = $pull; git = $status }
+        return
+      }
+      "/api/git/clone" {
+        if ([string]::IsNullOrWhiteSpace([string]$config.cloneTargetPath)) { throw "cloneTargetPath is required" }
+        $clone = Invoke-ExternalCommand -FilePath "git" -Arguments @("clone", $config.cloneUrl, $config.cloneTargetPath) -WorkingDirectory $script:RepoRoot
+        New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = ($clone.exitCode -eq 0); result = $clone }
+        return
+      }
+      "/api/git/commit-push" {
+        $body = Read-JsonBody -Request $request
+        $runtimeConfig = Merge-Config -Base $config -Incoming $body
+        $result = Invoke-GitCommitPush -Config $runtimeConfig -Body $body
+        New-JsonResponse -Response $response -StatusCode 200 -Body $result
+        return
+      }
+      "/api/preflight" {
+        $body = Read-JsonBody -Request $request
+        $runtimeConfig = Merge-Config -Base $config -Incoming $body
+        $result = Get-PreflightData -Config $runtimeConfig -Body $body
+        New-JsonResponse -Response $response -StatusCode 200 -Body $result
+        return
+      }
+      "/api/cloud/deploy" {
+        $body = Read-JsonBody -Request $request
+        $runtimeConfig = Merge-Config -Base $config -Incoming $body
+        $result = Invoke-CloudDeploy -Config $runtimeConfig
+        New-JsonResponse -Response $response -StatusCode 200 -Body $result
+        return
+      }
+      "/api/cloud/deploy-all" {
+        $body = Read-JsonBody -Request $request
+        $runtimeConfig = Merge-Config -Base $config -Incoming $body
+        $gitResult = Invoke-GitCommitPush -Config $runtimeConfig -Body $body
+        if (-not $gitResult.ok) {
+          New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = $false; stage = "git"; git = $gitResult }
+          return
+        }
+        $cloudResult = Invoke-CloudDeploy -Config $runtimeConfig
+        New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = $cloudResult.ok; stage = "cloud"; git = $gitResult; cloud = $cloudResult }
+        return
+      }
+      "/api/ota/build" {
+        $body = Read-JsonBody -Request $request
+        $result = Publish-OtaFilesLocal -Config $config -Body $body
+        New-JsonResponse -Response $response -StatusCode 200 -Body $result
+        return
+      }
+      "/api/ota/publish-cloud" {
+        $body = Read-JsonBody -Request $request
+        $runtimeConfig = Merge-Config -Base $config -Incoming $body
+        $result = Invoke-OtaPublishCloud -Config $runtimeConfig -Body $body
+        New-JsonResponse -Response $response -StatusCode 200 -Body $result
+        return
+      }
+      "/api/ota/upload-serial" {
+        $body = Read-JsonBody -Request $request
+        $runtimeConfig = Merge-Config -Base $config -Incoming $body
+        if ([string]::IsNullOrWhiteSpace([string]$runtimeConfig.serialPort)) {
+          New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = $false; step = "serial-port"; reason = "serialPort is required"; serialPort = $runtimeConfig.serialPort }
+          return
+        }
+        $pio = Resolve-PlatformIoCommand -Command ([string]$runtimeConfig.pioCommand)
+        if (-not $pio.ok) {
+          New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = $false; step = "platformio"; reason = $pio.reason; pio = $pio }
+          return
+        }
+        $upload = Invoke-ExternalCommand -FilePath $pio.command -Arguments @("run", "-d", $runtimeConfig.firmwarePath, "-e", $runtimeConfig.firmwareEnv, "-t", "upload", "--upload-port", $runtimeConfig.serialPort) -WorkingDirectory $runtimeConfig.firmwarePath
+        New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = ($upload.exitCode -eq 0); result = $upload }
+        return
+      }
+      "/api/ota/upload-network" {
+        $body = Read-JsonBody -Request $request
+        $runtimeConfig = Merge-Config -Base $config -Incoming $body
+        $pio = Resolve-PlatformIoCommand -Command ([string]$runtimeConfig.pioCommand)
+        if (-not $pio.ok) {
+          New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = $false; step = "platformio"; reason = $pio.reason; pio = $pio }
+          return
+        }
+        $upload = Invoke-ExternalCommand -FilePath $pio.command -Arguments @("run", "-d", $runtimeConfig.firmwarePath, "-e", $runtimeConfig.otaEnv, "-t", "upload", "--upload-port", $runtimeConfig.otaUploadPort) -WorkingDirectory $runtimeConfig.firmwarePath
+        New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = ($upload.exitCode -eq 0); result = $upload }
+        return
+      }
+      default {
+        New-JsonResponse -Response $response -StatusCode 404 -Body @{ ok = $false; error = "not found" }
+        return
+      }
+    }
+  } catch {
+    New-JsonResponse -Response $response -StatusCode 500 -Body @{
+      ok            = $false
+      path          = $path
+      error         = $_.Exception.Message
+      exceptionType = $_.Exception.GetType().FullName
+      line          = $_.InvocationInfo.ScriptLineNumber
+      command       = $_.InvocationInfo.Line
+    }
+  }
+}
+
+$config = Load-Config
+$script:Listener = New-Object System.Net.HttpListener
+$prefix = "http://127.0.0.1:$Port/"
+$script:Listener.Prefixes.Add($prefix)
+$script:Listener.Start()
+
+Write-Host "FollowBox Control Center running at $prefix"
+Write-Host "Press Ctrl+C to stop."
+
+if (-not $NoBrowser -and (ConvertTo-BoolSafe -Value $config.openBrowserOnStart -Default $true)) {
+  Start-Process $prefix
+}
+
+try {
+  while ($script:Listener.IsListening) {
+    $context = $script:Listener.GetContext()
+    Handle-ApiRequest -Context $context
+  }
+} finally {
+  if ($script:Listener) {
+    $script:Listener.Stop()
+    $script:Listener.Close()
+  }
+}
