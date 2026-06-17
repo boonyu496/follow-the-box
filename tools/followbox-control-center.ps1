@@ -154,9 +154,19 @@ function Assert-PathExists {
     [string]$Label
   )
 
+  if ([string]::IsNullOrWhiteSpace($Path)) {
+    throw "$Label is not configured."
+  }
   if (-not (Test-Path -LiteralPath $Path)) {
     throw "$Label not found: $Path"
   }
+}
+
+function Test-ExistingPath {
+  param([string]$Path)
+
+  if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+  return (Test-Path -LiteralPath $Path)
 }
 
 function Test-CommandExists {
@@ -492,7 +502,7 @@ function Get-PreflightData {
       $details.git = $git
       $details.identity = $identity
       $summary = "Will run git add / commit / push."
-      $checks += [ordered]@{ label = "Repo path exists"; ok = (Test-Path -LiteralPath $Config.repoPath) }
+      $checks += [ordered]@{ label = "Repo path exists"; ok = (Test-ExistingPath -Path $Config.repoPath) }
       $checks += [ordered]@{ label = "Candidate files found"; ok = ($git.ok -and $git.files.Count -gt 0); value = [string]$git.files.Count }
       $checks += [ordered]@{ label = "Git identity ready"; ok = [bool]$identity.ok; value = if ($identity.ok) { "$($identity.effectiveName) <$($identity.effectiveEmail)>" } else { $identity.reason } }
       if ($git.pathspec -eq "." -or $git.pathspec -eq "*") {
@@ -516,8 +526,8 @@ function Get-PreflightData {
         versionUrl = $versionUrl
       }
       $summary = "Will upload cloud artifacts and restart PM2/nginx."
-      $checks += [ordered]@{ label = "Cloud path exists"; ok = (Test-Path -LiteralPath $Config.cloudPath) }
-      $checks += [ordered]@{ label = "SSH key exists"; ok = (Test-Path -LiteralPath $Config.cloudPemPath) }
+      $checks += [ordered]@{ label = "Cloud path exists"; ok = (Test-ExistingPath -Path $Config.cloudPath) }
+      $checks += [ordered]@{ label = "SSH key exists"; ok = (Test-ExistingPath -Path $Config.cloudPemPath) }
       $checks += [ordered]@{ label = "ssh command available"; ok = (Test-CommandExists -Name "ssh") }
       $checks += [ordered]@{ label = "scp command available"; ok = (Test-CommandExists -Name "scp") }
       if ([string]::IsNullOrWhiteSpace([string]$Config.cloudVerifyUrl)) {
@@ -538,8 +548,8 @@ function Get-PreflightData {
       $summary = "Will commit/push first, then deploy cloud."
       $checks += [ordered]@{ label = "Candidate files found"; ok = ($git.ok -and $git.files.Count -gt 0); value = [string]$git.files.Count }
       $checks += [ordered]@{ label = "Git identity ready"; ok = [bool]$identity.ok; value = if ($identity.ok) { "$($identity.effectiveName) <$($identity.effectiveEmail)>" } else { $identity.reason } }
-      $checks += [ordered]@{ label = "Cloud path exists"; ok = (Test-Path -LiteralPath $Config.cloudPath) }
-      $checks += [ordered]@{ label = "SSH key exists"; ok = (Test-Path -LiteralPath $Config.cloudPemPath) }
+      $checks += [ordered]@{ label = "Cloud path exists"; ok = (Test-ExistingPath -Path $Config.cloudPath) }
+      $checks += [ordered]@{ label = "SSH key exists"; ok = (Test-ExistingPath -Path $Config.cloudPemPath) }
       if ($git.pathspec -eq "." -or $git.pathspec -eq "*") {
         $warnings += "Deploy-all will commit the full pathspec scope first."
       }
@@ -559,9 +569,9 @@ function Get-PreflightData {
         pioReason        = $pio.reason
       }
       $summary = "Will build OTA package locally and upload it to cloud/firmware."
-      $checks += [ordered]@{ label = "Firmware path exists"; ok = (Test-Path -LiteralPath $Config.firmwarePath) }
-      $checks += [ordered]@{ label = "cloud/firmware path exists"; ok = (Test-Path -LiteralPath $Config.cloudFirmwarePath) }
-      $checks += [ordered]@{ label = "SSH key exists"; ok = (Test-Path -LiteralPath $Config.cloudPemPath) }
+      $checks += [ordered]@{ label = "Firmware path exists"; ok = (Test-ExistingPath -Path $Config.firmwarePath) }
+      $checks += [ordered]@{ label = "cloud/firmware path exists"; ok = (Test-ExistingPath -Path $Config.cloudFirmwarePath) }
+      $checks += [ordered]@{ label = "SSH key exists"; ok = (Test-ExistingPath -Path $Config.cloudPemPath) }
       $checks += [ordered]@{ label = "PlatformIO available"; ok = [bool]$pio.ok; value = if ($pio.ok) { $pio.resolvedPath } else { $pio.reason } }
       if ([string]::IsNullOrWhiteSpace($otaVersion)) {
         $warnings += "No OTA version was provided."
@@ -755,10 +765,10 @@ function Get-HealthData {
   $identity = Get-GitIdentity -Config $Config
 
   return [ordered]@{
-    repoExists      = (Test-Path -LiteralPath $Config.repoPath)
-    cloudExists     = (Test-Path -LiteralPath $Config.cloudPath)
-    firmwareExists  = (Test-Path -LiteralPath $Config.firmwarePath)
-    pemExists       = (Test-Path -LiteralPath $Config.cloudPemPath)
+    repoExists      = (Test-ExistingPath -Path $Config.repoPath)
+    cloudExists     = (Test-ExistingPath -Path $Config.cloudPath)
+    firmwareExists  = (Test-ExistingPath -Path $Config.firmwarePath)
+    pemExists       = (Test-ExistingPath -Path $Config.cloudPemPath)
     pioExists       = [bool]$pio.ok
     pioCommand      = $pio.command
     pioResolvedPath = $pio.resolvedPath

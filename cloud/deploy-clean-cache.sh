@@ -6,6 +6,17 @@ APP_NAME="${FOLLOWBOX_PM2_NAME:-followbox-cloud}"
 
 cd "$APP_DIR"
 
+# Stamp every deploy so index.html serves app/style URLs with a fresh version
+# query. This avoids stale browser/CDN assets when the remote public/ folder is
+# replaced but an old app.js is still cached by a client or proxy.
+mkdir -p public
+{
+  echo "FollowBox cloud deploy package"
+  echo "built_at=$(date -Iseconds)"
+  echo "cache_policy=no-store+versioned-assets"
+  echo "path=https://www.boonai.cn/fb/"
+} > public/deploy-version.txt
+
 # Static files are served with no-store headers. Remove common local caches so
 # the newly uploaded files are read from disk immediately.
 rm -rf .cache tmp cache public/.cache public/.vite 2>/dev/null || true

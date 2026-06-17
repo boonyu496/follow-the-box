@@ -8,6 +8,7 @@ const DEVICE_TOKEN =
 const OPERATOR_TOKEN =
   process.env.FOLLOWBOX_OPERATOR_TOKEN || "0b6cf31c57bc202d002b04f843c9b430";
 const PUBLIC_DIR = path.join(__dirname, "public");
+const DEPLOY_VERSION_FILE = path.join(PUBLIC_DIR, "deploy-version.txt");
 const FIRMWARE_DIR = path.join(__dirname, "firmware");
 const FIRMWARE_MANIFEST = path.join(FIRMWARE_DIR, "manifest.json");
 const COMMAND_TTL_MS = 750;
@@ -77,6 +78,15 @@ function broadcast(device) {
   }
 }
 
+function deployVersion() {
+  try {
+    const text = fs.readFileSync(DEPLOY_VERSION_FILE, "utf8").trim();
+    return text || String(Date.now());
+  } catch (err) {
+    return String(Date.now());
+  }
+}
+
 function writeVideoPart(res, frame, contentType) {
   res.write(`--followboxframe\r\n`);
   res.write(`Content-Type: ${contentType || "image/jpeg"}\r\n`);
@@ -113,6 +123,13 @@ function serveStatic(req, res) {
     const mime = file.endsWith(".css") ? "text/css" :
                  file.endsWith(".js") ? "application/javascript" :
                  file.endsWith(".html") ? "text/html" : "application/octet-stream";
+    if (file === "index.html") {
+      const version = encodeURIComponent(deployVersion());
+      data = Buffer.from(
+        data.toString("utf8").replaceAll("__FB_DEPLOY_VERSION__", version),
+        "utf8"
+      );
+    }
     send(res, 200, data, mime);
   });
 }

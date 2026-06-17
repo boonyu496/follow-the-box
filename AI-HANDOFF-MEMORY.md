@@ -29,6 +29,16 @@
 
 ## 最新交接记录
 
+### 2026-06-17 22:40 - Codex - 云端缓存与传感器通道遥测修复
+- 改动：云端首页给 JS/CSS 注入部署版本防旧资源缓存；`/ws/state` 补 UWB/障碍/TOF/超声 `last_update_ms` 与 TOF/超声单路 valid；H5 按通道显示“有效/部分/无效”。
+- 文件：`cloud/server.js`, `cloud/public/index.html`, `cloud/public/app.js`, `cloud/deploy-clean-cache.sh`, `firmware/src/web/telemetry_api.cpp`, `firmware/src/cloud/cloud_client.cpp`, `firmware/data/app.js`, `firmware/web/app.js`, `protocols/H5-API.md`
+- 架构影响：协议向后兼容扩展字段；云端静态资源版本化；未改变传感器驱动、融合算法、控制模式或模块边界。
+- 安全影响：无 PWM/GPIO/急停/安全门控变更；H5 仍只显示遥测或发既有低速请求。
+- 验证：Node `--check` 通过 `cloud/server.js`, `cloud/public/app.js`, `firmware/data/app.js`, `firmware/web/app.js`；本地云端首页版本注入 PASS；`buildStateJson` snprintf 占位符/参数计数 PASS。
+- 未验证：本机无 PlatformIO，WSL 未安装发行版，未跑 `pio run`/`buildfs`/真机传感器。
+- 当前状态：NEEDS_HARDWARE_VERIFICATION。
+- 下一步：在 PlatformIO 环境跑固件构建和 LittleFS，再部署云端并打开 `/fb/deploy-version.txt` 确认时间戳更新；真机看 raw JSON 的 `*_valid` 与 `last_update_ms` 判断 UWB/TOF/LiDAR 是无数据、过期还是硬件链路问题。
+
 ### 2026-06-17 20:06 - Codex - H5 遥测显示与日志兜底修复
 - 改动：修复云端/本地 H5 HTML 入口结构，补 AP/LAN 本地 `/api/state` HTTP 状态兜底和 `/api/logs` 只读日志接口。
 - 文件：`cloud/public/index.html`, `firmware/web/index.html`, `firmware/web/app.js`, `firmware/src/web/h5_web_server.cpp`, `firmware/src/telemetry/debug_console.*`

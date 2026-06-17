@@ -73,12 +73,16 @@ size_t buildStateJson(const SystemState& state, char* out, size_t out_size) {
       "\"rc\":{\"online\":%s,\"last_update_ms\":%u},"
       "\"cloud\":{\"connected\":%s,\"last_update_ms\":%u,\"last_seq\":%u},"
       "\"uwb\":{\"valid\":%s,\"distance_mm\":%d,\"bearing_deg\":%.1f,"
-      "\"confidence\":%u},"
+      "\"confidence\":%u,\"last_update_ms\":%u},"
       "\"obstacle\":{\"front_left_mm\":%d,\"front_center_mm\":%d,"
-      "\"front_right_mm\":%d,\"side_left_mm\":%d,\"side_right_mm\":%d},"
+      "\"front_right_mm\":%d,\"side_left_mm\":%d,\"side_right_mm\":%d,"
+      "\"valid\":%s,\"last_update_ms\":%u},"
       "\"tof\":{\"valid\":%s,\"front_left_mm\":%d,\"front_center_mm\":%d,"
-      "\"front_right_mm\":%d},"
-      "\"ultrasonic\":{\"valid\":%s,\"left_mm\":%d,\"right_mm\":%d},"
+      "\"front_right_mm\":%d,\"front_left_valid\":%s,"
+      "\"front_center_valid\":%s,\"front_right_valid\":%s,"
+      "\"last_update_ms\":%u},"
+      "\"ultrasonic\":{\"valid\":%s,\"left_mm\":%d,\"right_mm\":%d,"
+      "\"left_valid\":%s,\"right_valid\":%s,\"last_update_ms\":%u},"
       "\"camera\":{\"online\":%s,\"stream_url\":\"%s\"},"
       "\"power\":{\"battery_voltage\":%.2f,\"low_battery\":%s},"
       "\"motor\":{\"enable\":%s,\"left_target\":%.2f,\"right_target\":%.2f,"
@@ -98,13 +102,25 @@ size_t buildStateJson(const SystemState& state, char* out, size_t out_size) {
       static_cast<unsigned>(state.cloud.last_seq),
       state.uwb.valid ? "true" : "false", state.uwb.distance_mm,
       static_cast<double>(state.uwb.bearing_deg),
-      static_cast<unsigned>(state.uwb.confidence), state.obstacle.front_left_mm,
+      static_cast<unsigned>(state.uwb.confidence),
+      static_cast<unsigned>(state.uwb.last_update_ms),
+      state.obstacle.front_left_mm,
       state.obstacle.front_center_mm, state.obstacle.front_right_mm,
       state.obstacle.side_left_mm, state.obstacle.side_right_mm,
+      state.obstacle.valid ? "true" : "false",
+      static_cast<unsigned>(state.obstacle.last_update_ms),
       state.tof.valid ? "true" : "false", state.tof.front_left_mm,
       state.tof.front_center_mm, state.tof.front_right_mm,
+      state.tof.front_left_valid ? "true" : "false",
+      state.tof.front_center_valid ? "true" : "false",
+      state.tof.front_right_valid ? "true" : "false",
+      static_cast<unsigned>(state.tof.last_update_ms),
       state.ultrasonic.valid ? "true" : "false", state.ultrasonic.left_mm,
-      state.ultrasonic.right_mm, state.camera.online ? "true" : "false",
+      state.ultrasonic.right_mm,
+      state.ultrasonic.left_valid ? "true" : "false",
+      state.ultrasonic.right_valid ? "true" : "false",
+      static_cast<unsigned>(state.ultrasonic.last_update_ms),
+      state.camera.online ? "true" : "false",
       camera_config::STREAM_URL,
       static_cast<double>(state.power.battery_voltage),
       state.power.low_battery ? "true" : "false",

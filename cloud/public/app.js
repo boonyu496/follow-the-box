@@ -143,6 +143,26 @@ function fmtMm(value) {
   return typeof value === "number" && value > 0 ? `${Math.round(value)}mm` : "--";
 }
 
+function positiveNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function channelValid(snapshot, validKey, valueKey) {
+  if (!snapshot) return false;
+  if (typeof snapshot[validKey] === "boolean") return snapshot[validKey];
+  return !!snapshot.valid && positiveNumber(snapshot[valueKey]);
+}
+
+function channelMm(snapshot, validKey, valueKey) {
+  return channelValid(snapshot, validKey, valueKey) ? `${snapshot[valueKey]}` : "--";
+}
+
+function validityLabel(validCount, totalCount) {
+  if (validCount === totalCount) return "有效";
+  if (validCount > 0) return "部分";
+  return "无效";
+}
+
 function fmtAge(now, last) {
   if (typeof now !== "number" || typeof last !== "number" || last <= 0) return "--";
   return `${Math.max(0, Math.round((now - last) / 1000))}s 前`;
@@ -347,24 +367,39 @@ function render(payload) {
   els.uwbDetail.textContent = uwb.valid ? "目标有效" : "等待目标";
 
   // TOF
-  const tofValid = tof.valid ? tof : {};
-  els.tofLeft.textContent = tofValid.front_left_mm != null && tof.valid ? `${tofValid.front_left_mm}` : "--";
-  els.tofCenter.textContent = tofValid.front_center_mm != null && tof.valid ? `${tofValid.front_center_mm}` : "--";
-  els.tofRight.textContent = tofValid.front_right_mm != null && tof.valid ? `${tofValid.front_right_mm}` : "--";
-  els.tofStatus.textContent = tof.valid ? "有效" : "无效";
-  setTextState(els.tofStatus, !!tof.valid, !tof.valid);
+  const tofValidCount = [
+    channelValid(tof, "front_left_valid", "front_left_mm"),
+    channelValid(tof, "front_center_valid", "front_center_mm"),
+    channelValid(tof, "front_right_valid", "front_right_mm"),
+  ].filter(Boolean).length;
+  els.tofLeft.textContent = channelMm(tof, "front_left_valid", "front_left_mm");
+  els.tofCenter.textContent = channelMm(tof, "front_center_valid", "front_center_mm");
+  els.tofRight.textContent = channelMm(tof, "front_right_valid", "front_right_mm");
+  els.tofStatus.textContent = validityLabel(tofValidCount, 3);
+  setTextState(els.tofStatus, tofValidCount === 3, tofValidCount > 0);
 
   // Ultrasonic
-  els.ultraLeft.textContent = ultrasonic.left_mm != null && ultrasonic.valid ? `${ultrasonic.left_mm}` : "--";
-  els.ultraRight.textContent = ultrasonic.right_mm != null && ultrasonic.valid ? `${ultrasonic.right_mm}` : "--";
-  els.ultrasonicStatus.textContent = ultrasonic.valid ? "有效" : "无效";
-  setTextState(els.ultrasonicStatus, !!ultrasonic.valid, !ultrasonic.valid);
+  const usValidCount = [
+    channelValid(ultrasonic, "left_valid", "left_mm"),
+    channelValid(ultrasonic, "right_valid", "right_mm"),
+  ].filter(Boolean).length;
+  els.ultraLeft.textContent = channelMm(ultrasonic, "left_valid", "left_mm");
+  els.ultraRight.textContent = channelMm(ultrasonic, "right_valid", "right_mm");
+  els.ultrasonicStatus.textContent = validityLabel(usValidCount, 2);
+  setTextState(els.ultrasonicStatus, usValidCount === 2, usValidCount > 0);
 
   // Obstacle
-  els.obstacleLeft.textContent = obstacle.front_left_mm != null ? `${obstacle.front_left_mm}` : "--";
-  els.obstacleCenter.textContent = obstacle.front_center_mm != null ? `${obstacle.front_center_mm}` : "--";
-  els.obstacleRight.textContent = obstacle.front_right_mm != null ? `${obstacle.front_right_mm}` : "--";
-  els.obstacleStatus.textContent = obstacle.front_center_mm != null ? "有效" : "--";
+  const obstacleFrontCount = [
+    positiveNumber(obstacle.front_left_mm),
+    positiveNumber(obstacle.front_center_mm),
+    positiveNumber(obstacle.front_right_mm),
+  ].filter(Boolean).length;
+  els.obstacleLeft.textContent = fmtMm(obstacle.front_left_mm);
+  els.obstacleCenter.textContent = fmtMm(obstacle.front_center_mm);
+  els.obstacleRight.textContent = fmtMm(obstacle.front_right_mm);
+  els.obstacleStatus.textContent = obstacle.valid || obstacleFrontCount > 0
+    ? validityLabel(obstacleFrontCount, 3)
+    : "无效";
 
   // Motor
   els.motorLeft.textContent = fmt(motor.left_target ?? 0, "", 2);
@@ -809,19 +844,24 @@ function drawSpatialMap(telemetry) {
     }
   }
 
-  if (tof.valid) {
+  if (channelValid(tof, "front_left_valid", "front_left_mm") ||
+      channelValid(tof, "front_center_valid", "front_center_mm") ||
+      channelValid(tof, "front_right_valid", "front_right_mm")) {
     plotSensor(-35, tof.front_left_mm, "TOF左", "tof");
     plotSensor(0, tof.front_center_mm, "TOF中", "tof");
     plotSensor(35, tof.front_right_mm, "TOF右", "tof");
   }
 
-  if (obstacle.front_center_mm != null) {
+  if (obstacle.valid || positiveNumber(obstacle.front_left_mm) ||
+      positiveNumber(obstacle.front_center_mm) ||
+      positiveNumber(obstacle.front_right_mm)) {
     plotSensor(-30, obstacle.front_left_mm, "障左", "obstacle");
     plotSensor(0, obstacle.front_center_mm, "障前", "obstacle");
     plotSensor(30, obstacle.front_right_mm, "障右", "obstacle");
   }
 
-  if (ultrasonic.valid) {
+  if (channelValid(ultrasonic, "left_valid", "left_mm") ||
+      channelValid(ultrasonic, "right_valid", "right_mm")) {
     plotSensor(-90, ultrasonic.left_mm, "超声左", "ultra");
     plotSensor(90, ultrasonic.right_mm, "超声右", "ultra");
   }

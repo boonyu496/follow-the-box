@@ -20,9 +20,9 @@
 namespace followbox {
 namespace {
 
-constexpr size_t kStateJsonSize = 1536;
+constexpr size_t kStateJsonSize = 2048;
 constexpr size_t kLogsJsonSize = 2600;
-constexpr size_t kPayloadSize = 4600;
+constexpr size_t kPayloadSize = 5200;
 constexpr size_t kCommandBodySize = 384;
 
 bool hasText(const char* s) {

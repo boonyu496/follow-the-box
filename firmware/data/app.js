@@ -124,6 +124,26 @@ function refreshLocalKeyUi() {
 
 // fmt / fmtMm / fmtAge / estimateBatteryPercent / setTextState → loaded from ../shared/helpers.js
 
+function positiveNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function channelValid(snapshot, validKey, valueKey) {
+  if (!snapshot) return false;
+  if (typeof snapshot[validKey] === "boolean") return snapshot[validKey];
+  return !!snapshot.valid && positiveNumber(snapshot[valueKey]);
+}
+
+function channelMm(snapshot, validKey, valueKey) {
+  return channelValid(snapshot, validKey, valueKey) ? fmtMm(snapshot[valueKey]) : "--";
+}
+
+function validityLabel(validCount, totalCount) {
+  if (validCount === totalCount) return "有效";
+  if (validCount > 0) return "部分";
+  return "无效";
+}
+
 function setConn(online) {
   els.conn.textContent = online ? "已连接" : "未连接";
   els.conn.classList.toggle("fb-pill--ok", online);
@@ -224,8 +244,12 @@ function renderState(s) {
   latestUwbData = u;
 
   const o = s.obstacle ?? {};
-  els.obstacle.textContent =
-    `${fmtMm(o.front_left_mm)} / ${fmtMm(o.front_center_mm)} / ${fmtMm(o.front_right_mm)}`;
+  const hasFrontObstacle = positiveNumber(o.front_left_mm) ||
+    positiveNumber(o.front_center_mm) || positiveNumber(o.front_right_mm);
+  const hasSideObstacle = positiveNumber(o.side_left_mm) || positiveNumber(o.side_right_mm);
+  els.obstacle.textContent = hasFrontObstacle || !hasSideObstacle
+    ? `${fmtMm(o.front_left_mm)} / ${fmtMm(o.front_center_mm)} / ${fmtMm(o.front_right_mm)}`
+    : `侧 ${fmtMm(o.side_left_mm)} / ${fmtMm(o.side_right_mm)}`;
   latestObstacleData = o;
 
   // ── Canvas redraw (RAF-throttled — WS may push at 5-10 Hz) ──
@@ -239,17 +263,26 @@ function renderState(s) {
   }
 
   const tof = s.tof ?? {};
-  els.tof.textContent = tof.valid ? "有效" : "无效";
-  setTextState(els.tof, !!tof.valid, !tof.valid);
-  setBar("left", tof.front_left_mm);
-  setBar("center", tof.front_center_mm);
-  setBar("right", tof.front_right_mm);
+  const tofValidCount = [
+    channelValid(tof, "front_left_valid", "front_left_mm"),
+    channelValid(tof, "front_center_valid", "front_center_mm"),
+    channelValid(tof, "front_right_valid", "front_right_mm"),
+  ].filter(Boolean).length;
+  els.tof.textContent = validityLabel(tofValidCount, 3);
+  setTextState(els.tof, tofValidCount === 3, tofValidCount > 0);
+  setBar("left", tof.front_left_mm, channelValid(tof, "front_left_valid", "front_left_mm"));
+  setBar("center", tof.front_center_mm, channelValid(tof, "front_center_valid", "front_center_mm"));
+  setBar("right", tof.front_right_mm, channelValid(tof, "front_right_valid", "front_right_mm"));
 
   const us = s.ultrasonic ?? {};
-  els.ultrasonic.textContent = us.valid ? "有效" : "无效";
-  setTextState(els.ultrasonic, !!us.valid, !us.valid);
-  els.ultraLeft.textContent = fmtMm(us.left_mm);
-  els.ultraRight.textContent = fmtMm(us.right_mm);
+  const usValidCount = [
+    channelValid(us, "left_valid", "left_mm"),
+    channelValid(us, "right_valid", "right_mm"),
+  ].filter(Boolean).length;
+  els.ultrasonic.textContent = validityLabel(usValidCount, 2);
+  setTextState(els.ultrasonic, usValidCount === 2, usValidCount > 0);
+  els.ultraLeft.textContent = channelMm(us, "left_valid", "left_mm");
+  els.ultraRight.textContent = channelMm(us, "right_valid", "right_mm");
 
   const m = s.motor ?? {};
   els.motor.textContent = m.enable ? "使能" : "关闭";
@@ -299,17 +332,17 @@ function renderState(s) {
 
 // ── TOF Bars ──
 
-function setBar(name, value) {
+function setBar(name, value, valid = positiveNumber(value)) {
   const label = els[`tof${name[0].toUpperCase()}${name.slice(1)}`];
   const bar = els[`tof${name[0].toUpperCase()}${name.slice(1)}Bar`];
-  if (label) label.textContent = fmtMm(value);
+  if (label) label.textContent = valid ? fmtMm(value) : "--";
   if (!bar) return;
-  const pct = typeof value === "number" && value > 0
+  const pct = valid
     ? Math.max(8, Math.min(100, (value / MAX_RANGE_MM) * 100))
     : 0;
   bar.style.height = `${pct}%`;
-  bar.classList.toggle("danger", value > 0 && value < 500);
-  bar.classList.toggle("warn", value >= 500 && value < 1000);
+  bar.classList.toggle("danger", valid && value < 500);
+  bar.classList.toggle("warn", valid && value >= 500 && value < 1000);
 }
 
 // ── Canvas DPI setup (Retina display sharpness) ──

@@ -20,10 +20,10 @@
   },
   "rc": {"online": true, "last_update_ms": 123400},
   "cloud": {"connected": false, "last_update_ms": 0, "last_seq": 0},
-  "uwb": {"valid": false, "distance_mm": 0, "bearing_deg": 0, "confidence": 0},
-  "obstacle": {"front_left_mm": 0, "front_center_mm": 0, "front_right_mm": 0, "side_left_mm": 0, "side_right_mm": 0},
-  "tof": {"valid": false, "front_left_mm": 0, "front_center_mm": 0, "front_right_mm": 0},
-  "ultrasonic": {"valid": false, "left_mm": 0, "right_mm": 0},
+  "uwb": {"valid": false, "distance_mm": 0, "bearing_deg": 0, "confidence": 0, "last_update_ms": 0},
+  "obstacle": {"valid": false, "last_update_ms": 0, "front_left_mm": 0, "front_center_mm": 0, "front_right_mm": 0, "side_left_mm": 0, "side_right_mm": 0},
+  "tof": {"valid": false, "last_update_ms": 0, "front_left_mm": 0, "front_center_mm": 0, "front_right_mm": 0, "front_left_valid": false, "front_center_valid": false, "front_right_valid": false},
+  "ultrasonic": {"valid": false, "last_update_ms": 0, "left_mm": 0, "right_mm": 0, "left_valid": false, "right_valid": false},
   "camera": {"online": false, "stream_url": "http://192.168.4.2:81/stream"},
   "power": {"battery_voltage": 0.0, "low_battery": false},
   "motor": {"enable": false, "left_target": 0.0, "right_target": 0.0, "brake": true},
@@ -35,8 +35,8 @@
 字段说明（避障相关）：
 
 - `obstacle`：**融合后**的避障快照（LiDAR + 前向 TOF + 侧向超声，按扇区取最近有效读数），是安全门控与限速实际使用的数据；`0` 表示该扇区无有效读数。
-- `tof`：前向 TCA9548A + 3×VL53L1X 的原始分路读数，仅用于显示/诊断；`*_valid=false` 或 `0` 表示该路无有效测距。
-- `ultrasonic`：左右 HC-SR04 的原始侧向读数，仅用于显示/诊断（侧向避障 P0 暂不触发停车）。
+- `tof`：前向 TCA9548A + 3×VL53L1X 的原始分路读数，仅用于显示/诊断；每路以 `front_*_valid` 为准，`valid=true` 仅表示至少一路当前有效。
+- `ultrasonic`：左右 HC-SR04 的原始侧向读数，仅用于显示/诊断（侧向避障 P0 暂不触发停车）；每路以 `left_valid` / `right_valid` 为准。
 - `camera`：ESP32-S3-CAM 视频链路在线状态和 MJPEG 地址，仅用于显示；**视频断流不影响运动安全门控**。默认地址假定摄像头加入 FollowBox AP 后使用静态 IP `192.168.4.2`，流路径为 `:81/stream`。
 - `cloud`：云端低速点动链路状态，仅用于显示和诊断；云端命令仍由本地安全链最终裁决。
 
