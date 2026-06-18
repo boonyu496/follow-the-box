@@ -29,6 +29,16 @@
 
 ## 最新交接记录
 
+### 2026-06-18 00:55 - Codex - WSL PlatformIO 工具链引导脚本
+- 改动：新增 WSL/Ubuntu 下的 PlatformIO 工具链脚本，统一安装依赖、隔离 Linux `.pio-core-wsl` 缓存，并提供 `install/env/run/smoke` 子命令覆盖 `firmware` 与 `vision_cam` 两个工程。
+- 文件：`tools/followbox-wsl-toolchain.sh`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无业务模块边界/GPIO/安全链路变更；仅新增开发环境脚本，避免 WSL 与 Windows 共用同一 PlatformIO home。
+- 安全影响：无 motor/e-stop/PWM/GPIO 改动；脚本只安装工具链并提示 WSL2 + `usbipd` 的 USB 烧录前置条件。
+- 验证：Git Bash `bash -n tools/followbox-wsl-toolchain.sh` PASS；`bash tools/followbox-wsl-toolchain.sh --help` PASS。
+- 未验证：当前机器仍无可用 Ubuntu 发行版，未在真实 WSL 中执行 `install` / `smoke`，未跑 `pio run`、`buildfs` 或 USB/OTA 烧录。
+- 当前状态：NEXT_TASK_READY。
+- 下一步：管理员修好 WSL/Ubuntu 后，在 Ubuntu 里执行 `bash tools/followbox-wsl-toolchain.sh install`，再用 `run firmware ...` / `run vision_cam ...` 继续构建与烧录。
+
 ### 2026-06-17 22:40 - Codex - 云端缓存与传感器通道遥测修复
 - 改动：云端首页给 JS/CSS 注入部署版本防旧资源缓存；`/ws/state` 补 UWB/障碍/TOF/超声 `last_update_ms` 与 TOF/超声单路 valid；H5 按通道显示“有效/部分/无效”。
 - 文件：`cloud/server.js`, `cloud/public/index.html`, `cloud/public/app.js`, `cloud/deploy-clean-cache.sh`, `firmware/src/web/telemetry_api.cpp`, `firmware/src/cloud/cloud_client.cpp`, `firmware/data/app.js`, `firmware/web/app.js`, `protocols/H5-API.md`
