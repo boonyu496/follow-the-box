@@ -12,6 +12,8 @@ const DEPLOY_VERSION_FILE = path.join(PUBLIC_DIR, "deploy-version.txt");
 const FIRMWARE_DIR = path.join(__dirname, "firmware");
 const FIRMWARE_MANIFEST = path.join(FIRMWARE_DIR, "manifest.json");
 const COMMAND_TTL_MS = 750;
+const DEVICE_ONLINE_TTL_MS = 5000;
+const SSE_HEARTBEAT_MS = 15000;
 
 const devices = new Map();
 const clients = new Set();
@@ -57,10 +59,12 @@ function validOperator(req) {
 }
 
 function broadcast(device) {
+  const now = Date.now();
   const event = JSON.stringify({
     id: device.id,
     at: nowIso(),
     lastIngestAt: device.lastIngestAt,
+    online: device.lastIngestAt > 0 && now - device.lastIngestAt < DEVICE_ONLINE_TTL_MS,
     state: device.state,
     logs: device.logs.slice(-200),
     command: device.command,
@@ -355,7 +359,13 @@ const server = http.createServer(async (req, res) => {
       });
       const client = { res, deviceId };
       clients.add(client);
-      req.on("close", () => clients.delete(client));
+      const heartbeat = setInterval(() => {
+        res.write(`: heartbeat ${Date.now()}\n\n`);
+      }, SSE_HEARTBEAT_MS);
+      req.on("close", () => {
+        clearInterval(heartbeat);
+        clients.delete(client);
+      });
       broadcast(device);
       return;
     }

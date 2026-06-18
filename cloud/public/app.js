@@ -95,6 +95,7 @@ const stopLabels = {
 const DEFAULT_OPERATOR_TOKEN = "0b6cf31c57bc202d002b04f843c9b430"; // matches server default
 const MAX_RANGE_MM = 3000;
 const MAP_MAX_MM = 4000;
+const DEVICE_ONLINE_TTL_MS = 5000;
 // Resolve API URLs relative to app.js, so the cloud console keeps working when
 // deployed under a sub-path such as https://www.boonai.cn/fb/.
 const APP_BASE_URL = new URL(".", document.currentScript?.src || window.location.href);
@@ -127,6 +128,10 @@ let isFullscreen = false;
 let activeCameraUrl = "";
 let userCameraOverride = false;
 let latestState = null;
+let latestLastIngestAt = 0;
+let latestTelemetryFreshAt = 0;
+let sseTransportOpen = false;
+let latestVideoFrameSeq = -1;
 
 // ── Spatial Map state (RAF throttled) ──
 let spatialDirty = false;
@@ -192,9 +197,28 @@ function apiPath(action) {
   return new URL(`api/device/${deviceId()}/${action}`, APP_BASE_URL).toString();
 }
 
-function cloudVideoUrl() {
+function cloudVideoFrameUrl(frameSeq) {
   const token = operatorTokenValue();
-  return `${apiPath("video/stream")}${token ? `?token=${token}` : ""}`;
+  const url = new URL(apiPath("video/latest.jpg"));
+  if (token) url.searchParams.set("token", decodeURIComponent(token));
+  url.searchParams.set("frame", String(frameSeq));
+  return url.toString();
+}
+
+function deviceTelemetryOnline(lastIngestAt) {
+  return typeof lastIngestAt === "number" && lastIngestAt > 0 &&
+    Date.now() - lastIngestAt < DEVICE_ONLINE_TTL_MS;
+}
+
+function refreshDeviceConnectionStatus() {
+  if (!sseTransportOpen) return;
+  const online = latestTelemetryFreshAt > 0 &&
+    Date.now() - latestTelemetryFreshAt < DEVICE_ONLINE_TTL_MS;
+  setOnline(
+    online,
+    online ? "小车遥测在线" :
+      (latestLastIngestAt > 0 ? "云端已连接，小车遥测已超时" : "云端已连接，等待小车首次上报"),
+  );
 }
 
 function setConnectionHint(text, state = "warn") {
@@ -303,7 +327,11 @@ els.fullscreenBtn.addEventListener("click", (e) => { e.stopPropagation(); toggle
 // ── Render ──
 
 function render(payload) {
-  setOnline(true);
+  latestLastIngestAt = Number(payload.lastIngestAt) || 0;
+  const serverSaysOnline = typeof payload.online === "boolean"
+    ? payload.online : deviceTelemetryOnline(latestLastIngestAt);
+  latestTelemetryFreshAt = serverSaysOnline ? Date.now() : 0;
+  refreshDeviceConnectionStatus();
   const s = payload.state || {};
   const safety = s.safety || {};
   const power = s.power || {};
@@ -408,8 +436,13 @@ function render(payload) {
 
   // Camera
   els.camera.textContent = payload.video?.online ? "摄像头在线" : "摄像头离线";
-  if (!userCameraOverride && !activeCameraUrl) {
-    updateCamStream(cloudVideoUrl());
+  const frameSeq = Number(payload.video?.frameSeq);
+  if (!userCameraOverride && payload.video?.online && Number.isFinite(frameSeq) &&
+      frameSeq !== latestVideoFrameSeq) {
+    latestVideoFrameSeq = frameSeq;
+    updateCamStream(cloudVideoFrameUrl(frameSeq));
+  } else if (!userCameraOverride && !payload.video?.online) {
+    setCameraOnline(false, "画面离线");
   }
 
   // Spatial map (RAF throttled)
@@ -446,15 +479,22 @@ function connectEvents() {
   events = source;
   source.onopen = () => {
     if (attempt !== sseConnectAttempt || events !== source) return;
+    sseTransportOpen = true;
     sseRetryDelay = 2000;
     setConnecting("SSE 已打开，等待首包遥测...");
   };
   source.onmessage = (ev) => {
     if (attempt !== sseConnectAttempt || events !== source) return;
-    render(JSON.parse(ev.data));
+    try {
+      render(JSON.parse(ev.data));
+    } catch (error) {
+      console.warn("FollowBox telemetry parse failed", error);
+      setOnline(false, "云端遥测格式错误，请检查服务器日志");
+    }
   };
   source.onerror = () => {
     if (attempt !== sseConnectAttempt || events !== source) return;
+    sseTransportOpen = false;
     const delay = sseRetryDelay;
     setOnline(false, `连接失败，${Math.round(delay / 1000)} 秒后自动重试（请检查 Token / 网络 / 设备上报）`);
     if (manualReconnectPending) {
@@ -467,10 +507,6 @@ function connectEvents() {
       connectEvents();
     }, delay);
   };
-  if (!userCameraOverride) {
-    activeCameraUrl = "";
-    updateCamStream(cloudVideoUrl());
-  }
 }
 
 els.deviceId.addEventListener("change", connectEvents);
@@ -510,7 +546,8 @@ els.saveCameraUrl.addEventListener("click", () => {
   } else {
     userCameraOverride = false;
     activeCameraUrl = "";
-    updateCamStream(cloudVideoUrl());
+    latestVideoFrameSeq = -1;
+    setCameraOnline(false, "等待云端画面");
   }
   flashStatus(els.cameraUrlState, "✅ 视频地址已保存", true);
 });
@@ -678,8 +715,11 @@ window.addEventListener("online", () => {
   connectEvents();
 });
 window.addEventListener("offline", () => {
+  sseTransportOpen = false;
   setOnline(false);
 });
+
+setInterval(refreshDeviceConnectionStatus, 1000);
 
 // ═══════════════════════════════════════════════
 // Spatial Map (cloud-unique: top-down bird's eye)
@@ -893,4 +933,9 @@ setupCanvasDPI(els.spatialMap);
 drawSpatialMap({});
 initJoystick();
 connectEvents();
-updateCamStream(savedCamera || cloudVideoUrl());
+if (savedCamera) {
+  userCameraOverride = true;
+  updateCamStream(savedCamera);
+} else {
+  setCameraOnline(false, "等待云端画面");
+}
