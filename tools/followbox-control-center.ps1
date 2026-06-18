@@ -414,24 +414,74 @@ function Ensure-GitIdentity {
   }
 }
 
-function Get-GitRemoteHead {
+function Get-GitBranchInfo {
   param([hashtable]$Config)
 
   $branch = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "branch", "--show-current") -WorkingDirectory $Config.repoPath
   if ($branch.exitCode -ne 0 -or [string]::IsNullOrWhiteSpace($branch.stdout)) {
     return [ordered]@{
       ok     = $false
-      step   = "git-verify"
-      reason = "Cannot determine current branch."
-      branch = $branch.stdout.Trim()
+      step   = "git-branch"
+      reason = "Cannot determine the current git branch."
+      branch = ""
       steps  = @($branch)
     }
   }
 
-  $branchName = $branch.stdout.Trim()
+  return [ordered]@{
+    ok     = $true
+    step   = "git-branch"
+    reason = ""
+    branch = $branch.stdout.Trim()
+    steps  = @($branch)
+  }
+}
+
+function Get-GitWorkingTreeChanges {
+  param([hashtable]$Config)
+
+  $status = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "status", "--porcelain", "--untracked-files=all") -WorkingDirectory $Config.repoPath
+  $files = @()
+  foreach ($line in ($status.stdout -split "`r?`n")) {
+    $text = $line.TrimEnd()
+    if ([string]::IsNullOrWhiteSpace($text)) { continue }
+    $file = if ($text.Length -gt 3) { $text.Substring(3).Trim() } else { $text.Trim() }
+    $files += [ordered]@{
+      status = if ($text.Length -ge 2) { $text.Substring(0, 2) } else { $text }
+      path   = $file
+    }
+  }
+
+  return [ordered]@{
+    ok      = ($status.exitCode -eq 0)
+    clean   = ($status.exitCode -eq 0 -and $files.Count -eq 0)
+    files   = $files
+    raw     = $status.stdout.Trim()
+    command = $status.command
+    stderr  = $status.stderr.Trim()
+  }
+}
+
+function Get-GitRemoteHead {
+  param([hashtable]$Config)
+
+  $branch = Get-GitBranchInfo -Config $Config
+  if (-not $branch.ok) {
+    return [ordered]@{
+      ok     = $false
+      step   = "git-verify"
+      reason = $branch.reason
+      branch = $branch.branch
+      steps  = $branch.steps
+    }
+  }
+
+  $branchName = $branch.branch
   $localHead = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "rev-parse", "HEAD") -WorkingDirectory $Config.repoPath
   $remoteHead = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "ls-remote", "--heads", $Config.gitRemote, $branchName) -WorkingDirectory $Config.repoPath
-  $steps = @($branch, $localHead, $remoteHead)
+  $steps = @()
+  $steps += $branch.steps
+  $steps += @($localHead, $remoteHead)
 
   if ($localHead.exitCode -ne 0 -or $remoteHead.exitCode -ne 0) {
     return [ordered]@{
@@ -513,6 +563,19 @@ function Get-PreflightData {
       }
       if ($git.files.Count -eq 0) {
         $warnings += "No files matched. Commit will likely fail."
+      }
+    }
+    "git-pull-local" {
+      $branch = Get-GitBranchInfo -Config $Config
+      $workingTree = Get-GitWorkingTreeChanges -Config $Config
+      $details.branch = $branch.branch
+      $details.git = $workingTree
+      $summary = "Will fetch the current branch and pull with --ff-only into the local checkout."
+      $checks += [ordered]@{ label = "Repo path exists"; ok = (Test-ExistingPath -Path $Config.repoPath) }
+      $checks += [ordered]@{ label = "Current branch detected"; ok = [bool]$branch.ok; value = if ($branch.ok) { $branch.branch } else { $branch.reason } }
+      $checks += [ordered]@{ label = "Working tree clean"; ok = [bool]$workingTree.clean; value = if ($workingTree.clean) { "clean" } else { [string]$workingTree.files.Count } }
+      if (-not $workingTree.clean -and $workingTree.files.Count -gt 0) {
+        $warnings += "Pull is blocked while local changes are present. Commit, stash, or discard them first."
       }
     }
     "cloud-deploy" {
@@ -857,29 +920,34 @@ function Invoke-CloudDeploy {
   $firmware = Invoke-ExternalCommand -FilePath "scp" -Arguments ($scpPrefix + @("-r", (Join-Path $Config.cloudPath "firmware"), "$remote`:$remoteDir/")) -WorkingDirectory $Config.cloudPath
   $restart = Invoke-ExternalCommand -FilePath "ssh" -Arguments ($sshPrefix + @($remote, "cd '$remoteDir' && chmod +x deploy-clean-cache.sh && npm install && bash ./deploy-clean-cache.sh '$remoteDir'")) -WorkingDirectory $Config.cloudPath
   $remoteVerify = Invoke-ExternalCommand -FilePath "ssh" -Arguments ($sshPrefix + @($remote, "cd '$remoteDir' && test -f server.js && test -f public/index.html && test -f public/deploy-version.txt && test -f firmware/manifest.json && (pm2 list 2>/dev/null | grep -i followbox-cloud || true)")) -WorkingDirectory $Config.cloudPath
+  $remoteHttpVerifyCommand = "cd '$remoteDir' && node -e `"require('http').get('http://127.0.0.1:8080/', (res) => { console.log('HTTP ' + res.statusCode); process.exit(res.statusCode === 200 ? 0 : 1); }).on('error', (err) => { console.error(err.message); process.exit(1); });`""
+  $remoteHttpVerify = Invoke-ExternalCommand -FilePath "ssh" -Arguments ($sshPrefix + @($remote, $remoteHttpVerifyCommand)) -WorkingDirectory $Config.cloudPath
 
   $verify = [ordered]@{
-    app         = ""
-    deployStamp = ""
+    mode             = "ssh-primary"
+    remoteLoopback   = if ($remoteHttpVerify.exitCode -eq 0) { ($remoteHttpVerify.stdout | Out-String).Trim() } else { ($remoteHttpVerify.stderr | Out-String).Trim() }
+    publicApp        = ""
+    publicDeployStamp = ""
+    note             = "Deployment success is decided by SSH-side verification so public IP allow-lists do not block validation."
   }
   try {
     $response = Invoke-WebRequest -Uri $Config.cloudVerifyUrl -UseBasicParsing -Method Get -TimeoutSec 15
-    $verify.app = "HTTP $($response.StatusCode)"
+    $verify.publicApp = "HTTP $($response.StatusCode)"
   } catch {
-    $verify.app = $_.Exception.Message
+    $verify.publicApp = "Skipped or blocked by external access policy: $($_.Exception.Message)"
   }
 
   try {
     $versionResponse = Invoke-WebRequest -Uri (Join-UrlPath -BaseUrl $Config.cloudVerifyUrl -RelativePath "deploy-version.txt") -UseBasicParsing -Method Get -TimeoutSec 15
-    $verify.deployStamp = ($versionResponse.Content | Out-String).Trim()
+    $verify.publicDeployStamp = ($versionResponse.Content | Out-String).Trim()
   } catch {
-    $verify.deployStamp = $_.Exception.Message
+    $verify.publicDeployStamp = "Skipped or blocked by external access policy: $($_.Exception.Message)"
   }
 
   return [ordered]@{
-    ok     = ($mkdir.exitCode -eq 0 -and $backend.exitCode -eq 0 -and $public.exitCode -eq 0 -and $firmware.exitCode -eq 0 -and $restart.exitCode -eq 0 -and $remoteVerify.exitCode -eq 0)
+    ok     = ($mkdir.exitCode -eq 0 -and $backend.exitCode -eq 0 -and $public.exitCode -eq 0 -and $firmware.exitCode -eq 0 -and $restart.exitCode -eq 0 -and $remoteVerify.exitCode -eq 0 -and $remoteHttpVerify.exitCode -eq 0)
     verify = $verify
-    steps  = @($mkdir, $backend, $public, $firmware, $restart, $remoteVerify)
+    steps  = @($mkdir, $backend, $public, $firmware, $restart, $remoteVerify, $remoteHttpVerify)
   }
 }
 
@@ -937,18 +1005,138 @@ function Invoke-GitCommitPush {
     }
   }
 
+  $branch = Get-GitBranchInfo -Config $Config
+  if (-not $branch.ok) {
+    $branchSteps = @()
+    $branchSteps += $identity.steps
+    $branchSteps += $branch.steps
+    return [ordered]@{
+      ok            = $false
+      step          = $branch.step
+      reason        = $branch.reason
+      commitMessage = $commitMessage
+      identity      = $identity.identity
+      steps         = $branchSteps
+      git           = Get-GitStatusData -Config $Config
+    }
+  }
+
+  $candidateFiles = Get-GitCandidateFiles -Config $Config
+  if (-not $candidateFiles.ok -or $candidateFiles.files.Count -eq 0) {
+    $candidateSteps = @()
+    $candidateSteps += $identity.steps
+    $candidateSteps += $branch.steps
+    $candidateSteps += $candidateFiles
+    return [ordered]@{
+      ok            = $false
+      step          = "git-commit"
+      reason        = if (-not $candidateFiles.ok) { "Failed to read candidate files for commit." } else { "No files matched gitAddPathspec. Nothing to commit." }
+      commitMessage = $commitMessage
+      identity      = $identity.identity
+      steps         = $candidateSteps
+      git           = Get-GitStatusData -Config $Config
+    }
+  }
+
   $add = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "add", $Config.gitAddPathspec) -WorkingDirectory $Config.repoPath
   $commit = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "commit", "-m", $commitMessage) -WorkingDirectory $Config.repoPath
-  $push = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "push", $Config.gitRemote) -WorkingDirectory $Config.repoPath
+  $push = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "push", "--set-upstream", $Config.gitRemote, $branch.branch) -WorkingDirectory $Config.repoPath
   $verify = if ($add.exitCode -eq 0 -and $commit.exitCode -eq 0 -and $push.exitCode -eq 0) { Get-GitRemoteHead -Config $Config } else { $null }
   $status = Get-GitStatusData -Config $Config
+  $steps = @()
+  $steps += $identity.steps
+  $steps += $branch.steps
+  $steps += @($candidateFiles, $add, $commit, $push)
+  if ($null -ne $verify) {
+    $steps += $verify.steps
+  }
+  $reason = ""
+  if ($add.exitCode -ne 0) {
+    $reason = "git add failed."
+  } elseif ($commit.exitCode -ne 0) {
+    $reason = "git commit failed."
+  } elseif ($push.exitCode -ne 0) {
+    $reason = "git push failed."
+  } elseif ($null -ne $verify -and -not $verify.ok) {
+    $reason = $verify.reason
+  }
 
   return [ordered]@{
     ok            = ($add.exitCode -eq 0 -and $commit.exitCode -eq 0 -and $push.exitCode -eq 0 -and ($null -eq $verify -or $verify.ok))
+    step          = if ([string]::IsNullOrWhiteSpace($reason)) { "" } elseif ($add.exitCode -ne 0) { "git-add" } elseif ($commit.exitCode -ne 0) { "git-commit" } elseif ($push.exitCode -ne 0) { "git-push" } else { "git-verify" }
+    reason        = $reason
+    branch        = $branch.branch
     commitMessage = $commitMessage
-    steps         = @($identity.steps + @($add, $commit, $push) + @($verify.steps))
+    steps         = $steps
     verify        = $verify
     git           = $status
+  }
+}
+
+function Invoke-GitPullLocal {
+  param([hashtable]$Config)
+
+  $branch = Get-GitBranchInfo -Config $Config
+  if (-not $branch.ok) {
+    return [ordered]@{
+      ok     = $false
+      step   = $branch.step
+      reason = $branch.reason
+      steps  = $branch.steps
+      git    = Get-GitStatusData -Config $Config
+    }
+  }
+
+  $workingTree = Get-GitWorkingTreeChanges -Config $Config
+  if (-not $workingTree.ok) {
+    $statusSteps = @()
+    $statusSteps += $branch.steps
+    $statusSteps += $workingTree
+    return [ordered]@{
+      ok     = $false
+      step   = "git-status"
+      reason = "Failed to inspect the local working tree before pull."
+      steps  = $statusSteps
+      git    = Get-GitStatusData -Config $Config
+    }
+  }
+  if (-not $workingTree.clean) {
+    $dirtySteps = @()
+    $dirtySteps += $branch.steps
+    $dirtySteps += $workingTree
+    return [ordered]@{
+      ok          = $false
+      step        = "git-pull"
+      reason      = "Working tree has local changes. Commit, stash, or discard them before pulling."
+      branch      = $branch.branch
+      workingTree = $workingTree
+      steps       = $dirtySteps
+      git         = Get-GitStatusData -Config $Config
+    }
+  }
+
+  $fetch = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "fetch", $Config.gitRemote, $branch.branch) -WorkingDirectory $Config.repoPath
+  $pull = if ($fetch.exitCode -eq 0) {
+    Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $Config.repoPath, "pull", "--ff-only", $Config.gitRemote, $branch.branch) -WorkingDirectory $Config.repoPath
+  } else {
+    $null
+  }
+  $status = Get-GitStatusData -Config $Config
+  $steps = @()
+  $steps += $branch.steps
+  $steps += @($workingTree, $fetch)
+  if ($null -ne $pull) {
+    $steps += $pull
+  }
+
+  return [ordered]@{
+    ok          = ($fetch.exitCode -eq 0 -and $null -ne $pull -and $pull.exitCode -eq 0)
+    step        = if ($fetch.exitCode -ne 0) { "git-fetch" } elseif ($null -eq $pull -or $pull.exitCode -ne 0) { "git-pull" } else { "" }
+    reason      = if ($fetch.exitCode -ne 0) { "git fetch failed." } elseif ($null -eq $pull -or $pull.exitCode -ne 0) { "git pull --ff-only failed." } else { "" }
+    branch      = $branch.branch
+    workingTree = $workingTree
+    steps       = $steps
+    git         = $status
   }
 }
 
@@ -1018,9 +1206,10 @@ function Handle-ApiRequest {
         return
       }
       "/api/git/pull" {
-        $pull = Invoke-ExternalCommand -FilePath "git" -Arguments @("-C", $config.repoPath, "pull", $config.gitRemote) -WorkingDirectory $config.repoPath
-        $status = Get-GitStatusData -Config $config
-        New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = ($pull.exitCode -eq 0); result = $pull; git = $status }
+        $body = Read-JsonBody -Request $request
+        $runtimeConfig = Merge-Config -Base $config -Incoming $body
+        $pull = Invoke-GitPullLocal -Config $runtimeConfig
+        New-JsonResponse -Response $response -StatusCode 200 -Body $pull
         return
       }
       "/api/git/clone" {

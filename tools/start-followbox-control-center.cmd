@@ -15,11 +15,11 @@ if not exist "%LOG_DIR%" (
 
 for /f %%I in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Date -Format yyyyMMdd-HHmmss"') do set "STAMP=%%I"
 if not defined STAMP set "STAMP=unknown-time"
-set "LOG_FILE=%LOG_DIR%\github-push-%STAMP%.log"
+set "LOG_FILE=%LOG_DIR%\control-center-startup-%STAMP%.log"
 
 call :log INFO "FollowBox control center startup"
 call :log INFO "Repo root: %REPO_ROOT%"
-call :log INFO "GitHub push log: %LOG_FILE%"
+call :log INFO "Startup log: %LOG_FILE%"
 
 call :run git --version || exit /b 1
 call :run git -C "%REPO_ROOT%" rev-parse --is-inside-work-tree || exit /b 1
@@ -45,31 +45,36 @@ call :run git -C "%REPO_ROOT%" status --short --branch || exit /b 1
 set "DIRTY="
 for /f "delims=" %%S in ('git -C "%REPO_ROOT%" status --porcelain 2^>nul') do set "DIRTY=1"
 if defined DIRTY (
-  call :log WARN "Working tree has uncommitted changes. GitHub can only receive committed history."
+  call :log WARN "Working tree has uncommitted changes. Startup auto-push will be skipped so local edits are not mistaken as pushed."
+  call :log WARN "Use the control center's explicit commit/push action after reviewing the candidate files."
 )
 
-call :log INFO "Pushing committed HEAD to GitHub..."
-call :run git -C "%REPO_ROOT%" push --set-upstream origin "%BRANCH%" || exit /b 1
+if not defined DIRTY (
+  call :log INFO "Pushing committed HEAD to GitHub..."
+  call :run git -C "%REPO_ROOT%" push --set-upstream origin "%BRANCH%" || exit /b 1
 
-set "LOCAL_HEAD="
-for /f "delims=" %%H in ('git -C "%REPO_ROOT%" rev-parse HEAD 2^>nul') do set "LOCAL_HEAD=%%H"
-if not defined LOCAL_HEAD (
-  call :log ERROR "Cannot read local HEAD after push."
-  exit /b 1
-)
+  set "LOCAL_HEAD="
+  for /f "delims=" %%H in ('git -C "%REPO_ROOT%" rev-parse HEAD 2^>nul') do set "LOCAL_HEAD=%%H"
+  if not defined LOCAL_HEAD (
+    call :log ERROR "Cannot read local HEAD after push."
+    exit /b 1
+  )
 
-set "REMOTE_HEAD="
-for /f "tokens=1" %%H in ('git -C "%REPO_ROOT%" ls-remote --heads origin "%BRANCH%" 2^>nul') do set "REMOTE_HEAD=%%H"
-if not defined REMOTE_HEAD (
-  call :log ERROR "Cannot verify remote branch origin/%BRANCH% after push."
-  exit /b 1
-)
+  set "REMOTE_HEAD="
+  for /f "tokens=1" %%H in ('git -C "%REPO_ROOT%" ls-remote --heads origin "%BRANCH%" 2^>nul') do set "REMOTE_HEAD=%%H"
+  if not defined REMOTE_HEAD (
+    call :log ERROR "Cannot verify remote branch origin/%BRANCH% after push."
+    exit /b 1
+  )
 
-if /I not "%LOCAL_HEAD%"=="%REMOTE_HEAD%" (
-  call :log ERROR "Push verification failed. Local HEAD %LOCAL_HEAD% != remote HEAD %REMOTE_HEAD%"
-  exit /b 1
+  if /I not "%LOCAL_HEAD%"=="%REMOTE_HEAD%" (
+    call :log ERROR "Push verification failed. Local HEAD %LOCAL_HEAD% != remote HEAD %REMOTE_HEAD%"
+    exit /b 1
+  )
+  call :log OK "Push verified. origin/%BRANCH% is %REMOTE_HEAD%"
+) else (
+  call :log INFO "Skipping startup auto-push because the working tree is dirty."
 )
-call :log OK "Push verified. origin/%BRANCH% is %REMOTE_HEAD%"
 
 if /I "%FOLLOWBOX_PUSH_ONLY%"=="1" (
   call :log INFO "FOLLOWBOX_PUSH_ONLY=1, skipping control center launch."

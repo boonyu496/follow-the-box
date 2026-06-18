@@ -228,6 +228,7 @@
             <button id="publishCloudOta" class="secondary"></button>
           </div>
           <div class="actions">
+            <button id="pullRepo" class="secondary"></button>
             <button id="uploadSerial"></button>
             <button id="uploadNetwork" class="secondary"></button>
             <button id="refreshStatus" class="secondary"></button>
@@ -363,6 +364,7 @@
       clearLog: "\u6e05\u7a7a\u65e5\u5fd7",
       saveConfig: "\u4fdd\u5b58\u9ed8\u8ba4\u914d\u7f6e",
       pushRepo: "\u4e00\u952e\u63a8\u9001\u5230\u4ed3\u5e93",
+      pullRepo: "\u4ece\u4ed3\u5e93\u4e0b\u62c9\u5230\u672c\u5730",
       deployCloudAll: "\u4e00\u952e\u63a8\u9001\u5e76\u90e8\u7f72\u4e91\u7aef",
       deployCloud: "\u4ec5\u90e8\u7f72\u4e91\u7aef",
       publishCloudOta: "\u4e00\u952e\u53d1\u5e03\u4e91\u7aef OTA",
@@ -434,6 +436,7 @@
     document.getElementById("clearLog").textContent = t.clearLog;
     document.getElementById("saveConfig").textContent = t.saveConfig;
     document.getElementById("pushRepo").textContent = t.pushRepo;
+    document.getElementById("pullRepo").textContent = t.pullRepo;
     document.getElementById("deployCloudAll").textContent = t.deployCloudAll;
     document.getElementById("deployCloud").textContent = t.deployCloud;
     document.getElementById("publishCloudOta").textContent = t.publishCloudOta;
@@ -441,6 +444,7 @@
     document.getElementById("uploadNetwork").textContent = t.uploadNetwork;
     document.getElementById("refreshStatus").textContent = t.refreshStatus;
     document.getElementById("gitStatus").textContent = t.gitStatus;
+    document.getElementById("gitPull").textContent = t.pullRepo;
     document.getElementById("gitCommitPush").textContent = t.gitCommitPush;
     document.getElementById("buildOta").textContent = t.buildOta;
 
@@ -452,6 +456,7 @@
     const buttons = {
       refreshStatus: document.getElementById("refreshStatus"),
       pushRepo: document.getElementById("pushRepo"),
+      pullRepo: document.getElementById("pullRepo"),
       deployCloudAll: document.getElementById("deployCloudAll"),
       deployCloud: document.getElementById("deployCloud"),
       publishCloudOta: document.getElementById("publishCloudOta"),
@@ -720,6 +725,7 @@
 
     buttons.refreshStatus.onclick = () => run(buttons.refreshStatus, t.refreshStatus, "/api/state");
     buttons.pushRepo.onclick = () => runWithPreflight(buttons.pushRepo, t.pushRepo, "git-commit-push", "/api/git/commit-push", payload);
+    buttons.pullRepo.onclick = () => runWithPreflight(buttons.pullRepo, t.pullRepo, "git-pull-local", "/api/git/pull", payload);
     buttons.deployCloudAll.onclick = () => runWithPreflight(buttons.deployCloudAll, t.deployCloudAll, "deploy-cloud-all", "/api/cloud/deploy-all", payload);
     buttons.deployCloud.onclick = () => runWithPreflight(buttons.deployCloud, t.deployCloud, "cloud-deploy", "/api/cloud/deploy", payload);
     buttons.publishCloudOta.onclick = () => runWithPreflight(buttons.publishCloudOta, t.publishCloudOta, "ota-publish-cloud", "/api/ota/publish-cloud", payload);
@@ -727,7 +733,7 @@
     buttons.uploadNetwork.onclick = () => runWithPreflight(buttons.uploadNetwork, t.uploadNetwork, "upload-network", "/api/ota/upload-network", payload);
     buttons.gitStatus.onclick = () => run(buttons.gitStatus, t.gitStatus, "/api/git/status", payload);
     buttons.gitFetch.onclick = () => run(buttons.gitFetch, "Git Fetch", "/api/git/fetch");
-    buttons.gitPull.onclick = () => run(buttons.gitPull, "Git Pull", "/api/git/pull");
+    buttons.gitPull.onclick = () => runWithPreflight(buttons.gitPull, t.pullRepo, "git-pull-local", "/api/git/pull", payload);
     buttons.gitCommitPush.onclick = () => runWithPreflight(buttons.gitCommitPush, t.gitCommitPush, "git-commit-push", "/api/git/commit-push", payload);
     buttons.buildOta.onclick = () => run(buttons.buildOta, t.buildOta, "/api/ota/build", payload);
     buttons.saveConfig.onclick = () => run(buttons.saveConfig, t.saveConfig, "/api/config/save", payload);
