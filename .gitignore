@@ -30,3 +30,8 @@ __pycache__/
 # Local config
 .env
 .env.local
+
+# Local-only tools and sync worktrees
+tools_local/
+FollowBox-DevConsole.exe
+output/repo-sync-*/

@@ -10,19 +10,7 @@
 3. 不写长日志、不贴完整 diff、不贴大段代码、不写 token/API key/密码。
 4. 必须写清：改了哪些文件、当前状态、验证结果、下一步。
 5. 如果本次只是读取/分析、没有改文件，只有在形成重要架构结论、安全阻塞、关键排错结论或改变下一步路线时才追加“分析结论”；普通问答/例行查看不追加。
-6. 新记录放在 `## 最新交接记录
-
-### 2026-06-18 21:45 - Codex - 控制中心启动链与安全同步修复
-- 改动：`start-followbox-control-center.cmd` 改为只负责启动，不再启动前自动 `git push`；优先拉起 Python Dev Console，EXE 与 PowerShell 仅作后备。
-- 文件：`tools/start-followbox-control-center.cmd`, `tools/dev-console.py`, `tools/dev-console.html`, `AI-HANDOFF-MEMORY.md`
-- 架构影响：开发控制台主启动链从不可运行的 PowerShell `HttpListener` 后端切到可运行的 Python `http.server` 后端；未改固件模块边界、GPIO 或运动链路。
-- 安全影响：无 motor/e-stop/PWM/GPIO 改动；Git `pull` 新增自动 stash + `--ff-only` + stash pop 流程，避免脏工作区被直接覆盖；云端/仓库动作改为显式确认，不再隐式执行。
-- 验证：`python -m py_compile tools/dev-console.py` PASS；批处理启动 `tools/start-followbox-control-center.cmd` 后本地 `http://127.0.0.1:7788/api/git/status` PASS；临时 Git 仓库验证 `safe_pull_repo()` 在存在未跟踪文件时可 stash/pull/pop 并保留本地文件 PASS。
-- 未验证：未在真实 GitHub/云端服务器执行 push/pull/deploy；`tools/followbox-control-center.ps1` 仍保留为 legacy fallback，当前环境 `HttpListener` 构造失败未修。
-- 当前状态：NEEDS_REMOTE_VERIFICATION。
-- 下一步：如需真正同步，先批准联网/SSH 操作，再分别执行仓库 pull/push 与云端 deploy，最后检查 `https://www.boonai.cn/fb/` 和远端目录版本戳。
-
-` 下面，旧记录往下排。
+6. 新记录放在 `## 最新交接记录` 下面，旧记录往下排。
 7. 如果某条记录已经过期，可以移动到 `## 已过期/归档记录`，不要让顶部堆太长。
 8. 交接记录只记录“本次新增的信息”，不要重复抄写 `FIRMWARE-SPEC.md`、`PIN-MAP-V1.md`、`skills/README.md` 已经固定的长期事实。
 
@@ -40,17 +28,26 @@
 ```
 
 ## 最新交接记录
-### 2026-06-18 21:15 - Codex - OTA、EAI S2 与三路 TOF 遥测修复
-- 改动：OTA 版本查询改为操作员 Bearer/设备 Token 双鉴权；云端 H5 增加独立雷达卡片和 TOF 恢复诊断。
-- 雷达：用厂商 YDLIDAR 三角协议解析器替换错误的 LD19 230400/0x54 驱动，EAI S2 UART 修正为 115200。
-- TOF：连续 NACK/超时触发 Bus Clear，缺失通道每秒最多重初始化一路，旧距离继续按 300ms 失效。
-- 安全：AUTO_FOLLOW 现在要求至少一个有效前向障碍距离；只有侧向超声时以 SENSOR_TIMEOUT 停车。
-- 文件：`cloud/public/*`, `cloud/server.js`, `firmware/src/sensors/lidar_eai_s2.*`, `tof_vl53l1x_array.*`, `telemetry_api.cpp` 等。
-- 架构影响：新增只读 SensorDiagnostics 经 SensorBundle/SystemState 上送；未改变 PWM/GPIO 所有权或 applyFinalGate 链路。
-- 验证：ESP32-S3 固件构建 PASS（RAM 22.3%、Flash 23.8%）；JS 语法、DOM ID、OTA 鉴权回归、diff check PASS。
-- 当前状态：NEEDS_HARDWARE_VERIFICATION；代码未部署云端、未烧录真机。
-- 下一步：部署 cloud 目录并 OTA/USB 烧录新固件，架空车轮观察 lidar RX/包/圈与 TOF init mask=111 后再做障碍物台架测试。
 
+### 2026-06-18 22:05 - Codex - 控制中心迁移到 tools_local
+- 改动：把本机专用控制中心文件从 `tools/` 挪到忽略目录 `tools_local/`，仓库内只保留一个薄启动壳 `tools/start-followbox-control-center.cmd` 指向本地目录。
+- 文件：`.gitignore`, `tools/start-followbox-control-center.cmd`, `tools_local/*`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：共享工具和本机私有工具拆分；`tools/` 继续保留团队脚本，控制中心运行资产不再作为仓库内容同步。
+- 安全影响：无 motor/e-stop/PWM/GPIO 改动；只是本机工具位置和 Git 跟踪边界调整。
+- 验证：旧入口 `tools/start-followbox-control-center.cmd` 启动后，本地 `http://127.0.0.1:7791/api/git/status` PASS；状态里已只显示 `.gitignore`、`tools/start...` 和 `tools/` 下控制中心文件删除。
+- 未验证：尚未把“从仓库移除这些 tools 文件”的变更再次提交并推送；远端当前仍保留旧 `tools/dev-console*` 与 `followbox-control-center*`。
+- 当前状态：NEEDS_REPO_SYNC。
+- 下一步：把 `.gitignore`、`tools/start...` 以及 `tools/` 下这些删除提交到远端，之后新 clone / pull 就不会再带这批本机专用文件。
+
+### 2026-06-18 21:45 - Codex - 控制中心启动链与安全同步修复
+- 改动：`start-followbox-control-center.cmd` 改为只负责启动，不再启动前自动 `git push`；优先拉起 Python Dev Console，EXE 与 PowerShell 仅作后备。
+- 文件：`tools/start-followbox-control-center.cmd`, `tools/dev-console.py`, `tools/dev-console.html`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：开发控制台主启动链从不可运行的 PowerShell `HttpListener` 后端切到可运行的 Python `http.server` 后端；未改固件模块边界、GPIO 或运动链路。
+- 安全影响：无 motor/e-stop/PWM/GPIO 改动；Git `pull` 新增自动 stash + `--ff-only` + stash pop 流程，避免脏工作区被直接覆盖；云端/仓库动作改为显式确认，不再隐式执行。
+- 验证：`python -m py_compile tools/dev-console.py` PASS；批处理启动 `tools/start-followbox-control-center.cmd` 后本地 `http://127.0.0.1:7788/api/git/status` PASS；临时 Git 仓库验证 `safe_pull_repo()` 在存在未跟踪文件时可 stash/pull/pop 并保留本地文件 PASS。
+- 未验证：未在真实 GitHub/云端服务器执行 push/pull/deploy；`tools/followbox-control-center.ps1` 仍保留为 legacy fallback，当前环境 `HttpListener` 构造失败未修。
+- 当前状态：NEEDS_REMOTE_VERIFICATION。
+- 下一步：如需真正同步，先批准联网/SSH 操作，再分别执行仓库 pull/push 与云端 deploy，最后检查 `https://www.boonai.cn/fb/` 和远端目录版本戳。
 
 ### 2026-06-18 00:55 - Codex - WSL PlatformIO 工具链引导脚本
 - 改动：新增 WSL/Ubuntu 下的 PlatformIO 工具链脚本，统一安装依赖、隔离 Linux `.pio-core-wsl` 缓存，并提供 `install/env/run/smoke` 子命令覆盖 `firmware` 与 `vision_cam` 两个工程。
