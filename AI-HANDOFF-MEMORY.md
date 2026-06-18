@@ -10,7 +10,19 @@
 3. 不写长日志、不贴完整 diff、不贴大段代码、不写 token/API key/密码。
 4. 必须写清：改了哪些文件、当前状态、验证结果、下一步。
 5. 如果本次只是读取/分析、没有改文件，只有在形成重要架构结论、安全阻塞、关键排错结论或改变下一步路线时才追加“分析结论”；普通问答/例行查看不追加。
-6. 新记录放在 `## 最新交接记录` 下面，旧记录往下排。
+6. 新记录放在 `## 最新交接记录
+
+### 2026-06-18 21:45 - Codex - 控制中心启动链与安全同步修复
+- 改动：`start-followbox-control-center.cmd` 改为只负责启动，不再启动前自动 `git push`；优先拉起 Python Dev Console，EXE 与 PowerShell 仅作后备。
+- 文件：`tools/start-followbox-control-center.cmd`, `tools/dev-console.py`, `tools/dev-console.html`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：开发控制台主启动链从不可运行的 PowerShell `HttpListener` 后端切到可运行的 Python `http.server` 后端；未改固件模块边界、GPIO 或运动链路。
+- 安全影响：无 motor/e-stop/PWM/GPIO 改动；Git `pull` 新增自动 stash + `--ff-only` + stash pop 流程，避免脏工作区被直接覆盖；云端/仓库动作改为显式确认，不再隐式执行。
+- 验证：`python -m py_compile tools/dev-console.py` PASS；批处理启动 `tools/start-followbox-control-center.cmd` 后本地 `http://127.0.0.1:7788/api/git/status` PASS；临时 Git 仓库验证 `safe_pull_repo()` 在存在未跟踪文件时可 stash/pull/pop 并保留本地文件 PASS。
+- 未验证：未在真实 GitHub/云端服务器执行 push/pull/deploy；`tools/followbox-control-center.ps1` 仍保留为 legacy fallback，当前环境 `HttpListener` 构造失败未修。
+- 当前状态：NEEDS_REMOTE_VERIFICATION。
+- 下一步：如需真正同步，先批准联网/SSH 操作，再分别执行仓库 pull/push 与云端 deploy，最后检查 `https://www.boonai.cn/fb/` 和远端目录版本戳。
+
+` 下面，旧记录往下排。
 7. 如果某条记录已经过期，可以移动到 `## 已过期/归档记录`，不要让顶部堆太长。
 8. 交接记录只记录“本次新增的信息”，不要重复抄写 `FIRMWARE-SPEC.md`、`PIN-MAP-V1.md`、`skills/README.md` 已经固定的长期事实。
 
