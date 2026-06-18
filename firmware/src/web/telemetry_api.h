@@ -16,7 +16,7 @@ const char* stopReasonToString(StopReason reason);
 // Serialise the frozen H5 state JSON into the caller-provided buffer. Returns
 // the number of characters written (excluding the NUL), or 0 if the buffer is
 // too small. No heap allocation, safe to call from comm_task with a stack
-// buffer. Recommended buffer size: >= 1280 bytes.
+// buffer. Recommended buffer size: >= 2560 bytes.
 size_t buildStateJson(const SystemState& state, char* out, size_t out_size);
 
 }  // namespace followbox

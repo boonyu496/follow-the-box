@@ -88,6 +88,7 @@ void sensorTaskEntry(void*) {
     bundle.uwb = sensors.uwbTarget();
     bundle.obstacle = sensors.obstacle();
     bundle.tof = sensors.tof();
+    bundle.sensor_diagnostics = sensors.diagnostics();
     bundle.ultrasonic = sensors.ultrasonic();
     bundle.camera = sensors.camera();
     bundle.power = sensors.power();
@@ -138,7 +139,8 @@ void controlTaskEntry(void*) {
     }
     const SensorBundle bundle = shared.latestSensors();
     app.ingestSensorInputs(bundle.uwb, bundle.obstacle, bundle.power, bundle.imu,
-                           bundle.tof, bundle.ultrasonic, bundle.camera,
+                           bundle.tof, bundle.sensor_diagnostics,
+                           bundle.ultrasonic, bundle.camera,
                            bundle.estop_active,
                            bundle.sensor_heartbeat_ms, bundle.uwb_heartbeat_ms);
     app.ingestRcInput(bundle.rc);

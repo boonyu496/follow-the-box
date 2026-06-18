@@ -39,7 +39,8 @@ constexpr float BATTERY_LOW_VOLTAGE = 33.0f;
 // Bound bytes drained per parser per update so the control loop never stalls
 // on a flooded UART; leftover bytes are picked up next tick.
 constexpr uint32_t UWB_UART_BAUD = 115200;
-constexpr uint32_t LIDAR_UART_BAUD = 230400;
+// YDLIDAR/EAI S2 single-channel triangle protocol (vendor SDK Dataset.md).
+constexpr uint32_t LIDAR_UART_BAUD = 115200;
 constexpr int SENSOR_TASK_MAX_BYTES_PER_UPDATE = 512;
 
 // --- UWB GC-P2304 parser / filter ---
@@ -80,11 +81,10 @@ constexpr float IMU_ANGLE_FULL_SCALE_DEG = 180.0f;  // 0x53 Euler angles
 // is enabled anyway, FOLLOW_YAW_DAMP_GAIN = 0).
 constexpr float IMU_YAW_SIGN = 1.0f;
 
-// --- LiDAR LD19 / LD06 (LDROBOT DTOF, UART 230400 8N1, 0x54 packet) ---
+// --- LiDAR YDLIDAR/EAI S2 (triangle protocol, UART 115200 8N1, AA 55 packet) ---
 constexpr uint32_t LIDAR_PACKET_TIMEOUT_MS = 500;
 constexpr int LIDAR_MIN_VALID_MM = 50;
-constexpr int LIDAR_MAX_VALID_MM = 12000;
-constexpr int LIDAR_MIN_INTENSITY = 10;
+constexpr int LIDAR_MAX_VALID_MM = 8000;
 // Mounting yaw offset between lidar 0deg and robot forward. NEEDS PHYSICAL VERIFICATION.
 constexpr float LIDAR_MOUNT_YAW_OFFSET_DEG = 0.0f;
 constexpr float LIDAR_FRONT_CENTER_HALF_DEG = 15.0f;
@@ -103,6 +103,8 @@ constexpr uint8_t TOF_CHANNEL_FRONT_RIGHT = 2;
 constexpr uint32_t TOF_TIMING_BUDGET_US = 50000;     // 50 ms Long-mode budget
 constexpr uint32_t TOF_CONTINUOUS_PERIOD_MS = 50;    // inter-measurement period
 constexpr uint32_t TOF_STALE_TIMEOUT_MS = 300;       // matches OBSTACLE_STALE_TIMEOUT_MS
+constexpr uint32_t TOF_REINIT_INTERVAL_MS = 1000;    // retry one failed mux channel per second
+constexpr uint8_t TOF_FAILURES_BEFORE_BUS_CLEAR = 3; // repeated NACK/timeout recovery threshold
 constexpr int TOF_MIN_VALID_MM = 40;                 // below this = no target / cross-talk
 constexpr int TOF_MAX_VALID_MM = 4000;               // VL53L1X Long-mode ceiling
 

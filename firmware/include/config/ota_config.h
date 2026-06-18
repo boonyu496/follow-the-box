@@ -5,7 +5,7 @@
 namespace followbox::ota_config {
 
 #ifndef FOLLOWBOX_FIRMWARE_VERSION
-#define FOLLOWBOX_FIRMWARE_VERSION "2026.06.13-video.1"
+#define FOLLOWBOX_FIRMWARE_VERSION "2026.06.18-sensors.1"
 #endif
 
 #ifndef FOLLOWBOX_CLOUD_OTA_ENABLED

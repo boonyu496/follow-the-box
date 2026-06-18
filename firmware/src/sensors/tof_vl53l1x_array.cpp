@@ -56,6 +56,9 @@ void TofVl53l1xArray::begin() {
   stats_ = TofStats{};
   next_channel_ = 0;
   initialised_ = false;
+  consecutive_failures_ = 0;
+  last_recovery_attempt_ms_ = 0;
+  for (uint8_t i = 0; i < kChannelCount; ++i) g_channel_ready[i] = false;
 
   // First prototype has no XSHUT: clear the bus before probing so a sensor that
   // latched SDA low from a prior boot does not wedge the whole mux.
@@ -77,6 +80,8 @@ void TofVl53l1xArray::begin() {
 }
 
 void TofVl53l1xArray::update(uint32_t now_ms) {
+  invalidateStale(now_ms);
+  serviceRecovery(now_ms);
   if (!initialised_) {
     return;
   }
@@ -90,6 +95,8 @@ void TofVl53l1xArray::update(uint32_t now_ms) {
     return;
   }
   if (!selectMuxChannel(channel)) {
+    stats_.mux_nack_count++;
+    markChannelFailed(channel, now_ms);
     applyChannelReading(channel, -1, now_ms);
     return;
   }
@@ -102,10 +109,12 @@ void TofVl53l1xArray::update(uint32_t now_ms) {
   const uint16_t raw_mm = sensor.read(false);
   if (sensor.timeoutOccurred()) {
     stats_.timeout_count++;
+    markChannelFailed(channel, now_ms);
     applyChannelReading(channel, -1, now_ms);
     return;
   }
 
+  consecutive_failures_ = 0;
   stats_.read_count++;
   stats_.last_read_ms = now_ms;
   applyChannelReading(channel, static_cast<int>(raw_mm), now_ms);
@@ -131,6 +140,10 @@ void TofVl53l1xArray::applyChannelReading(uint8_t channel, int distance_mm,
     snapshot_.last_update_ms = now_ms;
   }
 
+  invalidateStale(now_ms);
+}
+
+void TofVl53l1xArray::invalidateStale(uint32_t now_ms) {
   // Invalidate the whole array if every channel stopped delivering fresh ranges.
   if (isStale(now_ms, snapshot_.last_update_ms, profile::TOF_STALE_TIMEOUT_MS)) {
     snapshot_.front_left_valid = false;
@@ -139,6 +152,57 @@ void TofVl53l1xArray::applyChannelReading(uint8_t channel, int distance_mm,
   }
   snapshot_.valid = snapshot_.front_left_valid || snapshot_.front_center_valid ||
                     snapshot_.front_right_valid;
+}
+
+void TofVl53l1xArray::markChannelFailed(uint8_t channel, uint32_t now_ms) {
+  if (channel < kChannelCount) {
+    g_channel_ready[channel] = false;
+    stats_.init_ok_mask &= ~(1u << channel);
+  }
+  initialised_ = g_channel_ready[0] || g_channel_ready[1] || g_channel_ready[2];
+  if (++consecutive_failures_ < profile::TOF_FAILURES_BEFORE_BUS_CLEAR) return;
+
+  // Releasing the bus is bounded to nine SCL pulses. Re-initialisation is
+  // deliberately deferred and limited to one channel per recovery interval.
+  g_i2c_bus.busClear();
+  Wire.setClock(400000);
+  stats_.bus_clear_count++;
+  stats_.last_recovery_ms = now_ms;
+  consecutive_failures_ = 0;
+  initialised_ = false;
+  stats_.init_ok_mask = 0;
+  for (uint8_t i = 0; i < kChannelCount; ++i) g_channel_ready[i] = false;
+}
+
+void TofVl53l1xArray::serviceRecovery(uint32_t now_ms) {
+  bool missing = false;
+  for (uint8_t i = 0; i < kChannelCount; ++i) {
+    if (!g_channel_ready[kChannels[i]]) {
+      missing = true;
+      break;
+    }
+  }
+  if (!missing ||
+      (last_recovery_attempt_ms_ != 0 &&
+       elapsedMs(now_ms, last_recovery_attempt_ms_) <
+           profile::TOF_REINIT_INTERVAL_MS)) {
+    return;
+  }
+
+  last_recovery_attempt_ms_ = now_ms;
+  for (uint8_t i = 0; i < kChannelCount; ++i) {
+    const uint8_t channel = kChannels[i];
+    if (g_channel_ready[channel]) continue;
+    const bool ok = initSensorOnChannel(channel);
+    g_channel_ready[channel] = ok;
+    if (ok) {
+      stats_.init_ok_mask |= (1u << channel);
+      stats_.reinit_count++;
+      stats_.last_recovery_ms = now_ms;
+      initialised_ = true;
+    }
+    break;
+  }
 }
 
 }  // namespace followbox

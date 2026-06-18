@@ -1,7 +1,7 @@
 {
-  "version": "2026.06.13-video.1",
+  "version": "2026.06.18-sensors.1",
   "file": "firmware.bin",
-  "md5": "936d1db154ab6a326a71dd39a6e78e2b",
-  "size": 1114688,
+  "md5": "f852dab3da002b23e9ee07af7ceef068",
+  "size": 1125712,
   "force": false
 }

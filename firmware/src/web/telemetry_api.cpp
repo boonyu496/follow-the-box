@@ -77,10 +77,17 @@ size_t buildStateJson(const SystemState& state, char* out, size_t out_size) {
       "\"obstacle\":{\"front_left_mm\":%d,\"front_center_mm\":%d,"
       "\"front_right_mm\":%d,\"side_left_mm\":%d,\"side_right_mm\":%d,"
       "\"valid\":%s,\"last_update_ms\":%u},"
+      "\"lidar\":{\"valid\":%s,\"last_update_ms\":%u,"
+      "\"front_left_mm\":%d,\"front_center_mm\":%d,"
+      "\"front_right_mm\":%d,\"side_left_mm\":%d,\"side_right_mm\":%d,"
+      "\"rx_bytes\":%u,\"packets\":%u,\"checksum_errors\":%u,"
+      "\"framing_errors\":%u,\"scans\":%u},"
       "\"tof\":{\"valid\":%s,\"front_left_mm\":%d,\"front_center_mm\":%d,"
       "\"front_right_mm\":%d,\"front_left_valid\":%s,"
       "\"front_center_valid\":%s,\"front_right_valid\":%s,"
-      "\"last_update_ms\":%u},"
+      "\"last_update_ms\":%u,\"init_ok_mask\":%u,\"read_count\":%u,"
+      "\"timeout_count\":%u,\"mux_nack_count\":%u,\"bus_clear_count\":%u,"
+      "\"reinit_count\":%u,\"last_recovery_ms\":%u},"
       "\"ultrasonic\":{\"valid\":%s,\"left_mm\":%d,\"right_mm\":%d,"
       "\"left_valid\":%s,\"right_valid\":%s,\"last_update_ms\":%u},"
       "\"camera\":{\"online\":%s,\"stream_url\":\"%s\"},"
@@ -109,12 +116,31 @@ size_t buildStateJson(const SystemState& state, char* out, size_t out_size) {
       state.obstacle.side_left_mm, state.obstacle.side_right_mm,
       state.obstacle.valid ? "true" : "false",
       static_cast<unsigned>(state.obstacle.last_update_ms),
+      state.sensor_diagnostics.lidar_valid ? "true" : "false",
+      static_cast<unsigned>(state.sensor_diagnostics.lidar_last_update_ms),
+      state.sensor_diagnostics.lidar_front_left_mm,
+      state.sensor_diagnostics.lidar_front_center_mm,
+      state.sensor_diagnostics.lidar_front_right_mm,
+      state.sensor_diagnostics.lidar_side_left_mm,
+      state.sensor_diagnostics.lidar_side_right_mm,
+      static_cast<unsigned>(state.sensor_diagnostics.lidar_rx_bytes),
+      static_cast<unsigned>(state.sensor_diagnostics.lidar_packets),
+      static_cast<unsigned>(state.sensor_diagnostics.lidar_checksum_errors),
+      static_cast<unsigned>(state.sensor_diagnostics.lidar_framing_errors),
+      static_cast<unsigned>(state.sensor_diagnostics.lidar_scans),
       state.tof.valid ? "true" : "false", state.tof.front_left_mm,
       state.tof.front_center_mm, state.tof.front_right_mm,
       state.tof.front_left_valid ? "true" : "false",
       state.tof.front_center_valid ? "true" : "false",
       state.tof.front_right_valid ? "true" : "false",
       static_cast<unsigned>(state.tof.last_update_ms),
+      static_cast<unsigned>(state.sensor_diagnostics.tof_init_ok_mask),
+      static_cast<unsigned>(state.sensor_diagnostics.tof_read_count),
+      static_cast<unsigned>(state.sensor_diagnostics.tof_timeout_count),
+      static_cast<unsigned>(state.sensor_diagnostics.tof_mux_nack_count),
+      static_cast<unsigned>(state.sensor_diagnostics.tof_bus_clear_count),
+      static_cast<unsigned>(state.sensor_diagnostics.tof_reinit_count),
+      static_cast<unsigned>(state.sensor_diagnostics.tof_last_recovery_ms),
       state.ultrasonic.valid ? "true" : "false", state.ultrasonic.left_mm,
       state.ultrasonic.right_mm,
       state.ultrasonic.left_valid ? "true" : "false",

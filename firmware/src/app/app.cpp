@@ -12,6 +12,7 @@ void App::ingestSensorInputs(const UwbTarget& uwb,
                              const ObstacleSnapshot& obstacle,
                              const PowerStatus& power, const ImuSnapshot& imu,
                              const TofSnapshot& tof,
+                             const SensorDiagnostics& sensor_diagnostics,
                              const UltrasonicSnapshot& ultrasonic,
                              const CameraStatus& camera,
                              bool estop_active,
@@ -22,6 +23,7 @@ void App::ingestSensorInputs(const UwbTarget& uwb,
   state_.power = power;
   state_.imu = imu;
   state_.tof = tof;
+  state_.sensor_diagnostics = sensor_diagnostics;
   state_.ultrasonic = ultrasonic;
   state_.camera = camera;
   state_.estop_active = estop_active;

@@ -249,8 +249,12 @@ const server = http.createServer(async (req, res) => {
     if (firmwareMatch) {
       const [, deviceId, action] = firmwareMatch;
       if (action === "version" && req.method === "GET") {
-        if (!validDeviceToken(null, url)) {
-          send(res, 401, { ok: false, reason: "bad device token" });
+        // The device polls with its shared device token. The H5 operator panel
+        // checks the same read-only manifest with its Bearer operator token.
+        // Keep the credentials separate instead of exposing the device token
+        // to browser storage.
+        if (!validDeviceToken(null, url) && !validOperator(req)) {
+          send(res, 401, { ok: false, reason: "bad token" });
           return;
         }
         const manifest = readFirmwareManifest(deviceId);

@@ -123,6 +123,32 @@ struct TofSnapshot {
   bool front_right_valid = false;
 };
 
+// Read-only bring-up evidence. These counters are deliberately separate from
+// the fused obstacle snapshot so the H5 panel can distinguish a dead sensor
+// from a genuinely clear sector without affecting motion decisions.
+struct SensorDiagnostics {
+  bool lidar_valid = false;
+  uint32_t lidar_last_update_ms = 0;
+  int lidar_front_left_mm = 0;
+  int lidar_front_center_mm = 0;
+  int lidar_front_right_mm = 0;
+  int lidar_side_left_mm = 0;
+  int lidar_side_right_mm = 0;
+  uint32_t lidar_rx_bytes = 0;
+  uint32_t lidar_packets = 0;
+  uint32_t lidar_checksum_errors = 0;
+  uint32_t lidar_framing_errors = 0;
+  uint32_t lidar_scans = 0;
+
+  uint32_t tof_init_ok_mask = 0;
+  uint32_t tof_read_count = 0;
+  uint32_t tof_timeout_count = 0;
+  uint32_t tof_mux_nack_count = 0;
+  uint32_t tof_bus_clear_count = 0;
+  uint32_t tof_reinit_count = 0;
+  uint32_t tof_last_recovery_ms = 0;
+};
+
 // Side ultrasonic pair (two HC-SR04 sharing one TRIG). Auxiliary side-clearance
 // snapshot only; a missing echo keeps the matching *_valid flag low.
 struct UltrasonicSnapshot {

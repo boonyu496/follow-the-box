@@ -13,7 +13,7 @@
 #include "core/system_state.h"
 #include "safety/safety_manager.h"
 #include "sensors/jy61p_imu.h"
-#include "sensors/lidar_ld19.h"
+#include "sensors/lidar_eai_s2.h"
 #include "sensors/obstacle_fusion.h"
 #include "sensors/uwb_gc_p2304.h"
 #include "web/h5_command_handler.h"
@@ -98,6 +98,18 @@ void testSafetyAndMixer() {
   state.safety = auto_safety.evaluate(state);
   assert(!state.safety.motion_allowed);
   assert(state.safety.stop_reason == StopReason::UWB_LOST);
+
+  // Side-only ultrasonic data must not satisfy AUTO's forward-obstacle gate.
+  state.uwb.valid = true;
+  state.uwb.last_update_ms = state.now_ms;
+  state.uwb.distance_mm = 2000;
+  state.obstacle = ObstacleSnapshot{};
+  state.obstacle.valid = true;
+  state.obstacle.last_update_ms = state.now_ms;
+  state.obstacle.side_left_mm = 600;
+  state.safety = auto_safety.evaluate(state);
+  assert(!state.safety.motion_allowed);
+  assert(state.safety.stop_reason == StopReason::SENSOR_TIMEOUT);
 
   SafetyManager cloud_safety;
   state = SystemState{};
@@ -251,31 +263,36 @@ uint8_t lidarCrc(const uint8_t* data, uint8_t length) {
 }
 
 std::vector<uint8_t> buildLidarPacket(float start_deg, float end_deg,
-                                      uint16_t dist_mm, uint8_t intensity) {
-  std::vector<uint8_t> p(47, 0);
-  p[0] = 0x54;
-  p[1] = 0x2C;
-  p[2] = 0x00;  // speed lo
-  p[3] = 0x04;  // speed hi
-  const uint16_t start = static_cast<uint16_t>(std::lround(start_deg * 100.0f));
-  const uint16_t end = static_cast<uint16_t>(std::lround(end_deg * 100.0f));
+                                      uint16_t dist_mm, uint8_t ring_start) {
+  constexpr uint8_t count = 8;
+  std::vector<uint8_t> p(10 + count * 2, 0);
+  p[0] = 0xAA;
+  p[1] = 0x55;
+  p[2] = ring_start ? 0x01 : 0x00;
+  p[3] = count;
+  const uint16_t start =
+      (static_cast<uint16_t>(std::lround(start_deg * 64.0f)) << 1) | 1u;
+  const uint16_t end =
+      (static_cast<uint16_t>(std::lround(end_deg * 64.0f)) << 1) | 1u;
   p[4] = start & 0xFF;
   p[5] = (start >> 8) & 0xFF;
-  for (int i = 0; i < 12; ++i) {
-    const int base = 6 + i * 3;
-    p[base] = dist_mm & 0xFF;
-    p[base + 1] = (dist_mm >> 8) & 0xFF;
-    p[base + 2] = intensity;
+  p[6] = end & 0xFF;
+  p[7] = (end >> 8) & 0xFF;
+  uint16_t checksum = 0x55AA ^ static_cast<uint16_t>(count << 8 | p[2]) ^
+                      start ^ end;
+  const uint16_t raw_distance = static_cast<uint16_t>(dist_mm * 4u);
+  for (uint8_t i = 0; i < count; ++i) {
+    const size_t offset = 10 + i * 2;
+    p[offset] = raw_distance & 0xFF;
+    p[offset + 1] = (raw_distance >> 8) & 0xFF;
+    checksum ^= raw_distance;
   }
-  p[42] = end & 0xFF;
-  p[43] = (end >> 8) & 0xFF;
-  p[44] = 0x00;  // timestamp lo
-  p[45] = 0x00;  // timestamp hi
-  p[46] = lidarCrc(p.data(), 46);
+  p[8] = checksum & 0xFF;
+  p[9] = (checksum >> 8) & 0xFF;
   return p;
 }
 
-void feedLidar(LidarLd19& lidar, const std::vector<uint8_t>& packet,
+void feedLidar(LidarEaiS2& lidar, const std::vector<uint8_t>& packet,
                uint32_t now_ms) {
   for (uint8_t b : packet) {
     lidar.pushByte(b, now_ms);
@@ -283,26 +300,25 @@ void feedLidar(LidarLd19& lidar, const std::vector<uint8_t>& packet,
 }
 
 void testLidarParser() {
-  LidarLd19 lidar;
+  LidarEaiS2 lidar;
   lidar.reset();
 
-  // Packet A: all 12 points at 10 deg (front-center), 1500 mm.
-  feedLidar(lidar, buildLidarPacket(10.0f, 10.0f, 1500, 200), 100);
-  // Packet B: start angle wraps below A -> finalises scan A.
-  feedLidar(lidar, buildLidarPacket(5.0f, 5.0f, 800, 200), 110);
+  // A ring-start begins scan A; the next ring-start finalises it.
+  feedLidar(lidar, buildLidarPacket(0.0f, 10.0f, 1500, true), 100);
+  feedLidar(lidar, buildLidarPacket(20.0f, 30.0f, 1800, false), 105);
+  feedLidar(lidar, buildLidarPacket(0.0f, 10.0f, 800, true), 110);
 
-  assert(lidar.stats().packet_count == 2);
-  assert(lidar.stats().crc_error_count == 0);
+  assert(lidar.stats().packet_count == 3);
+  assert(lidar.stats().checksum_error_count == 0);
   assert(lidar.snapshot().valid);
   assert(lidar.snapshot().front_center_mm == 1500);
-  // Sectors with no returns stay at the clear sentinel (far), never 0.
-  assert(lidar.snapshot().side_left_mm > 1500);
+  assert(lidar.snapshot().side_left_mm == 0);
 
-  // A corrupted CRC byte is rejected.
-  std::vector<uint8_t> bad = buildLidarPacket(50.0f, 50.0f, 1000, 200);
-  bad[46] ^= 0xFF;
+  // A corrupted XOR checksum is rejected.
+  std::vector<uint8_t> bad = buildLidarPacket(50.0f, 60.0f, 1000, false);
+  bad[8] ^= 0xFF;
   feedLidar(lidar, bad, 120);
-  assert(lidar.stats().crc_error_count == 1);
+  assert(lidar.stats().checksum_error_count == 1);
 
   // Timeout invalidates the snapshot.
   lidar.update(120 + 600);
@@ -506,7 +522,8 @@ void testSensorIngestion() {
   App app;
   app.begin();
   app.ingestSensorInputs(parser.target(), obstacle, power, ImuSnapshot{},
-                         TofSnapshot{}, UltrasonicSnapshot{}, CameraStatus{},
+                         TofSnapshot{}, SensorDiagnostics{},
+                         UltrasonicSnapshot{}, CameraStatus{},
                          false, 1000, 1000);
   app.tick(1000);
 
@@ -636,6 +653,13 @@ void testTelemetryJson() {
   state.tof.last_update_ms = 123200;
   state.tof.front_center_valid = true;
   state.tof.front_center_mm = 790;
+  state.sensor_diagnostics.lidar_valid = true;
+  state.sensor_diagnostics.lidar_rx_bytes = 1200;
+  state.sensor_diagnostics.lidar_packets = 20;
+  state.sensor_diagnostics.lidar_scans = 2;
+  state.sensor_diagnostics.lidar_front_center_mm = 810;
+  state.sensor_diagnostics.tof_init_ok_mask = 7;
+  state.sensor_diagnostics.tof_read_count = 30;
   state.ultrasonic.valid = true;
   state.ultrasonic.last_update_ms = 123300;
   state.ultrasonic.left_valid = true;
@@ -648,7 +672,7 @@ void testTelemetryJson() {
   state.cloud.last_update_ms = 123400;
   state.cloud.last_seq = 42;
 
-  char buf[1280];
+  char buf[2560];
   const size_t n = buildStateJson(state, buf, sizeof(buf));
   assert(n > 0);
   assert(buf[n] == '\0');
@@ -661,6 +685,9 @@ void testTelemetryJson() {
   assert(jsonContains(buf, "\"front_center_mm\":800"));
   assert(jsonContains(buf, "\"tof\":{"));
   assert(jsonContains(buf, "\"front_center_valid\":true"));
+  assert(jsonContains(buf, "\"lidar\":{\"valid\":true"));
+  assert(jsonContains(buf, "\"rx_bytes\":1200"));
+  assert(jsonContains(buf, "\"init_ok_mask\":7"));
   assert(jsonContains(buf, "\"ultrasonic\":{"));
   assert(jsonContains(buf, "\"left_valid\":true"));
   assert(jsonContains(buf, "\"camera\":{\"online\":false,\"stream_url\":\"http://192.168.4.2:81/stream\"}"));

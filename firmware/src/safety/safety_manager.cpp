@@ -35,6 +35,11 @@ bool hasMotionRequest(const SystemState& state) {
          state.h5.auto_request || state.rc.auto_request;
 }
 
+bool hasFrontObstacleReading(const ObstacleSnapshot& obstacle) {
+  return obstacle.front_left_mm > 0 || obstacle.front_center_mm > 0 ||
+         obstacle.front_right_mm > 0;
+}
+
 }  // namespace
 
 SafetyDecision SafetyManager::evaluate(const SystemState& state) {
@@ -181,6 +186,7 @@ bool SafetyManager::canClearLatchedFault(const SystemState& state) const {
 bool SafetyManager::hasAutoObstacleTimeout(const SystemState& state) const {
   return state.mode == RunMode::AUTO_FOLLOW &&
          (!state.obstacle.valid ||
+          !hasFrontObstacleReading(state.obstacle) ||
           isStale(state.now_ms, state.obstacle.last_update_ms,
                   profile::OBSTACLE_STALE_TIMEOUT_MS));
 }

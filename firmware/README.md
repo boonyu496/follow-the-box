@@ -9,7 +9,7 @@ Current implementation stage:
 - P0-A: UWB GC-P2304 binary-frame parser + filter (`src/sensors/uwb_gc_p2304.*`), no GPIO.
 - P0-B: UWB follow controller (`src/control/follow_controller_uwb.*`) wired into
   `AUTO_FOLLOW`; outputs `MotionIntent` only, still gated by `SafetyManager`.
-- LiDAR LD19/LD06 DTOF parser (`src/sensors/lidar_ld19.*`) folding the 360 deg
+- YDLIDAR/EAI S2 triangle-protocol parser (`src/sensors/lidar_eai_s2.*`) folding the 360 deg
   scan into `ObstacleSnapshot` sectors, no GPIO.
 - P0-D: front-sector obstacle limiter (`src/control/obstacle_manager.*`) wired
   into `App::tick` between `command_pipeline` and `motion_mixer`; slow/stop on
@@ -49,7 +49,7 @@ g++ -std=c++17 -Ifirmware/include -Ifirmware/src `
   firmware/src/control/follow_controller_uwb.cpp `
   firmware/src/control/obstacle_manager.cpp `
   firmware/src/sensors/uwb_gc_p2304.cpp `
-  firmware/src/sensors/lidar_ld19.cpp `
+  firmware/src/sensors/lidar_eai_s2.cpp `
   firmware/src/sensors/jy61p_imu.cpp `
   firmware/src/sensors/obstacle_fusion.cpp `
   firmware/src/app/app.cpp `

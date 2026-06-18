@@ -12,6 +12,7 @@ struct SensorBundle {
   UwbTarget uwb;
   ObstacleSnapshot obstacle;
   TofSnapshot tof;
+  SensorDiagnostics sensor_diagnostics;
   UltrasonicSnapshot ultrasonic;
   CameraStatus camera;
   PowerStatus power;

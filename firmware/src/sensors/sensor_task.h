@@ -7,7 +7,7 @@
 #include "hal/uart_bus.h"
 #include "sensors/camera_link.h"
 #include "sensors/jy61p_imu.h"
-#include "sensors/lidar_ld19.h"
+#include "sensors/lidar_eai_s2.h"
 #include "sensors/obstacle_fusion.h"
 #include "sensors/power_monitor.h"
 #include "sensors/tof_vl53l1x_array.h"
@@ -41,6 +41,7 @@ class SensorTask {
   PowerStatus power() const { return power_monitor_.getSnapshot(); }
   const ImuSnapshot& imu() const { return imu_.snapshot(); }
   const TofSnapshot& tof() const { return tof_.snapshot(); }
+  SensorDiagnostics diagnostics() const;
   const UltrasonicSnapshot& ultrasonic() const { return ultrasonic_.snapshot(); }
   const CameraStatus& camera() const { return camera_.status(); }
   bool estopActive() const { return estop_active_; }
@@ -54,7 +55,7 @@ class SensorTask {
 
   // Bring-up diagnostics for telemetry/H5.
   const UwbParserStats& uwbStats() const { return uwb_parser_.stats(); }
-  const LidarStats& lidarStats() const { return lidar_.stats(); }
+  const LidarS2Stats& lidarStats() const { return lidar_.stats(); }
   const ImuStats& imuStats() const { return imu_.stats(); }
   const TofStats& tofStats() const { return tof_.stats(); }
   const UltrasonicStats& ultrasonicStats() const { return ultrasonic_.stats(); }
@@ -70,7 +71,7 @@ class SensorTask {
   UartBus imu_uart_;
   GpioIn estop_status_;
   UwbGcP2304Parser uwb_parser_;
-  LidarLd19 lidar_;
+  LidarEaiS2 lidar_;
   Jy61pImu imu_;
   PowerMonitor power_monitor_;
   TofVl53l1xArray tof_;

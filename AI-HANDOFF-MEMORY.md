@@ -28,6 +28,17 @@
 ```
 
 ## 最新交接记录
+### 2026-06-18 21:15 - Codex - OTA、EAI S2 与三路 TOF 遥测修复
+- 改动：OTA 版本查询改为操作员 Bearer/设备 Token 双鉴权；云端 H5 增加独立雷达卡片和 TOF 恢复诊断。
+- 雷达：用厂商 YDLIDAR 三角协议解析器替换错误的 LD19 230400/0x54 驱动，EAI S2 UART 修正为 115200。
+- TOF：连续 NACK/超时触发 Bus Clear，缺失通道每秒最多重初始化一路，旧距离继续按 300ms 失效。
+- 安全：AUTO_FOLLOW 现在要求至少一个有效前向障碍距离；只有侧向超声时以 SENSOR_TIMEOUT 停车。
+- 文件：`cloud/public/*`, `cloud/server.js`, `firmware/src/sensors/lidar_eai_s2.*`, `tof_vl53l1x_array.*`, `telemetry_api.cpp` 等。
+- 架构影响：新增只读 SensorDiagnostics 经 SensorBundle/SystemState 上送；未改变 PWM/GPIO 所有权或 applyFinalGate 链路。
+- 验证：ESP32-S3 固件构建 PASS（RAM 22.3%、Flash 23.8%）；JS 语法、DOM ID、OTA 鉴权回归、diff check PASS。
+- 当前状态：NEEDS_HARDWARE_VERIFICATION；代码未部署云端、未烧录真机。
+- 下一步：部署 cloud 目录并 OTA/USB 烧录新固件，架空车轮观察 lidar RX/包/圈与 TOF init mask=111 后再做障碍物台架测试。
+
 
 ### 2026-06-18 00:55 - Codex - WSL PlatformIO 工具链引导脚本
 - 改动：新增 WSL/Ubuntu 下的 PlatformIO 工具链脚本，统一安装依赖、隔离 Linux `.pio-core-wsl` 缓存，并提供 `install/env/run/smoke` 子命令覆盖 `firmware` 与 `vision_cam` 两个工程。

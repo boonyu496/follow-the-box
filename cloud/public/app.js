@@ -18,10 +18,16 @@ const els = {
   uwbDetail: $("uwb-detail"),
   uwbBearing: $("uwb-bearing"),
   uwbConf: $("uwb-conf"),
+  lidarStatus: $("lidar-status"),
+  lidarLeft: $("lidar-left"),
+  lidarCenter: $("lidar-center"),
+  lidarRight: $("lidar-right"),
+  lidarDetail: $("lidar-detail"),
   tofStatus: $("tof-status"),
   tofLeft: $("tof-left"),
   tofCenter: $("tof-center"),
   tofRight: $("tof-right"),
+  tofDetail: $("tof-detail"),
   ultrasonicStatus: $("ultrasonic-status"),
   ultraLeft: $("ultra-left"),
   ultraRight: $("ultra-right"),
@@ -337,6 +343,7 @@ function render(payload) {
   const power = s.power || {};
   const uwb = s.uwb || {};
   const motor = s.motor || {};
+  const lidar = s.lidar || {};
   const tof = s.tof || {};
   const ultrasonic = s.ultrasonic || {};
   const obstacle = s.obstacle || {};
@@ -394,6 +401,21 @@ function render(payload) {
   els.uwbConf.textContent = uwb.valid ? `q${uwb.confidence ?? 0}` : "--";
   els.uwbDetail.textContent = uwb.valid ? "目标有效" : "等待目标";
 
+  // EAI S2 LiDAR (raw, before obstacle fusion)
+  const lidarFrontCount = [
+    positiveNumber(lidar.front_left_mm),
+    positiveNumber(lidar.front_center_mm),
+    positiveNumber(lidar.front_right_mm),
+  ].filter(Boolean).length;
+  els.lidarLeft.textContent = fmtMm(lidar.front_left_mm);
+  els.lidarCenter.textContent = fmtMm(lidar.front_center_mm);
+  els.lidarRight.textContent = fmtMm(lidar.front_right_mm);
+  els.lidarStatus.textContent = lidar.valid ? validityLabel(lidarFrontCount, 3) : "无效";
+  setTextState(els.lidarStatus, !!lidar.valid, Number(lidar.rx_bytes) > 0);
+  els.lidarDetail.textContent =
+    `RX ${lidar.rx_bytes || 0} / 包 ${lidar.packets || 0} / 圈 ${lidar.scans || 0}` +
+    ` / 校验错 ${lidar.checksum_errors || 0} / 帧错 ${lidar.framing_errors || 0}`;
+
   // TOF
   const tofValidCount = [
     channelValid(tof, "front_left_valid", "front_left_mm"),
@@ -405,6 +427,11 @@ function render(payload) {
   els.tofRight.textContent = channelMm(tof, "front_right_valid", "front_right_mm");
   els.tofStatus.textContent = validityLabel(tofValidCount, 3);
   setTextState(els.tofStatus, tofValidCount === 3, tofValidCount > 0);
+  const initMask = Number(tof.init_ok_mask || 0);
+  els.tofDetail.textContent =
+    `初始化 0b${initMask.toString(2).padStart(3, "0")} / 读取 ${tof.read_count || 0}` +
+    ` / NACK ${tof.mux_nack_count || 0} / 超时 ${tof.timeout_count || 0}` +
+    ` / 总线恢复 ${tof.bus_clear_count || 0} / 重连 ${tof.reinit_count || 0}`;
 
   // Ultrasonic
   const usValidCount = [
@@ -559,7 +586,15 @@ async function checkOtaVersion() {
   try {
     els.otaVersion.textContent = "检查中...";
     els.otaStatus.textContent = "";
-    const resp = await fetch(`${apiPath("firmware/version")}?token=${operatorTokenValue()}`);
+    const token = els.operatorToken.value.trim();
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const resp = await fetch(apiPath("firmware/version"), { headers });
+    if (resp.status === 404) {
+      els.otaVersion.textContent = "未发布";
+      flashStatus(els.otaStatus, "暂无固件更新", true);
+      return;
+    }
     if (!resp.ok) {
       els.otaVersion.textContent = "获取失败";
       flashStatus(els.otaStatus, "❌ " + (resp.status === 401 ? "Token 无效" : "服务器错误"), false);

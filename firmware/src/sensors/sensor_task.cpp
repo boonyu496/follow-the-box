@@ -95,4 +95,31 @@ void SensorTask::drainImu(uint32_t now_ms) {
   }
 }
 
+SensorDiagnostics SensorTask::diagnostics() const {
+  SensorDiagnostics out;
+  const ObstacleSnapshot& lidar = lidar_.snapshot();
+  const LidarS2Stats& lidar_stats = lidar_.stats();
+  const TofStats& tof_stats = tof_.stats();
+  out.lidar_valid = lidar.valid;
+  out.lidar_last_update_ms = lidar.last_update_ms;
+  out.lidar_front_left_mm = lidar.front_left_mm;
+  out.lidar_front_center_mm = lidar.front_center_mm;
+  out.lidar_front_right_mm = lidar.front_right_mm;
+  out.lidar_side_left_mm = lidar.side_left_mm;
+  out.lidar_side_right_mm = lidar.side_right_mm;
+  out.lidar_rx_bytes = lidar_stats.rx_byte_count;
+  out.lidar_packets = lidar_stats.packet_count;
+  out.lidar_checksum_errors = lidar_stats.checksum_error_count;
+  out.lidar_framing_errors = lidar_stats.framing_error_count;
+  out.lidar_scans = lidar_stats.scan_count;
+  out.tof_init_ok_mask = tof_stats.init_ok_mask;
+  out.tof_read_count = tof_stats.read_count;
+  out.tof_timeout_count = tof_stats.timeout_count;
+  out.tof_mux_nack_count = tof_stats.mux_nack_count;
+  out.tof_bus_clear_count = tof_stats.bus_clear_count;
+  out.tof_reinit_count = tof_stats.reinit_count;
+  out.tof_last_recovery_ms = tof_stats.last_recovery_ms;
+  return out;
+}
+
 }  // namespace followbox

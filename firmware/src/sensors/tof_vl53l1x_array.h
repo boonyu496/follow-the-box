@@ -11,8 +11,11 @@ struct TofStats {
   uint32_t init_ok_mask = 0;       // bit c set when channel c initialised
   uint32_t read_count = 0;         // successful ranging reads (all channels)
   uint32_t timeout_count = 0;      // VL53L1X read timeouts
+  uint32_t mux_nack_count = 0;     // TCA9548A channel-select failures
   uint32_t bus_clear_count = 0;    // I2C bus-clear recoveries attempted
+  uint32_t reinit_count = 0;       // successful runtime channel re-initialisations
   uint32_t last_read_ms = 0;
+  uint32_t last_recovery_ms = 0;
 };
 
 // Forward obstacle TOF array: TCA9548A I2C multiplexer + 3x VL53L1X.
@@ -42,11 +45,16 @@ class TofVl53l1xArray {
 
  private:
   void applyChannelReading(uint8_t channel, int distance_mm, uint32_t now_ms);
+  void markChannelFailed(uint8_t channel, uint32_t now_ms);
+  void serviceRecovery(uint32_t now_ms);
+  void invalidateStale(uint32_t now_ms);
 
   TofSnapshot snapshot_;
   TofStats stats_;
   uint8_t next_channel_ = 0;
   bool initialised_ = false;
+  uint8_t consecutive_failures_ = 0;
+  uint32_t last_recovery_attempt_ms_ = 0;
 };
 
 }  // namespace followbox

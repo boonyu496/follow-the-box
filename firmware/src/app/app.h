@@ -21,6 +21,7 @@ class App {
   void ingestSensorInputs(const UwbTarget& uwb, const ObstacleSnapshot& obstacle,
                           const PowerStatus& power, const ImuSnapshot& imu,
                           const TofSnapshot& tof,
+                          const SensorDiagnostics& sensor_diagnostics,
                           const UltrasonicSnapshot& ultrasonic,
                           const CameraStatus& camera,
                           bool estop_active,
