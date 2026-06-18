@@ -141,6 +141,8 @@ struct SensorDiagnostics {
   uint32_t lidar_scans = 0;
 
   uint32_t tof_init_ok_mask = 0;
+  uint32_t tof_init_attempt_count = 0;
+  uint32_t tof_init_failure_count = 0;
   uint32_t tof_read_count = 0;
   uint32_t tof_timeout_count = 0;
   uint32_t tof_mux_nack_count = 0;

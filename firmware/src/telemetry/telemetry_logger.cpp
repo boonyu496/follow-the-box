@@ -87,7 +87,8 @@ void TelemetryLogger::emit(const SystemState& state) {
   const MotorCommand& mc = state.motor_command;
   FB_LOGI(
       "TLM mode=%s stop=%s en=%d brk=%d L=%.2f%c R=%.2f%c scale=%.2f "
-      "batt=%.1f estop=%d wiz=%d uwb=%d/%dmm",
+      "batt=%.1f estop=%d wiz=%d uwb=%d/%dmm "
+      "tof=0x%lx/%lu init=%lu/%lu nack=%lu",
       modeName(state.mode), stopName(state.safety.stop_reason), mc.enable ? 1 : 0,
       mc.brake ? 1 : 0, static_cast<double>(mc.left_target),
       mc.left_reverse ? 'R' : 'F', static_cast<double>(mc.right_target),
@@ -95,7 +96,12 @@ void TelemetryLogger::emit(const SystemState& state) {
       static_cast<double>(state.safety.max_speed_scale),
       static_cast<double>(state.power.battery_voltage),
       state.estop_active ? 1 : 0, state.install_wizard_complete ? 1 : 0,
-      state.uwb.valid ? 1 : 0, state.uwb.distance_mm);
+      state.uwb.valid ? 1 : 0, state.uwb.distance_mm,
+      static_cast<unsigned long>(state.sensor_diagnostics.tof_init_ok_mask),
+      static_cast<unsigned long>(state.sensor_diagnostics.tof_read_count),
+      static_cast<unsigned long>(state.sensor_diagnostics.tof_init_attempt_count),
+      static_cast<unsigned long>(state.sensor_diagnostics.tof_init_failure_count),
+      static_cast<unsigned long>(state.sensor_diagnostics.tof_mux_nack_count));
 }
 
 }  // namespace followbox

@@ -85,7 +85,8 @@ size_t buildStateJson(const SystemState& state, char* out, size_t out_size) {
       "\"tof\":{\"valid\":%s,\"front_left_mm\":%d,\"front_center_mm\":%d,"
       "\"front_right_mm\":%d,\"front_left_valid\":%s,"
       "\"front_center_valid\":%s,\"front_right_valid\":%s,"
-      "\"last_update_ms\":%u,\"init_ok_mask\":%u,\"read_count\":%u,"
+      "\"last_update_ms\":%u,\"init_ok_mask\":%u,\"init_attempt_count\":%u,"
+      "\"init_failure_count\":%u,\"read_count\":%u,"
       "\"timeout_count\":%u,\"mux_nack_count\":%u,\"bus_clear_count\":%u,"
       "\"reinit_count\":%u,\"last_recovery_ms\":%u},"
       "\"ultrasonic\":{\"valid\":%s,\"left_mm\":%d,\"right_mm\":%d,"
@@ -135,6 +136,8 @@ size_t buildStateJson(const SystemState& state, char* out, size_t out_size) {
       state.tof.front_right_valid ? "true" : "false",
       static_cast<unsigned>(state.tof.last_update_ms),
       static_cast<unsigned>(state.sensor_diagnostics.tof_init_ok_mask),
+      static_cast<unsigned>(state.sensor_diagnostics.tof_init_attempt_count),
+      static_cast<unsigned>(state.sensor_diagnostics.tof_init_failure_count),
       static_cast<unsigned>(state.sensor_diagnostics.tof_read_count),
       static_cast<unsigned>(state.sensor_diagnostics.tof_timeout_count),
       static_cast<unsigned>(state.sensor_diagnostics.tof_mux_nack_count),

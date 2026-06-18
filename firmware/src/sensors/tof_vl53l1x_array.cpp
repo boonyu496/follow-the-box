@@ -26,6 +26,12 @@ VL53L1X g_sensors[kChannelCount];
 bool g_channel_ready[kChannelCount] = {false, false, false};
 I2cBus g_i2c_bus(pins::PIN_I2C_SDA, pins::PIN_I2C_SCL);
 
+enum class InitResult : uint8_t {
+  kOk,
+  kMuxNack,
+  kSensorInitFailed,
+};
+
 // Select one TCA9548A downstream channel (exclusive). Returns false on NACK.
 bool selectMuxChannel(uint8_t channel) {
   Wire.beginTransmission(profile::TOF_TCA9548A_ADDR);
@@ -33,20 +39,20 @@ bool selectMuxChannel(uint8_t channel) {
   return Wire.endTransmission() == 0;
 }
 
-bool initSensorOnChannel(uint8_t channel) {
+InitResult initSensorOnChannel(uint8_t channel) {
   if (!selectMuxChannel(channel)) {
-    return false;
+    return InitResult::kMuxNack;
   }
   VL53L1X& sensor = g_sensors[channel];
   sensor.setBus(&Wire);
   sensor.setTimeout(profile::TOF_CONTINUOUS_PERIOD_MS * 2);
   if (!sensor.init()) {
-    return false;
+    return InitResult::kSensorInitFailed;
   }
   sensor.setDistanceMode(VL53L1X::Long);
   sensor.setMeasurementTimingBudget(profile::TOF_TIMING_BUDGET_US);
   sensor.startContinuous(profile::TOF_CONTINUOUS_PERIOD_MS);
-  return true;
+  return InitResult::kOk;
 }
 
 }  // namespace
@@ -70,11 +76,17 @@ void TofVl53l1xArray::begin() {
 
   for (uint8_t i = 0; i < kChannelCount; ++i) {
     const uint8_t channel = kChannels[i];
-    const bool ok = initSensorOnChannel(channel);
+    stats_.init_attempt_count++;
+    const InitResult result = initSensorOnChannel(channel);
+    const bool ok = result == InitResult::kOk;
     g_channel_ready[channel] = ok;
     if (ok) {
       stats_.init_ok_mask |= (1u << channel);
       initialised_ = true;
+    } else if (result == InitResult::kMuxNack) {
+      stats_.mux_nack_count++;
+    } else {
+      stats_.init_failure_count++;
     }
   }
 }
@@ -193,13 +205,24 @@ void TofVl53l1xArray::serviceRecovery(uint32_t now_ms) {
   for (uint8_t i = 0; i < kChannelCount; ++i) {
     const uint8_t channel = kChannels[i];
     if (g_channel_ready[channel]) continue;
-    const bool ok = initSensorOnChannel(channel);
+    stats_.init_attempt_count++;
+    const InitResult result = initSensorOnChannel(channel);
+    const bool ok = result == InitResult::kOk;
     g_channel_ready[channel] = ok;
     if (ok) {
       stats_.init_ok_mask |= (1u << channel);
       stats_.reinit_count++;
       stats_.last_recovery_ms = now_ms;
       initialised_ = true;
+      consecutive_failures_ = 0;
+    } else if (result == InitResult::kMuxNack) {
+      stats_.mux_nack_count++;
+      // A missing mux response can be a wedged shared bus. Reuse the bounded
+      // recovery path after repeated failures; sensor-level init failures do
+      // not clear the bus because they commonly mean power/wiring is absent.
+      markChannelFailed(channel, now_ms);
+    } else {
+      stats_.init_failure_count++;
     }
     break;
   }

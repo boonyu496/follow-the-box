@@ -429,7 +429,9 @@ function render(payload) {
   setTextState(els.tofStatus, tofValidCount === 3, tofValidCount > 0);
   const initMask = Number(tof.init_ok_mask || 0);
   els.tofDetail.textContent =
-    `初始化 0b${initMask.toString(2).padStart(3, "0")} / 读取 ${tof.read_count || 0}` +
+    `初始化 0b${initMask.toString(2).padStart(3, "0")}` +
+    ` / 尝试 ${tof.init_attempt_count || 0} / 传感器失败 ${tof.init_failure_count || 0}` +
+    ` / 读取 ${tof.read_count || 0}` +
     ` / NACK ${tof.mux_nack_count || 0} / 超时 ${tof.timeout_count || 0}` +
     ` / 总线恢复 ${tof.bus_clear_count || 0} / 重连 ${tof.reinit_count || 0}`;
 

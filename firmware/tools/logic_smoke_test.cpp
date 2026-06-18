@@ -659,6 +659,8 @@ void testTelemetryJson() {
   state.sensor_diagnostics.lidar_scans = 2;
   state.sensor_diagnostics.lidar_front_center_mm = 810;
   state.sensor_diagnostics.tof_init_ok_mask = 7;
+  state.sensor_diagnostics.tof_init_attempt_count = 4;
+  state.sensor_diagnostics.tof_init_failure_count = 1;
   state.sensor_diagnostics.tof_read_count = 30;
   state.ultrasonic.valid = true;
   state.ultrasonic.last_update_ms = 123300;
@@ -688,6 +690,8 @@ void testTelemetryJson() {
   assert(jsonContains(buf, "\"lidar\":{\"valid\":true"));
   assert(jsonContains(buf, "\"rx_bytes\":1200"));
   assert(jsonContains(buf, "\"init_ok_mask\":7"));
+  assert(jsonContains(buf, "\"init_attempt_count\":4"));
+  assert(jsonContains(buf, "\"init_failure_count\":1"));
   assert(jsonContains(buf, "\"ultrasonic\":{"));
   assert(jsonContains(buf, "\"left_valid\":true"));
   assert(jsonContains(buf, "\"camera\":{\"online\":false,\"stream_url\":\"http://192.168.4.2:81/stream\"}"));

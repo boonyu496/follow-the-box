@@ -28,6 +28,17 @@
 ```
 
 ## 最新交接记录
+### 2026-06-18 23:37 - Codex - TOF 云端/本地 H5 无数据根因定位与诊断恢复修复
+- 结论：boonai.cn/fb 实时遥测确认 ESP32 已发送 `state.tof`，但 `init_ok_mask=000`、`read_count=0`，断点在三路 TOF 初始化而非云端/AP/局域网传输。
+- 改动：区分 TCA9548A 选择 NACK 与 VL53L1X 初始化失败，新增初始化尝试/失败计数并上送云端 H5。
+- 恢复：运行期连续 MUX NACK 复用既有受限 Bus Clear；传感器级初始化失败仅重试，不误清正常总线。
+- 日志：周期 TLM 增加 TOF mask/read/init/NACK 摘要，后续无需只靠页面猜测。
+- 文件：`tof_vl53l1x_array.*`, `types.h`, `sensor_task.cpp`, `telemetry_api.cpp`, `telemetry_logger.cpp`, `cloud/public/app.js`, `firmware/web/*`, `H5-API.md`, smoke test。
+- 架构/安全：只改传感器只读快照与诊断；未改 GPIO、PWM、运动许可、`applyFinalGate()` 或驱动出口。
+- 验证：ESP32-S3 PlatformIO 完整构建 PASS（RAM 22.4%、Flash 23.9%）；Node JS 语法与 `git diff --check` PASS。
+- 未验证：本机无 host `g++`，纯逻辑 smoke 未执行；未烧录、未部署云端、未验证实际 I2C 电气链路。
+- 当前状态：NEEDS_HARDWARE_VERIFICATION；允许 L3 传感器只读验证，不授权任何电机动作。
+- 下一步：部署 H5并刷入固件后看“尝试/传感器失败/NACK”；据计数检查 3.3V、共地、4.7k 上拉、TCA 地址和 CH0/1/2。
 
 ### 2026-06-18 22:05 - Codex - 控制中心迁移到 tools_local
 - 改动：把本机专用控制中心文件从 `tools/` 挪到忽略目录 `tools_local/`，仓库内只保留一个薄启动壳 `tools/start-followbox-control-center.cmd` 指向本地目录。

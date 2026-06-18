@@ -113,6 +113,8 @@ SensorDiagnostics SensorTask::diagnostics() const {
   out.lidar_framing_errors = lidar_stats.framing_error_count;
   out.lidar_scans = lidar_stats.scan_count;
   out.tof_init_ok_mask = tof_stats.init_ok_mask;
+  out.tof_init_attempt_count = tof_stats.init_attempt_count;
+  out.tof_init_failure_count = tof_stats.init_failure_count;
   out.tof_read_count = tof_stats.read_count;
   out.tof_timeout_count = tof_stats.timeout_count;
   out.tof_mux_nack_count = tof_stats.mux_nack_count;

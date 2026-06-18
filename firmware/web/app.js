@@ -32,6 +32,7 @@ const els = {
   tofLeft: $("tof-left"),
   tofCenter: $("tof-center"),
   tofRight: $("tof-right"),
+  tofDetail: $("tof-detail"),
   tofLeftBar: $("tof-left-bar"),
   tofCenterBar: $("tof-center-bar"),
   tofRightBar: $("tof-right-bar"),
@@ -277,6 +278,23 @@ function renderState(s) {
   setBar("left", tof.front_left_mm, channelValid(tof, "front_left_valid", "front_left_mm"));
   setBar("center", tof.front_center_mm, channelValid(tof, "front_center_valid", "front_center_mm"));
   setBar("right", tof.front_right_mm, channelValid(tof, "front_right_valid", "front_right_mm"));
+  const initMask = Number(tof.init_ok_mask || 0);
+  const initAttempts = Number(tof.init_attempt_count || 0);
+  const initFailures = Number(tof.init_failure_count || 0);
+  const muxNacks = Number(tof.mux_nack_count || 0);
+  let tofDiagnosis = "等待初始化诊断";
+  if (tofValidCount > 0) {
+    tofDiagnosis = `读取正常，累计 ${tof.read_count || 0}`;
+  } else if (muxNacks > 0) {
+    tofDiagnosis = "TCA9548A 无响应：检查 3.3V、GPIO10/11、上拉和地址";
+  } else if (initFailures > 0) {
+    tofDiagnosis = "MUX 已响应，VL53L1X 无响应：检查通道供电和接线";
+  } else if (initAttempts > 0) {
+    tofDiagnosis = "TOF 尚未产生有效距离";
+  }
+  els.tofDetail.textContent =
+    `初始化 0b${initMask.toString(2).padStart(3, "0")} / 尝试 ${initAttempts}` +
+    ` / 失败 ${initFailures} / NACK ${muxNacks} / ${tofDiagnosis}`;
 
   const us = s.ultrasonic ?? {};
   const usValidCount = [

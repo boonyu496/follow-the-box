@@ -9,6 +9,8 @@ namespace followbox {
 // Diagnostics for the forward TOF array. Telemetry only.
 struct TofStats {
   uint32_t init_ok_mask = 0;       // bit c set when channel c initialised
+  uint32_t init_attempt_count = 0;  // boot + runtime channel init attempts
+  uint32_t init_failure_count = 0;  // mux selected, but VL53L1X did not answer
   uint32_t read_count = 0;         // successful ranging reads (all channels)
   uint32_t timeout_count = 0;      // VL53L1X read timeouts
   uint32_t mux_nack_count = 0;     // TCA9548A channel-select failures

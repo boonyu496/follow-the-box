@@ -387,6 +387,13 @@ canvas {
   font-style: normal; font-size: 11px; color: var(--pico-secondary-color);
 }
 
+.fb-sensor-detail {
+  display: block;
+  padding: 0 12px 12px;
+  color: var(--pico-secondary-color);
+  line-height: 1.45;
+}
+
 /* ── Side Range (Ultrasonic) ── */
 .fb-side-range {
   display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px;
