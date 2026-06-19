@@ -28,6 +28,17 @@
 ```
 
 ## 最新交接记录
+### 2026-06-20 00:20 - Codex - OTA 正式发布规范落库
+- 改动：新增当前实现的 OTA 发布规范，并把它加入 README 权威文档入口。
+- 文件：`OTA-UPDATE-SPEC.md`, `README.md`, `AI-HANDOFF-MEMORY.md`。
+- 覆盖：版本递增、PlatformIO 构建、`firmware.bin` 同步、manifest size/MD5 校验、云端部署和 H5 验收。
+- 关键坑：`*.bin` 被 Git 忽略，不能只靠 pull；云端 H5 只负责检查/授权安装，不提供固件上传入口。
+- 能力边界：当前 OTA 只写应用分区；`firmware/web` 的 LittleFS 变化不能随应用 `firmware.bin` 更新。
+- 架构影响：无；未修改 OTA 协议、服务端路由或设备行为。
+- 安全影响：无实体操作；规范明确发布不等于安装，安装必须显式授权并保持安全停车。
+- 验证：发布包一致性命令实跑 PASS；Node 语法、必需章节、`git diff --check`、AI handoff 门禁均 PASS。
+- 当前状态：PASS。
+
 ### 2026-06-18 23:37 - Codex - TOF 云端/本地 H5 无数据根因定位与诊断恢复修复
 - 结论：boonai.cn/fb 实时遥测确认 ESP32 已发送 `state.tof`，但 `init_ok_mask=000`、`read_count=0`，断点在三路 TOF 初始化而非云端/AP/局域网传输。
 - 改动：区分 TCA9548A 选择 NACK 与 VL53L1X 初始化失败，新增初始化尝试/失败计数并上送云端 H5。

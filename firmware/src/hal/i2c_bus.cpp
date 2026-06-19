@@ -18,9 +18,17 @@ bool I2cBus::begin() {
   if (sda_pin_ < 0 || scl_pin_ < 0) {
     return false;
   }
-  Wire.begin(sda_pin_, scl_pin_);
+
+  // Sample the released bus before attaching the pins to the I2C peripheral.
+  // Calling pinMode() after Wire.begin() changes the ESP32 GPIO direction and
+  // can leave the controller unable to drive SDA/SCL, making every device look
+  // like an address NACK.
+  const bool lines_released = isSdaReleased() && isSclReleased();
+  if (!Wire.begin(sda_pin_, scl_pin_, frequency_hz_)) {
+    return false;
+  }
   Wire.setClock(frequency_hz_);
-  return isSdaReleased() && isSclReleased();
+  return lines_released;
 }
 
 bool I2cBus::busClear() {

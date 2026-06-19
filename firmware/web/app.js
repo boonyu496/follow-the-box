@@ -20,6 +20,11 @@ const els = {
   uwbDetail: $("uwb-detail"),
   uwbBearing: $("uwb-bearing"),
   obstacle: $("obstacle"),
+  lidar: $("lidar"),
+  lidarLeft: $("lidar-left"),
+  lidarCenter: $("lidar-center"),
+  lidarRight: $("lidar-right"),
+  lidarDetail: $("lidar-detail"),
   motor: $("motor"),
   motorDetail: $("motor-detail"),
   driveLeft: $("drive-left"),
@@ -257,6 +262,38 @@ function renderState(s) {
   els.uwbBearing.textContent = u.valid ? `${fmt(u.bearing_deg, "°", 1)} / q${u.confidence ?? 0}` : "--";
   els.uwbDetail.textContent = u.valid ? "目标有效" : "等待目标";
   latestUwbData = u;
+
+  // Raw EAI S2 data, before TOF/ultrasonic obstacle fusion. Keeping this
+  // separate makes a dead or misconfigured lidar visible instead of allowing
+  // another ranging sensor to make the fused obstacle card look healthy.
+  const lidar = s.lidar ?? {};
+  const lidarRxBytes = Number(lidar.rx_bytes || 0);
+  const lidarPackets = Number(lidar.packets || 0);
+  const lidarScans = Number(lidar.scans || 0);
+  const lidarChecksumErrors = Number(lidar.checksum_errors || 0);
+  const lidarFramingErrors = Number(lidar.framing_errors || 0);
+  els.lidarLeft.textContent = fmtMm(lidar.front_left_mm);
+  els.lidarCenter.textContent = fmtMm(lidar.front_center_mm);
+  els.lidarRight.textContent = fmtMm(lidar.front_right_mm);
+
+  let lidarDiagnosis = "等待串口数据";
+  if (lidar.valid) {
+    lidarDiagnosis = "扫描有效";
+  } else if (lidarRxBytes === 0) {
+    lidarDiagnosis = "无串口数据：检查供电、雷达 TX→GPIO3 和共地";
+  } else if (lidarPackets === 0) {
+    lidarDiagnosis = "有字节但无有效包：检查型号、波特率和协议";
+  } else if (lidarScans === 0) {
+    lidarDiagnosis = "已解包但未完成一圈：检查电机转动和起始包";
+  } else {
+    lidarDiagnosis = "扫描数据已超时";
+  }
+  els.lidar.textContent = lidar.valid ? "有效" : "无效";
+  setTextState(els.lidar, !!lidar.valid, lidarRxBytes > 0);
+  els.lidarDetail.textContent =
+    `侧向 ${fmtMm(lidar.side_left_mm)} / ${fmtMm(lidar.side_right_mm)}` +
+    ` · RX ${lidarRxBytes} · 包 ${lidarPackets} · 圈 ${lidarScans}` +
+    ` · 校验错 ${lidarChecksumErrors} · 帧错 ${lidarFramingErrors} · ${lidarDiagnosis}`;
 
   const o = s.obstacle ?? {};
   const hasFrontObstacle = positiveNumber(o.front_left_mm) ||

@@ -10,10 +10,11 @@ class I2cBus {
 
   bool begin();
   bool busClear();
-  bool isSdaReleased() const;
-  bool isSclReleased() const;
 
  private:
+  // These helpers change GPIO mode and are safe only while Wire is stopped.
+  bool isSdaReleased() const;
+  bool isSclReleased() const;
   void driveScl(bool high) const;
   void driveSda(bool high) const;
 

@@ -5,7 +5,7 @@
 namespace followbox::ota_config {
 
 #ifndef FOLLOWBOX_FIRMWARE_VERSION
-#define FOLLOWBOX_FIRMWARE_VERSION "2026.06.19-ota-h5.2"
+#define FOLLOWBOX_FIRMWARE_VERSION "2026.06.19-ota-h5.5"
 #endif
 
 #ifndef FOLLOWBOX_CLOUD_OTA_ENABLED

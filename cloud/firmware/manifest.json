@@ -1,8 +1,8 @@
 {
-  "version": "2026.06.19-ota-h5.2",
+  "version": "2026.06.19-ota-h5.5",
   "file": "firmware.bin",
-  "md5": "17c577020863b433f5768ce0d4806779",
-  "size": 1130112,
+  "md5": "0ed12babff64902aa10185153e397b69",
+  "size": 1129648,
   "force": false,
-  "notes": "AP/LAN H5 OTA 按钮常驻可见、状态禁用提示与静态资源禁缓存"
+  "notes": "修复 ESP32-S3 I2C 初始化顺序，并补充本地 H5 激光雷达原始数据与故障诊断"
 }

@@ -312,7 +312,40 @@
 "### ⑦ 油门校准：从 0V 起，确认 0.8V以下不转、约1.0V起步、最大先限到约3.6V\n" +
 "### ⑧ 刹车验证：GPIO14或急停触发时，PWM VOUT归零且低刹闭合，两轮立停\n" +
 "### ⑨ 倒车验证：GPIO15只影响左控制器，GPIO16只影响右控制器\n" +
-"### ⑩ 地面低速测试，确认自动跟随前限速、急停、遥控STOP全部有效";
+"### ⑩ 地面低速测试，确认自动跟随前限速、急停、遥控STOP全部有效\n" +
+"\n" +
+"## 🟪 TOF 接线统一复核 [待办，未验收前不得视为可用]\n" +
+"### ESP32-S3 ↔ TCA9548A 主总线 [逐线连接]\n" +
+"#### ESP32 3V3 → TCA9548A VIN/VCC\n" +
+"#### ESP32 GND → TCA9548A GND\n" +
+"#### ESP32 GPIO10 [SDA] ↔ TCA9548A SDA\n" +
+"#### ESP32 GPIO11 [SCL] → TCA9548A SCL\n" +
+"#### ESP32 3V3 → 4.7kΩ → SDA；ESP32 3V3 → 4.7kΩ → SCL [两只独立上拉]\n" +
+"#### TCA9548A A0 → GND；A1 → GND；A2 → GND [地址0x70]\n" +
+"### TCA9548A CH0 ↔ 前中 VL53L1X\n" +
+"#### TCA SD0 ↔ 前中TOF SDA；TCA SC0 → 前中TOF SCL\n" +
+"#### 前中TOF VIN/VCC → ESP32 3V3；GND → 公共GND\n" +
+"### TCA9548A CH1 ↔ 左前 VL53L1X\n" +
+"#### TCA SD1 ↔ 左前TOF SDA；TCA SC1 → 左前TOF SCL\n" +
+"#### 左前TOF VIN/VCC → ESP32 3V3；GND → 公共GND\n" +
+"### TCA9548A CH2 ↔ 右前 VL53L1X\n" +
+"#### TCA SD2 ↔ 右前TOF SDA；TCA SC2 → 右前TOF SCL\n" +
+"#### 右前TOF VIN/VCC → ESP32 3V3；GND → 公共GND\n" +
+"### TOF 未使用引脚与禁止事项\n" +
+"#### 三只TOF的 XSHUT 与 INT 首版均不接ESP32，分别绝缘固定，不新增旁路GPIO\n" +
+"#### 禁止把三只TOF的 SDA/SCL 直接并到ESP32 GPIO10/11；必须分别经过TCA的CH0/CH1/CH2\n" +
+"#### 全部I2C逻辑与上拉均为3.3V，禁止上拉到5V\n" +
+"### 断电检查\n" +
+"#### 核对3V3与GND无短路，确认GPIO10/11没有接到旧GPIO35/36/37/47/48\n" +
+"#### 逐线做通断检查：ESP32→TCA主总线、TCA CH0/CH1/CH2→对应TOF\n" +
+"#### 测量SDA→3V3与SCL→3V3上拉电阻，目标各约4.7kΩ\n" +
+"### 低能量上电验收 [保持急停、禁止电机使能]\n" +
+"#### 先只接ESP32 + TCA9548A，上电确认SDA/SCL空闲电平约3.3V，I2C扫描只确认0x70\n" +
+"#### 再逐路接入TOF，每次只增加一路并复查供电、温升和I2C响应\n" +
+"#### 三路齐全后验收：init_ok_mask=0b111、NACK不持续增长、read_count持续增长\n" +
+"#### 用已知距离平面分别遮挡左/中/右，确认通道位置映射与毫米读数合理\n" +
+"### 立即停止条件\n" +
+"#### 任一模块异常发热、3V3掉压、SDA/SCL持续为低、出现5V逻辑电平或接线位置不确定，立即断电复核";
 
   var T = window.markmap.Transformer;
   var M = window.markmap.Markmap;

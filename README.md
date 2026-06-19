@@ -17,6 +17,7 @@
 | `complete-wiring.svg` | 当前中文总接线 SVG 大图：模块关系总览，详细施工以思维导图和表格为准 |
 | `complete-wiring-table.md` | 当前完整接线表：每个 ESP32 引脚、线束、电阻电容和模块端子 |
 | `ASSEMBLY-WIRING-GUIDE.md` | 📦 装配接线完整流程图：按步骤装配思维导图 + 引脚速查表 + 上电顺序 |
+| `OTA-UPDATE-SPEC.md` | OTA 正式发布规范：版本递增、构建、manifest/MD5、云端部署、H5 授权安装与失败排查 |
 | `PERFBOARD-LAYOUT.html` / `PERFBOARD-LAYOUT.svg` | 当前 10×15cm 洞洞板元器件布局图；由 `gen_perfboard_layout.py` 生成并校验 |
 | `CURRENT-BOX-DESIGN.md` | 控制盒外观、内部布局、接口、装配规则 |
 | `CURRENT-FIRMWARE-SKILL-PLAN.md` | 固件模块、Profile、安装向导、测试计划、后续 skill 设计 |
