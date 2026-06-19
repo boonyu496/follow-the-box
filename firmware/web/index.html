@@ -181,6 +181,25 @@
           <button id="btn-wifi-save">保存并连接</button>
         </article>
 
+        <article class="fb-panel">
+          <header class="fb-section-head">
+            <strong>固件 OTA</strong>
+            <span id="ota-local-state">未检查</span>
+          </header>
+          <div class="fb-status-row">
+            <span>当前版本</span><strong id="ota-current-version">--</strong>
+          </div>
+          <div class="fb-status-row">
+            <span>可用版本</span><strong id="ota-available-version">--</strong>
+          </div>
+          <div class="grid">
+            <button id="btn-ota-check">检查更新</button>
+            <button id="btn-ota-install" class="contrast" disabled>请先检查</button>
+            <button id="btn-ota-later" class="secondary outline" hidden>暂不安装</button>
+          </div>
+          <small id="ota-local-hint">检查更新不会自动安装。</small>
+        </article>
+
         <details>
           <summary>安装与油门标定</summary>
           <div class="fb-detail-body">

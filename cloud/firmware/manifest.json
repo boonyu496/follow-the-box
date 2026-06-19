@@ -1,7 +1,8 @@
 {
-  "version": "2026.06.18-sensors.1",
+  "version": "2026.06.19-ota-h5.2",
   "file": "firmware.bin",
-  "md5": "f852dab3da002b23e9ee07af7ceef068",
-  "size": 1125712,
-  "force": false
+  "md5": "17c577020863b433f5768ce0d4806779",
+  "size": 1130112,
+  "force": false,
+  "notes": "AP/LAN H5 OTA 按钮常驻可见、状态禁用提示与静态资源禁缓存"
 }

@@ -2,6 +2,8 @@
 #include <ArduinoOTA.h>
 #include <LittleFS.h>
 
+#include <atomic>
+
 #include "app/app.h"
 #include "app/shared_state.h"
 #include "config/network_config.h"
@@ -39,10 +41,10 @@ constexpr TickType_t kControlPeriod = pdMS_TO_TICKS(20);  // 50 Hz
 constexpr TickType_t kSensorPeriod = pdMS_TO_TICKS(20);   // 50 Hz
 constexpr TickType_t kCommPeriod = pdMS_TO_TICKS(20);     // 50 Hz; OTA needs frequent polling.
 
-volatile bool g_ota_in_progress = false;
+std::atomic<bool> g_ota_in_progress{false};
 
 void setOtaSafetyActive(bool active) {
-  g_ota_in_progress = active;
+  g_ota_in_progress.store(active);
 }
 
 void beginOtaService() {
@@ -54,7 +56,7 @@ void beginOtaService() {
   ArduinoOTA.setPort(net::OTA_PORT);
   ArduinoOTA.setPassword(net::OTA_PASSWORD);
   ArduinoOTA.onStart([]() {
-    g_ota_in_progress = true;
+    g_ota_in_progress.store(true);
     if (ArduinoOTA.getCommand() == U_SPIFFS) {
       // Filesystem update: unmount so the writer never races a mounted FS.
       LittleFS.end();
@@ -65,7 +67,7 @@ void beginOtaService() {
     Serial.println("followbox ota: end");
   });
   ArduinoOTA.onError([](ota_error_t error) {
-    g_ota_in_progress = true;
+    g_ota_in_progress.store(true);
     Serial.printf("followbox ota: error %u, staying safe\r\n",
                   static_cast<unsigned>(error));
   });
@@ -131,7 +133,7 @@ void controlTaskEntry(void*) {
   TickType_t last = xTaskGetTickCount();
   for (;;) {
     const uint32_t now = millis();
-    if (g_ota_in_progress) {
+    if (g_ota_in_progress.load()) {
       drive.stopNow();
       shared.publishState(app.state());
       vTaskDelayUntil(&last, kControlPeriod);
@@ -205,9 +207,9 @@ void setup() {
   // H5 transport: WiFi + async HTTP/WS (AsyncTCP task on Core 0). Never sets
   // PWM, clears the e-stop, or bypasses the wizard (gated downstream).
   wifi_store.begin();
-  h5_web.begin(&profile_store, &calibration_store, &wifi_store);
   cloud_client.begin();
   cloud_ota.begin(setOtaSafetyActive);
+  h5_web.begin(&profile_store, &calibration_store, &wifi_store, &cloud_ota);
   beginOtaService();
 
   // Core 1 = real-time control/safety (highest priority). Core 0 = blocking

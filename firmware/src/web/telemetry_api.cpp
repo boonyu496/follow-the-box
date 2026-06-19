@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "config/camera_config.h"
+#include "config/ota_config.h"
 
 namespace followbox {
 
@@ -95,6 +96,7 @@ size_t buildStateJson(const SystemState& state, char* out, size_t out_size) {
       "\"power\":{\"battery_voltage\":%.2f,\"low_battery\":%s},"
       "\"motor\":{\"enable\":%s,\"left_target\":%.2f,\"right_target\":%.2f,"
       "\"brake\":%s},"
+      "\"firmware\":{\"version\":\"%s\"},"
       "\"install_wizard_complete\":%s,"
       "\"throttle_calibrated\":%s"
       "}",
@@ -157,6 +159,7 @@ size_t buildStateJson(const SystemState& state, char* out, size_t out_size) {
       static_cast<double>(state.motor_command.left_target),
       static_cast<double>(state.motor_command.right_target),
       state.motor_command.brake ? "true" : "false",
+      ota_config::CURRENT_VERSION,
       state.install_wizard_complete ? "true" : "false",
       state.throttle_calibrated ? "true" : "false");
 

@@ -4,6 +4,7 @@
 #include "web/h5_command_handler.h"
 #include "app/app.h"
 #include "drive/drive_adapter_analog_bldc.h"
+#include "ota/cloud_ota_manager.h"
 #include "storage/profile_store.h"
 #include "storage/calibration_store.h"
 #include "storage/wifi_store.h"
@@ -26,7 +27,7 @@ class H5WebServer {
   // Bring up WiFi (AP always on; STA joined from NVS credentials when
   // provisioned) + HTTP/WS server. Safe to call once from setup().
   void begin(ProfileStore* profile_store, CalibrationStore* calibration_store,
-             WifiStore* wifi_store);
+             WifiStore* wifi_store, CloudOtaManager* ota_manager);
  
   // Run staleness timeout and copy out the latest H5 control snapshot for
   // App::ingestH5Input. Acquires the spinlock briefly.

@@ -1,6 +1,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8080);
 const DEVICE_TOKEN =
@@ -34,8 +35,17 @@ function getDevice(id) {
       command: { seq: seqBase, deadman: false, forward: 0, turn: 0, safe_idle: false },
       commandAt: 0,
       lastIngestAt: 0,
+      firmwareVersion: "",
       state: null,
       logs: [],
+      ota: {
+        requestId: "",
+        requestedVersion: "",
+        status: "idle",
+        requestedAt: 0,
+        updatedAt: 0,
+        reason: "",
+      },
       video: {
         frame: null,
         frameSeq: 0,
@@ -68,6 +78,7 @@ function broadcast(device) {
     state: device.state,
     logs: device.logs.slice(-200),
     command: device.command,
+    ota: device.ota,
     video: {
       lastFrameAt: device.video.lastFrameAt,
       frameSeq: device.video.frameSeq,
@@ -145,16 +156,62 @@ function readFirmwareManifest(deviceId) {
   const full = path.normalize(path.join(FIRMWARE_DIR, file));
   if (!full.startsWith(FIRMWARE_DIR) || !fs.existsSync(full)) return null;
   const stat = fs.statSync(full);
+  const actualMd5 = crypto.createHash("md5").update(fs.readFileSync(full)).digest("hex");
+  const declaredMd5 = String(manifest.md5 || "").toLowerCase();
+  if (!manifest.version || (declaredMd5 && declaredMd5 !== actualMd5)) return null;
   return {
     ok: true,
     version: String(manifest.version || ""),
     url: manifest.url ||
-      `/api/device/${encodeURIComponent(deviceId)}/firmware/download?token=${encodeURIComponent(DEVICE_TOKEN)}`,
-    md5: String(manifest.md5 || ""),
-    size: Number(manifest.size || stat.size),
+      `/api/device/${encodeURIComponent(deviceId)}/firmware/download?token=${encodeURIComponent(DEVICE_TOKEN)}&version=${encodeURIComponent(manifest.version)}`,
+    md5: actualMd5,
+    size: stat.size,
     force: !!manifest.force,
+    notes: String(manifest.notes || ""),
     file,
   };
+}
+
+function compareVersions(left, right) {
+  const tokenize = (value) => String(value || "").toLowerCase().match(/[0-9]+|[a-z]+/g) || [];
+  const a = tokenize(left);
+  const b = tokenize(right);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    if (a[i] === b[i]) continue;
+    if (a[i] === undefined) return -1;
+    if (b[i] === undefined) return 1;
+    const aNum = /^\d+$/.test(a[i]);
+    const bNum = /^\d+$/.test(b[i]);
+    if (aNum && bNum) return Number(a[i]) > Number(b[i]) ? 1 : -1;
+    if (aNum !== bNum) return aNum ? 1 : -1;
+    return a[i] > b[i] ? 1 : -1;
+  }
+  return 0;
+}
+
+function currentFirmwareVersion(device) {
+  return String(device.state?.firmware?.version || device.firmwareVersion || "");
+}
+
+function firmwareSummary(deviceId, device, includeDownload, currentOverride = "") {
+  const manifest = readFirmwareManifest(deviceId);
+  if (!manifest) return null;
+  const current = String(currentOverride || currentFirmwareVersion(device));
+  const updateAvailable = !!current && compareVersions(manifest.version, current) > 0;
+  const summary = {
+    ok: true,
+    version: manifest.version,
+    available_version: manifest.version,
+    current_version: current,
+    update_available: updateAvailable,
+    size: manifest.size,
+    md5: manifest.md5,
+    force: manifest.force,
+    notes: manifest.notes,
+    ota: device.ota,
+  };
+  if (includeDownload) summary.url = manifest.url;
+  return summary;
 }
 
 function serveFirmwareDownload(req, res, deviceId, url) {
@@ -165,6 +222,10 @@ function serveFirmwareDownload(req, res, deviceId, url) {
   const manifest = readFirmwareManifest(deviceId);
   if (!manifest) {
     send(res, 404, { ok: false, reason: "firmware not published" });
+    return;
+  }
+  if (url.searchParams.get("version") !== manifest.version) {
+    send(res, 409, { ok: false, reason: "firmware version changed" });
     return;
   }
   const full = path.normalize(path.join(FIRMWARE_DIR, manifest.file));
@@ -237,7 +298,7 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, `http://${req.headers.host}`);
   const firmwareMatch = url.pathname.match(
-    /^\/api\/device\/([^/]+)\/firmware\/(version|download)$/
+    /^\/api\/device\/([^/]+)\/firmware\/(version|download|request|install)$/
   );
   const otaResultMatch = url.pathname.match(/^\/api\/device\/([^/]+)\/ota-result$/);
   const videoMatch = url.pathname.match(
@@ -248,6 +309,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (firmwareMatch) {
       const [, deviceId, action] = firmwareMatch;
+      const device = getDevice(deviceId);
       if (action === "version" && req.method === "GET") {
         // The device polls with its shared device token. The H5 operator panel
         // checks the same read-only manifest with its Bearer operator token.
@@ -257,9 +319,84 @@ const server = http.createServer(async (req, res) => {
           send(res, 401, { ok: false, reason: "bad token" });
           return;
         }
-        const manifest = readFirmwareManifest(deviceId);
-        send(res, manifest ? 200 : 404,
-             manifest || { ok: false, reason: "firmware not published" });
+        const queryToken = url.searchParams.get("token") || "";
+        const deviceAuthenticated = DEVICE_TOKEN
+          ? queryToken === DEVICE_TOKEN
+          : url.searchParams.has("current");
+        const reportedCurrent = String(url.searchParams.get("current") || "").slice(0, 64);
+        if (deviceAuthenticated && reportedCurrent) {
+          device.firmwareVersion = reportedCurrent;
+        }
+        const summary = firmwareSummary(deviceId, device, false, reportedCurrent);
+        if (summary && deviceAuthenticated) {
+          const authorized = device.ota.status === "pending" &&
+            device.ota.requestedVersion === summary.available_version;
+          summary.install_requested = authorized;
+          summary.request_id = authorized ? device.ota.requestId : "";
+          // Compatibility gate for the pre-consent firmware: its legacy poller
+          // only installs when a URL is present. Never reveal that URL until an
+          // operator has explicitly created a matching install request.
+          if (authorized) {
+            summary.url = readFirmwareManifest(deviceId).url;
+          }
+        }
+        send(res, summary ? 200 : 404,
+             summary || { ok: false, reason: "firmware not published" });
+        return;
+      }
+      if (action === "request" && req.method === "GET") {
+        if (!validDeviceToken(null, url)) {
+          send(res, 401, { ok: false, reason: "bad device token" });
+          return;
+        }
+        const current = String(url.searchParams.get("current") || "").slice(0, 64);
+        if (current) device.firmwareVersion = current;
+        const summary = firmwareSummary(deviceId, device, true, current);
+        if (!summary) {
+          send(res, 404, { ok: false, reason: "firmware not published" });
+          return;
+        }
+        summary.request_id = device.ota.requestId;
+        summary.install_requested =
+          device.ota.status === "pending" &&
+          device.ota.requestedVersion === summary.available_version;
+        send(res, 200, summary);
+        return;
+      }
+      if (action === "install" && req.method === "POST") {
+        if (!validOperator(req)) {
+          send(res, 401, { ok: false, reason: "bad operator token" });
+          return;
+        }
+        const body = await readBody(req);
+        const summary = firmwareSummary(deviceId, device, false);
+        const requestedVersion = String(body.version || "");
+        const online = device.lastIngestAt > 0 &&
+          Date.now() - device.lastIngestAt < DEVICE_ONLINE_TTL_MS;
+        if (!summary || requestedVersion !== summary.available_version) {
+          send(res, 409, { ok: false, reason: "published version changed" });
+          return;
+        }
+        if (!online || !summary.current_version) {
+          send(res, 409, { ok: false, reason: "device offline or current version unknown" });
+          return;
+        }
+        if (!summary.update_available) {
+          send(res, 409, { ok: false, reason: "requested version is not newer" });
+          return;
+        }
+        device.ota = {
+          requestId: crypto.randomUUID(),
+          requestedVersion,
+          status: "pending",
+          requestedAt: Date.now(),
+          updatedAt: Date.now(),
+          reason: "",
+        };
+        device.logs.push(`[ota] ${nowIso()} install requested version=${requestedVersion}`);
+        device.logs = device.logs.slice(-500);
+        broadcast(device);
+        send(res, 202, { ok: true, ota: device.ota });
         return;
       }
       if (action === "download" && req.method === "GET") {
@@ -276,6 +413,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const device = getDevice(deviceId);
+      if (body.request_id && body.request_id === device.ota.requestId) {
+        device.ota.status = body.ok ? "restarting" : "failed";
+        device.ota.updatedAt = Date.now();
+        device.ota.reason = String(body.reason || "");
+      }
       device.logs.push(`[ota] ${nowIso()} version=${body.version || ""} ok=${!!body.ok} reason=${body.reason || ""}`);
       device.logs = device.logs.slice(-500);
       broadcast(device);
@@ -382,6 +524,13 @@ const server = http.createServer(async (req, res) => {
       }
       device.lastIngestAt = Date.now();
       device.state = body.state || null;
+      const reportedVersion = currentFirmwareVersion(device);
+      if (reportedVersion && reportedVersion === device.ota.requestedVersion &&
+          (device.ota.status === "pending" || device.ota.status === "restarting")) {
+        device.ota.status = "installed";
+        device.ota.updatedAt = Date.now();
+        device.ota.reason = "device confirmed new version";
+      }
       if (Array.isArray(body.logs) && body.logs.length) {
         device.logs.push(...body.logs.map((line) => String(line)).slice(-50));
         device.logs = device.logs.slice(-500);

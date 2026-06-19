@@ -28,6 +28,7 @@
   "camera": {"online": false, "stream_url": "http://192.168.4.2:81/stream"},
   "power": {"battery_voltage": 0.0, "low_battery": false},
   "motor": {"enable": false, "left_target": 0.0, "right_target": 0.0, "brake": true},
+  "firmware": {"version": "2026.06.19-ota-h5.2"},
   "install_wizard_complete": false,
   "throttle_calibrated": false
 }
@@ -42,6 +43,19 @@
 - `ultrasonic`：左右 HC-SR04 的原始侧向读数，仅用于显示/诊断（侧向避障 P0 暂不触发停车）；每路以 `left_valid` / `right_valid` 为准。
 - `camera`：ESP32-S3-CAM 视频链路在线状态和 MJPEG 地址，仅用于显示；**视频断流不影响运动安全门控**。默认地址假定摄像头加入 FollowBox AP 后使用静态 IP `192.168.4.2`，流路径为 `:81/stream`。
 - `cloud`：云端低速点动链路状态，仅用于显示和诊断；云端命令仍由本地安全链最终裁决。
+- `firmware.version`：当前正在运行的固件版本。云端只能在设备实际重新上报该版本后标记 OTA 完成。
+
+## 固件 OTA（显式授权）
+
+OTA 检查与安装严格分离：检查只读取云端 manifest，不写 Flash；只有用户点击“安装”并提交检查所得的精确版本后，设备才允许写入。`X-FollowBox-Key` 鉴权规则与其他本地写接口一致。
+
+- `GET /api/ota/status`：读取当前版本、可用版本、检查/安装状态和失败原因。
+- `POST /api/ota/check`：请求通信任务立即检查一次；返回 `202` 只表示已受理，H5 应继续轮询 status。
+- `POST /api/ota/install`：body 为 `{"version":"<检查所得版本>"}`。版本变化、未先检查、OTA 忙或鉴权失败均拒绝。
+
+“暂不安装”不调用安装接口，也不产生设备侧待执行请求。安装开始后，控制任务必须持续执行安全停车；下载、长度、MD5 或写入任一步失败后保持安全停机，等待受控重启或 USB 恢复。
+
+兼容迁移：尚未包含本协议的旧固件仍轮询 `/firmware/version`。云端在没有 operator 安装授权时不得向该旧接口返回下载 URL；创建精确版本的安装请求后才返回 URL，使首个迁移版本同样受用户点击控制。
 
 ## 低速点动请求
 

@@ -6,6 +6,7 @@
 #include <WiFi.h>
 
 #include <cstdio>
+#include <cctype>
 #include <cstring>
 
 #include "config/network_config.h"
@@ -34,6 +35,7 @@ portMUX_TYPE g_state_mux = portMUX_INITIALIZER_UNLOCKED;
 ProfileStore* g_profile_store = nullptr;
 CalibrationStore* g_calibration_store = nullptr;
 WifiStore* g_wifi_store = nullptr;
+CloudOtaManager* g_ota_manager = nullptr;
 // Cached provisioned SSID so /api/wifi/status never re-reads NVS per poll.
 char g_sta_ssid[33] = {0};
 
@@ -84,6 +86,30 @@ bool requireLocalApiAuth(AsyncWebServerRequest* request) {
   return false;
 }
 
+bool parseVersion(const char* body, size_t length, char* out, size_t out_size) {
+  constexpr char kKey[] = "\"version\"";
+  if (body == nullptr || out == nullptr || out_size == 0) return false;
+  const char* key = std::strstr(body, kKey);
+  if (key == nullptr || static_cast<size_t>(key - body) >= length) return false;
+  const char* colon = std::strchr(key + sizeof(kKey) - 1, ':');
+  if (colon == nullptr || static_cast<size_t>(colon - body) >= length) return false;
+  const char* value = colon + 1;
+  while (static_cast<size_t>(value - body) < length &&
+         (*value == ' ' || *value == '\t')) ++value;
+  if (static_cast<size_t>(value - body) >= length || *value != '"') return false;
+  ++value;
+  size_t i = 0;
+  while (static_cast<size_t>(value - body) + i < length && value[i] != '"' &&
+         i + 1 < out_size) {
+    const char c = value[i];
+    if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' ||
+          c == '_')) return false;
+    out[i++] = c;
+  }
+  out[i] = '\0';
+  return i > 0 && static_cast<size_t>(value - body) + i < length && value[i] == '"';
+}
+
 void handleWsEvent(AsyncWebSocket* /*server*/, AsyncWebSocketClient* /*client*/,
                    AwsEventType type, void* /*arg*/, uint8_t* /*data*/,
                    size_t /*len*/) {
@@ -126,10 +152,11 @@ void onBody(AsyncWebServerRequest* request, uint8_t* data, size_t len,
 }  // namespace
 
 void H5WebServer::begin(ProfileStore* profile_store, CalibrationStore* calibration_store,
-                        WifiStore* wifi_store) {
+                        WifiStore* wifi_store, CloudOtaManager* ota_manager) {
   g_profile_store = profile_store;
   g_calibration_store = calibration_store;
   g_wifi_store = wifi_store;
+  g_ota_manager = ota_manager;
 
   // AP + STA simultaneously: the AP is the always-available provisioning and
   // local-control channel (the box can never become unreachable after a bad
@@ -163,7 +190,9 @@ void H5WebServer::begin(ProfileStore* profile_store, CalibrationStore* calibrati
   // "littlefs", and LittleFS.begin() defaults to the label "spiffs", so the
   // label must be passed explicitly or the mount silently fails.
   if (LittleFS.begin(/*formatOnFail=*/false, "/littlefs", 10, "littlefs")) {
-    g_server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+    auto& static_files = g_server.serveStatic("/", LittleFS, "/");
+    static_files.setDefaultFile("index.html");
+    static_files.setCacheControl("no-store, no-cache, must-revalidate, max-age=0");
   }
 
   // POST /api/jog -> low-speed jog (deadman gated, replay protected downstream).
@@ -346,6 +375,52 @@ void H5WebServer::begin(ProfileStore* profile_store, CalibrationStore* calibrati
                   connected ? static_cast<int>(WiFi.RSSI()) : 0);
     request->send(200, "application/json", buf);
   });
+
+  // OTA is explicit-consent only. Checking never writes flash; installation
+  // accepts only the exact version returned by the last successful check.
+  g_server.on("/api/ota/status", HTTP_GET, [](AsyncWebServerRequest* request) {
+    if (g_ota_manager == nullptr) {
+      request->send(503, "application/json",
+                    "{\"ok\":false,\"reason\":\"ota unavailable\"}");
+      return;
+    }
+    const CloudOtaManager::Status status = g_ota_manager->status();
+    char body[384];
+    std::snprintf(body, sizeof(body),
+                  "{\"ok\":true,\"configured\":%s,\"state\":\"%s\","
+                  "\"current_version\":\"%s\",\"available_version\":\"%s\","
+                  "\"update_available\":%s,\"checked_at_ms\":%u,\"reason\":\"%s\"}",
+                  status.configured ? "true" : "false",
+                  CloudOtaManager::stateName(status.state), status.current_version,
+                  status.available_version, status.update_available ? "true" : "false",
+                  static_cast<unsigned>(status.checked_at_ms), status.reason);
+    request->send(200, "application/json", body);
+  });
+
+  g_server.on("/api/ota/check", HTTP_POST, [](AsyncWebServerRequest* request) {
+    if (!requireLocalApiAuth(request)) return;
+    const bool accepted = g_ota_manager != nullptr && g_ota_manager->requestCheck();
+    request->send(accepted ? 202 : 409, "application/json",
+                  accepted ? kAckOk :
+                  "{\"ok\":false,\"reason\":\"ota unavailable or busy\"}");
+  });
+
+  g_server.on(
+      "/api/ota/install", HTTP_POST, [](AsyncWebServerRequest* request) {}, nullptr,
+      [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index,
+         size_t total) {
+        onBody(request, data, len, index, total,
+               [](AsyncWebServerRequest* req, const char* body, size_t length) {
+                 if (!requireLocalApiAuth(req)) return;
+                 char version[40];
+                 const bool parsed = parseVersion(body, length, version, sizeof(version));
+                 const bool accepted = parsed && g_ota_manager != nullptr &&
+                                       g_ota_manager->requestInstall(version);
+                 req->send(accepted ? 202 : 409, "application/json",
+                           accepted ? kAckOk :
+                           "{\"ok\":false,\"reason\":\"version not checked or changed\"}");
+               });
+      });
 
   // GET /api/state -> read-only state snapshot for HTTP polling fallback.
   // This mirrors /ws/state and exists only for AP/LAN UI diagnostics when a
