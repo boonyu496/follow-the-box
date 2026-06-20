@@ -28,6 +28,15 @@
 ```
 
 ## 最新交接记录
+### 2026-06-20 16:54 - Codex - 项目架构地图补齐
+- 改动：新增 `CURRENT-PROJECT-ARCHITECTURE.md`，梳理 AP/局域网/云端 H5 入口、固件运行链路、云端链路、视频边界、同步矩阵和常见问题定位。
+- 文件：`CURRENT-PROJECT-ARCHITECTURE.md`, `README.md`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：明确 `firmware/web/` 是本地 AP/STA H5 唯一源，`cloud/public/` 是云端页面源，`firmware/data/` 为遗留非权威副本。
+- 安全影响：无代码/引脚/PWM/运动链路变更；文档重申 H5/云端不能绕过 safety/applyFinalGate。
+- 验证：`python tools/check_ai_handoff.py` 通过。
+- 当前状态：文档已写入，后续 H5 改动应按同步矩阵检查本地与云端页面。
+- 下一步：可进一步清理或归档 `firmware/data/` 遗留副本，避免误改。
+
 ### 2026-06-20 16:35 - Codex - 云端遥控链路显示修复
 - 改动：云端 H5 状态页新增 DS600 遥控与云端上报卡片，并修正链路状态按 5 秒遥测新鲜度显示；服务器 SSE 事件补 `commandAt` 用于命令下发时间。
 - 文件：`cloud/public/index.html`, `cloud/public/app.js`, `cloud/public/deploy-version.txt`, `cloud/server.js`, `firmware/src/cloud/cloud_client.cpp`, `AI-HANDOFF-MEMORY.md`

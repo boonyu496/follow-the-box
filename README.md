@@ -5,6 +5,7 @@
 | 文件 | 用途 |
 |---|---|
 | `FIRMWARE-SPEC.md` / `FIRMWARE-SPEC.html` | 固件代码框架总规范：VS Code 手写、AI 辅助、后续维护都按它写 |
+| `CURRENT-PROJECT-ARCHITECTURE.md` | 当前项目架构地图：AP/局域网/云端 H5、固件运行链路、页面同步规则和问题定位入口 |
 | `PIN-MAP-V1.md` | 当前唯一 Pin Map v1.0，所有代码和接线必须引用 |
 | `ESTOP-FEEDBACK-CIRCUIT.md` | GPIO21 急停反馈隔离接线，禁止直读 36V 电门锁线 |
 | `POLARITY-DEFINITIONS.md` | GPIO/MOS/光耦/控制器线极性定义 |
