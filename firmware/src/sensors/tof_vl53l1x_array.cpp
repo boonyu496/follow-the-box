@@ -8,6 +8,7 @@
 #include "config/profile_defaults.h"
 #include "core/time_utils.h"
 #include "hal/i2c_bus.h"
+#include "telemetry/debug_console.h"
 
 namespace followbox {
 namespace {
@@ -32,27 +33,62 @@ enum class InitResult : uint8_t {
   kSensorInitFailed,
 };
 
-// Select one TCA9548A downstream channel (exclusive). Returns false on NACK.
-bool selectMuxChannel(uint8_t channel) {
+struct InitOutcome {
+  InitResult result = InitResult::kOk;
+  uint8_t wire_error = 0;
+};
+
+// Select one TCA9548A downstream channel (exclusive). Returns the Wire error
+// code: 0=ACK, 2=address NACK, 3=data NACK, 4=other bus error, 5=timeout.
+uint8_t selectMuxChannelRaw(uint8_t channel) {
   Wire.beginTransmission(profile::TOF_TCA9548A_ADDR);
   Wire.write(static_cast<uint8_t>(1u << channel));
-  return Wire.endTransmission() == 0;
+  return Wire.endTransmission();
 }
 
-InitResult initSensorOnChannel(uint8_t channel) {
-  if (!selectMuxChannel(channel)) {
-    return InitResult::kMuxNack;
+bool selectMuxChannel(uint8_t channel) {
+  return selectMuxChannelRaw(channel) == 0;
+}
+
+uint8_t probeAddress(uint8_t address) {
+  Wire.beginTransmission(address);
+  return Wire.endTransmission();
+}
+
+bool shouldLogFailure(uint32_t count) {
+  return count <= 3 || count % 10 == 0;
+}
+
+void logTcaAddressScan() {
+  uint8_t found_count = 0;
+  for (uint8_t addr = 0x70; addr <= 0x77; ++addr) {
+    const uint8_t err = probeAddress(addr);
+    if (err == 0) {
+      ++found_count;
+      FB_LOGI("TOF scan: TCA candidate ACK addr=0x%02x", addr);
+    }
+  }
+  if (found_count == 0) {
+    FB_LOGW("TOF scan: no TCA9548A ACK in 0x70-0x77 (cfg=0x%02x)",
+            profile::TOF_TCA9548A_ADDR);
+  }
+}
+
+InitOutcome initSensorOnChannel(uint8_t channel) {
+  const uint8_t mux_err = selectMuxChannelRaw(channel);
+  if (mux_err != 0) {
+    return {InitResult::kMuxNack, mux_err};
   }
   VL53L1X& sensor = g_sensors[channel];
   sensor.setBus(&Wire);
   sensor.setTimeout(profile::TOF_CONTINUOUS_PERIOD_MS * 2);
   if (!sensor.init()) {
-    return InitResult::kSensorInitFailed;
+    return {InitResult::kSensorInitFailed, 0};
   }
   sensor.setDistanceMode(VL53L1X::Long);
   sensor.setMeasurementTimingBudget(profile::TOF_TIMING_BUDGET_US);
   sensor.startContinuous(profile::TOF_CONTINUOUS_PERIOD_MS);
-  return InitResult::kOk;
+  return {InitResult::kOk, 0};
 }
 
 }  // namespace
@@ -68,25 +104,44 @@ void TofVl53l1xArray::begin() {
 
   // First prototype has no XSHUT: clear the bus before probing so a sensor that
   // latched SDA low from a prior boot does not wedge the whole mux.
+  pinMode(pins::PIN_I2C_SDA, INPUT_PULLUP);
+  pinMode(pins::PIN_I2C_SCL, INPUT_PULLUP);
+  FB_LOGI("TOF begin: SDA=GPIO%d level=%d SCL=GPIO%d level=%d TCA=0x%02x",
+          pins::PIN_I2C_SDA, digitalRead(pins::PIN_I2C_SDA),
+          pins::PIN_I2C_SCL, digitalRead(pins::PIN_I2C_SCL),
+          profile::TOF_TCA9548A_ADDR);
+
   if (!g_i2c_bus.begin()) {
-    g_i2c_bus.busClear();
+    const bool recovered = g_i2c_bus.busClear();
     stats_.bus_clear_count++;
+    FB_LOGW("TOF begin: I2C bus not released, bus_clear=%d", recovered ? 1 : 0);
   }
   Wire.setClock(400000);
+  logTcaAddressScan();
 
   for (uint8_t i = 0; i < kChannelCount; ++i) {
     const uint8_t channel = kChannels[i];
     stats_.init_attempt_count++;
-    const InitResult result = initSensorOnChannel(channel);
+    const InitOutcome outcome = initSensorOnChannel(channel);
+    const InitResult result = outcome.result;
     const bool ok = result == InitResult::kOk;
     g_channel_ready[channel] = ok;
     if (ok) {
       stats_.init_ok_mask |= (1u << channel);
       initialised_ = true;
+      FB_LOGI("TOF init ok ch=%u mask=0x%lx", channel,
+              static_cast<unsigned long>(stats_.init_ok_mask));
     } else if (result == InitResult::kMuxNack) {
       stats_.mux_nack_count++;
+      FB_LOGW("TOF init mux_nack ch=%u wire=%u nacks=%lu attempts=%lu",
+              channel, outcome.wire_error,
+              static_cast<unsigned long>(stats_.mux_nack_count),
+              static_cast<unsigned long>(stats_.init_attempt_count));
     } else {
       stats_.init_failure_count++;
+      FB_LOGW("TOF init sensor_fail ch=%u failures=%lu attempts=%lu",
+              channel, static_cast<unsigned long>(stats_.init_failure_count),
+              static_cast<unsigned long>(stats_.init_attempt_count));
     }
   }
 }
@@ -108,6 +163,11 @@ void TofVl53l1xArray::update(uint32_t now_ms) {
   }
   if (!selectMuxChannel(channel)) {
     stats_.mux_nack_count++;
+    if (shouldLogFailure(stats_.mux_nack_count)) {
+      FB_LOGW("TOF read mux_nack ch=%u nacks=%lu read=%lu",
+              channel, static_cast<unsigned long>(stats_.mux_nack_count),
+              static_cast<unsigned long>(stats_.read_count));
+    }
     markChannelFailed(channel, now_ms);
     applyChannelReading(channel, -1, now_ms);
     return;
@@ -121,6 +181,10 @@ void TofVl53l1xArray::update(uint32_t now_ms) {
   const uint16_t raw_mm = sensor.read(false);
   if (sensor.timeoutOccurred()) {
     stats_.timeout_count++;
+    if (shouldLogFailure(stats_.timeout_count)) {
+      FB_LOGW("TOF read timeout ch=%u timeouts=%lu",
+              channel, static_cast<unsigned long>(stats_.timeout_count));
+    }
     markChannelFailed(channel, now_ms);
     applyChannelReading(channel, -1, now_ms);
     return;
@@ -180,6 +244,8 @@ void TofVl53l1xArray::markChannelFailed(uint8_t channel, uint32_t now_ms) {
   Wire.setClock(400000);
   stats_.bus_clear_count++;
   stats_.last_recovery_ms = now_ms;
+  FB_LOGW("TOF recovery: bus_clear count=%lu last_failure_ch=%u",
+          static_cast<unsigned long>(stats_.bus_clear_count), channel);
   consecutive_failures_ = 0;
   initialised_ = false;
   stats_.init_ok_mask = 0;
@@ -206,7 +272,8 @@ void TofVl53l1xArray::serviceRecovery(uint32_t now_ms) {
     const uint8_t channel = kChannels[i];
     if (g_channel_ready[channel]) continue;
     stats_.init_attempt_count++;
-    const InitResult result = initSensorOnChannel(channel);
+    const InitOutcome outcome = initSensorOnChannel(channel);
+    const InitResult result = outcome.result;
     const bool ok = result == InitResult::kOk;
     g_channel_ready[channel] = ok;
     if (ok) {
@@ -215,14 +282,28 @@ void TofVl53l1xArray::serviceRecovery(uint32_t now_ms) {
       stats_.last_recovery_ms = now_ms;
       initialised_ = true;
       consecutive_failures_ = 0;
+      FB_LOGI("TOF reinit ok ch=%u mask=0x%lx reinit=%lu",
+              channel, static_cast<unsigned long>(stats_.init_ok_mask),
+              static_cast<unsigned long>(stats_.reinit_count));
     } else if (result == InitResult::kMuxNack) {
       stats_.mux_nack_count++;
+      if (shouldLogFailure(stats_.mux_nack_count)) {
+        FB_LOGW("TOF reinit mux_nack ch=%u wire=%u nacks=%lu attempts=%lu",
+                channel, outcome.wire_error,
+                static_cast<unsigned long>(stats_.mux_nack_count),
+                static_cast<unsigned long>(stats_.init_attempt_count));
+      }
       // A missing mux response can be a wedged shared bus. Reuse the bounded
       // recovery path after repeated failures; sensor-level init failures do
       // not clear the bus because they commonly mean power/wiring is absent.
       markChannelFailed(channel, now_ms);
     } else {
       stats_.init_failure_count++;
+      if (shouldLogFailure(stats_.init_failure_count)) {
+        FB_LOGW("TOF reinit sensor_fail ch=%u failures=%lu attempts=%lu",
+                channel, static_cast<unsigned long>(stats_.init_failure_count),
+                static_cast<unsigned long>(stats_.init_attempt_count));
+      }
     }
     break;
   }

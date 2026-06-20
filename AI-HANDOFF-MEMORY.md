@@ -28,6 +28,16 @@
 ```
 
 ## 最新交接记录
+### 2026-06-20 20:44 - Codex - TOF 三路 NACK 排故日志增强
+- 结论：用户日志 `init_attempt == mux_nack` 且 `read_count=0`，说明失败卡在 TCA9548A 通道选择阶段，尚未进入 VL53L1X 初始化/测距。
+- 改动：TOF 启动时打印 SDA/SCL 电平与 TCA 0x70-0x77 地址扫描；初始化/重试失败打印通道、Wire 返回码、累计计数；TLM 补 `timeout/busclr/reinit`。
+- 文件：`firmware/src/sensors/tof_vl53l1x_array.cpp`, `firmware/src/telemetry/telemetry_logger.cpp`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无模块边界变更；TOF 仍只读快照，失败不会伪造有效距离。
+- 安全影响：无 motor/e-stop/PWM/GPIO 输出改动；涉及 I2C 诊断日志与现有 Bus Clear 计数，不改变运动链路。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/check_ai_handoff.py` PASS。
+- 当前状态：NEEDS_HARDWARE_VERIFICATION
+- 下一步：烧录后查看 `TOF scan` 是否有 0x70 ACK；若 `wire=2` 持续，优先查 TCA 地址/供电/主干 SDA/SCL，而非三路 VL53L1X。
+
 ### 2026-06-20 16:54 - Codex - 项目架构地图补齐
 - 改动：新增 `CURRENT-PROJECT-ARCHITECTURE.md`，梳理 AP/局域网/云端 H5 入口、固件运行链路、云端链路、视频边界、同步矩阵和常见问题定位。
 - 文件：`CURRENT-PROJECT-ARCHITECTURE.md`, `README.md`, `AI-HANDOFF-MEMORY.md`
