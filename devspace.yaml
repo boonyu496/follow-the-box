@@ -1,0 +1,135 @@
+version: v2beta1
+name: followbox
+
+vars:
+  IMAGE_REGISTRY:
+    source: env
+    default: ghcr.io/followbox
+
+images:
+  followbox-cloud:
+    image: ${IMAGE_REGISTRY}/followbox-cloud
+    tags:
+      - dev
+    dockerfile: ./cloud/Dockerfile
+    context: ./cloud
+
+deployments:
+  followbox-cloud:
+    namespace: followbox-dev
+    kubectl:
+      manifests:
+        - ./k8s/followbox-cloud.yaml
+
+dev:
+  followbox-cloud:
+    imageSelector: ${IMAGE_REGISTRY}/followbox-cloud
+    namespace: followbox-dev
+    container: followbox-cloud
+    command:
+      - sh
+      - -c
+    args:
+      - node server.js
+    workingDir: /app
+    env:
+      - name: NODE_ENV
+        value: development
+    ports:
+      - port: "8080:8080"
+    sync:
+      - path: ./cloud:/app
+        excludePaths:
+          - node_modules/
+          - npm-debug.log
+          - .env
+          - .env.local
+        onUpload:
+          restartContainer: true
+    restartHelper:
+      inject: true
+    logs:
+      enabled: true
+      lastLines: 80
+    open:
+      - url: http://localhost:8080
+
+pipelines:
+  dev:
+    run: |-
+      create_deployments --all
+      start_dev followbox-cloud
+  deploy:
+    run: |-
+      build_images --all --skip-push-on-local-kubernetes -t $(git describe --always)
+      create_deployments --all
+  build:
+    run: |-
+      build_images --all --skip-push-on-local-kubernetes -t $(git describe --always)
+  firmware-check:
+    run: |-
+      cd firmware
+      pio run
+  vision-check:
+    run: |-
+      cd vision_cam
+      pio run
+  ai-handoff-check:
+    run: |-
+      python tools/check_ai_handoff.py
+
+commands:
+  plan:
+    section: ai
+    description: Print the GPT planning checklist for a FollowBox task.
+    command: |-
+      printf '%s\n' \
+        'GPT planning checklist:' \
+        '1. Read AGENTS.md and the matching current spec.' \
+        '2. Classify the task: firmware, safety, sensor, motion, H5/cloud, vision, or docs.' \
+        '3. Keep each implementation task to no more than 3 changed files.' \
+        '4. Mark motion and safety-link tasks as safety-critical.' \
+        '5. Hand Codex exact files, constraints, validation commands, and expected telemetry fields.'
+  doctor:
+    section: devspace
+    description: Check local Docker, kubectl, and Kubernetes context before DevSpace runs.
+    command: |-
+      printf 'FollowBox DevSpace doctor\n'
+      devspace --version
+      docker version
+      docker info
+      kubectl version --client
+      kubectl config current-context
+      kubectl cluster-info
+      printf '\nOK: Docker daemon and Kubernetes context are reachable.\n'
+  codex-check:
+    section: ai
+    description: Run the local checks Codex should use before handing work back.
+    command: |-
+      python tools/check_ai_handoff.py
+      cd firmware
+      pio run
+  cloud-check:
+    section: cloud
+    description: Show Kubernetes cloud-control resources and local forwarded health when available.
+    command: |-
+      kubectl config current-context
+      kubectl -n followbox-dev get deploy,svc,pods -l app=followbox-cloud
+      printf '\nLocal forwarded health (requires devspace dev or port-forward):\n'
+      curl -fsS http://localhost:8080/api/health || true
+  cloud-logs:
+    section: cloud
+    description: Stream recent logs from the FollowBox cloud deployment.
+    command: |-
+      kubectl -n followbox-dev logs deploy/followbox-cloud --tail=120 -f
+  package-ota:
+    section: ota
+    description: Build firmware.bin, copy it into cloud/firmware, and write a verified manifest.json.
+    command: |-
+      python tools/package_ota.py
+  release-check:
+    section: release
+    description: Run handoff checks and package the current firmware for OTA publication.
+    command: |-
+      python tools/check_ai_handoff.py
+      python tools/package_ota.py

@@ -38,7 +38,7 @@ constexpr int UART_NUM_LIDAR = 2;
 // JY61P TX 5V -> GPIO42 level shift. Bench debug must not rely on UART0/GPIO43-44.
 constexpr int UART_NUM_IMU = -1;
 
-// EAI S2 lidar UART (UART2, 115200 baud, 3.3V logic, direct connect).
+// EAI S2 lidar UART (UART2, 150000 baud for S2-YJ/S2-YD, 3.3V logic, direct connect).
 // GPIO3  = ESP32 RX <- lidar TX.  GPIO22/23 do NOT exist on ESP32-S3-DevKitC-1.
 // GPIO43 = ESP32 TX -> lidar RX (motor-speed control).  Safe because ARDUINO_USB_CDC_ON_BOOT=1
 // routes debug over native USB (GPIO19/20 internal), leaving UART0/GPIO43 free; the on-board

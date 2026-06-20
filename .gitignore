@@ -19,6 +19,7 @@ Thumbs.db
 
 # Node
 node_modules/
+.devspace/
 
 # Python
 __pycache__/

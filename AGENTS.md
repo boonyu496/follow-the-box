@@ -84,6 +84,30 @@ Coordinator (hermes default, deepseek-v4-flash)
 - 子代理返回 FAIL → coordinator 分析原因，重新分配或降级为手动
 - 安全相关失败 → 立即停止，等待用户决策
 
+## DevSpace + GPT/Codex 工作台
+
+> DevSpace 仅承载云控/遥测服务的 Kubernetes 开发闭环；固件烧录、串口监控、真机安全验证仍在本机执行。
+
+### 角色分工
+- GPT：规划、整理、拆任务、补上下文、标注风险和验收标准。
+- Codex：按 GPT/用户给定目标实操改文件、运行命令、验证、更新交接记录。
+- DevSpace：统一 `cloud/` 服务的 build/deploy/dev/log/port-forward/sync 流程。
+
+### 常用命令
+```bash
+devspace run plan
+devspace dev
+devspace run-pipeline firmware-check
+devspace run-pipeline vision-check
+devspace run-pipeline ai-handoff-check
+```
+
+### 使用边界
+1. `devspace.yaml` 是云端控制台开发入口，不替代 `firmware/platformio.ini`。
+2. `devspace dev` 默认进入 `followbox-dev` namespace，转发本地 `http://localhost:8080`。
+3. 安全相关改动仍执行 architect → safety-reviewer → tester → safety-officer 流程。
+4. Codex 完成任何文件改动后必须更新 `AI-HANDOFF-MEMORY.md` 并跑交接检查。
+
 ## 委派命令模板
 
 ```bash

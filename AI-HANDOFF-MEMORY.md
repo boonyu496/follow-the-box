@@ -28,6 +28,100 @@
 ```
 
 ## 最新交接记录
+### 2026-06-20 15:36 - Codex - EAI S2 雷达波特率与 OTA 发布
+- 改动：按 `zhiliao/EaiLidarTest-V1.12.3-20241220/config/config.json` 将 S2-YJ/S2-YD 默认雷达 UART 从 115200 改为 150000，并递增 OTA 版本。
+- 文件：`firmware/include/config/profile_defaults.h`, `firmware/include/config/board_pins.h`, `profiles/example_bldc_analog_36v.yaml`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`
+- 架构影响：无模块边界变化；雷达仍由 `SensorTask` 喂 `LidarEaiS2`，只产出只读 `ObstacleSnapshot`/H5 诊断。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C 改动；雷达只影响避障输入，不绕过 `safety_manager`，OTA `force=false` 不自动安装。
+- OTA：版本 `2026.06.20-lidar-s2.1`，`firmware.bin` 已复制到 `cloud/firmware/`，manifest size `1129024`、MD5 `cf8dd232319afbd841bde2e80b30dd70`。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools\package_ota.py --skip-build ...` PASS。
+- 验证补充：host `logic_smoke_test.exe` 当前失败在既有 `SafetyManager` UWB_LOST 断言（line 100），与本次雷达 UART 改动无直接关系，未假装通过。
+- 当前状态：NEEDS_HARDWARE_VERIFICATION
+- 下一步：云端部署 manifest/bin 后在 H5 点击检查更新并授权安装；安装后看雷达面板 RX 是否增长，若 RX>0 但包=0，再按 S2 实物型号核对 protoVersion/协议。
+
+### 2026-06-20 15:10 - Codex - Docker Desktop Kubernetes 启用
+- 改动：通过 Docker Desktop 设置文件启用 Kubernetes kind 模式，并将 Docker daemon `max-concurrent-downloads` 设为 1 以缓解镜像层 EOF。
+- 文件：环境配置 `AppData\Roaming\Docker\settings-store.json`, `%USERPROFILE%\.docker\daemon.json`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无仓库代码/固件/云端 API/H5 边界变更；仅补本机 DevSpace/Kubernetes 运行环境。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C 改动；未触发 OTA 安装、固件烧录或硬件动作。
+- 验证：`docker desktop kubernetes status` running；`kubectl config current-context` = `docker-desktop`；`kubectl get nodes` Ready；`devspace run doctor` PASS。
+- 验证补充：Docker Hub 直连拉取 `envoyproxy/envoy:v1.36.4` 多次 EOF，使用 `docker.1ms.run` 代理补齐 Envoy 和 `desktop-cloud-provider-kind` 后集群启动成功。
+- 当前状态：PASS
+- 下一步：可继续运行 `devspace dev`；若镜像拉取再次 EOF，优先检查 Docker Desktop 代理/网络或预拉依赖镜像。
+
+### 2026-06-20 14:35 - Codex - Docker/DevSpace/K8s 健康检查补齐
+- 改动：云服务新增 `/api/health`，Dockerfile 改为非 root 运行并加入 HEALTHCHECK，K8s 探针与 DevSpace 检查统一到健康接口。
+- 文件：`cloud/server.js`, `cloud/Dockerfile`, `k8s/followbox-cloud.yaml`, `devspace.yaml`, `DEVSPACE-AI-WORKFLOW.md`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无固件/运动/协议链路变更；只完善 `cloud/` 容器化和 DevSpace/Kubernetes 前置检查。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C 改动；未触发 OTA 安装或硬件动作。
+- 验证：`node --check cloud\server.js` PASS；PyYAML 解析 `devspace.yaml`/K8s manifest PASS；`docker build -t followbox-cloud:local-test cloud` PASS；容器 `/api/health` 200 且 Docker HEALTHCHECK=healthy。
+- 验证补充：`devspace run doctor` 已确认 Docker daemon 可用，但停在 `kubectl config current-context`，因为 Kubernetes context 尚未设置。
+- 当前状态：NEEDS_K8S_CONTEXT
+- 下一步：在 Docker Desktop 启用 Kubernetes，或导入 kubeconfig 后确认 `kubectl config current-context`，再运行 `devspace run doctor` 和 `devspace dev`。
+
+### 2026-06-20 13:06 - Codex - DevSpace/kubectl/Docker 工具链安装
+- 改动：安装 DevSpace v6.3.21 到 `C:\Users\陈雨\bin`，winget 安装 kubectl v1.36.2 与 Docker Desktop 4.78.0，并把 kubectl/Docker CLI 路径补入用户 PATH。
+- 文件：`AI-HANDOFF-MEMORY.md`；环境：`devspace.exe`, `kubectl.exe`, Docker Desktop。
+- 架构影响：无仓库代码/固件/云端/H5 边界变更；仅补本机 DevSpace/Kubernetes/Docker 工具链。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C 改动；未触发部署、OTA 安装或硬件动作。
+- 验证：`devspace --version` PASS；`kubectl version --client` PASS；`devspace run plan` PASS；`devspace run cloud-check` 因无 Kubernetes current-context/daemon 不可用而失败；Docker CLI 已安装但 Docker Desktop daemon 报 unable to start。
+- 当前状态：NEEDS_REBOOT_OR_K8S_CONTEXT
+- 下一步：重启 Windows 后启动 Docker Desktop，启用/选择 Kubernetes context，再运行 `kubectl config current-context` 和 `devspace run cloud-check`。
+
+### 2026-06-20 12:22 - Codex - DevSpace 命令补齐与 OTA 打包脚本
+- 改动：新增 `tools/package_ota.py`，用于构建固件、复制 `firmware.bin` 到 `cloud/firmware/`、写入并校验 manifest；`devspace.yaml` 新增 `cloud-check`、`cloud-logs`、`package-ota`、`release-check`。
+- 文件：`tools/package_ota.py`, `devspace.yaml`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无固件运行链路/云端 API/H5 权限变更；新增 DevSpace 命令入口和本地 OTA 发布打包脚本。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C 改动；脚本只发布固件文件与 manifest，不触发设备安装。
+- 验证：`python -m py_compile tools\package_ota.py` PASS；`python tools\package_ota.py --help` PASS；PyYAML 解析 `devspace.yaml` PASS；AI handoff 门禁 PASS。
+- 当前状态：NEEDS_TOOLCHAIN_SETUP
+- 下一步：本机安装 DevSpace/kubectl 后运行 `devspace run cloud-check`、`devspace run package-ota`；当前只检测到 `pio` 和 `curl`。
+
+### 2026-06-20 12:19 - Codex - Python 控制台状态面板补齐
+- 改动：`dev-console.py` 的 `git/status` 新增当前分支、upstream ahead/behind、本地 dirty 文件、固件版本、本地 manifest 摘要和云端 URL 可达性；`dev-console.html` 同步展示。
+- 文件：`tools_local/dev-console.py`, `tools_local/dev-console.html`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无固件/云端/H5 协议边界变更；只增强本机控制台只读状态面板。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C 改动；状态检查不执行 fetch/pull/push/deploy/OTA 安装。
+- 验证：`python -m py_compile tools_local\dev-console.py` PASS；直接调用 `api_git_status()` 返回 branch/ahead/behind/dirty/version/manifest/cloud 字段；AI handoff 门禁 PASS。
+- 当前状态：PASS
+- 下一步：按 Phase 2 开始添加 DevSpace `cloud-check` / `cloud-logs` / `package-ota` 命令，或把 PowerShell 状态面板补到同等字段。
+
+### 2026-06-20 12:16 - Codex - 控制台 pull 策略统一为显式处理
+- 改动：`dev-console.py` 与 PowerShell 控制中心取消 pull 前自动 stash、分叉自动 rebase；统一为脏工作区拒绝、仅允许 ff-only，同步更新 Python 控制台确认文案。
+- 文件：`tools_local/dev-console.py`, `tools_local/dev-console.html`, `tools_local/followbox-control-center.ps1`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无固件/云端/H5 协议边界变更；只调整本机控制台 Git 操作策略。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C 改动；降低本地改动被隐式改写或 stash/rebase 冲突的风险。
+- 验证：`python -m py_compile tools_local\dev-console.py` PASS；PowerShell `PSParser` 解析 PASS；直接调用 `safe_pull_repo()` 在脏工作区返回 `dirty-blocked`；危险命令扫描无残留；AI handoff 门禁 PASS。
+- 当前状态：PASS
+- 下一步：继续 Phase 1 状态面板增强：显示当前分支、dirty 文件、ahead/behind、固件版本、manifest 版本、云端可达性。
+
+### 2026-06-20 12:10 - Codex - CMD 控制中心安全 Git 同步
+- 改动：把 `tools_local/start-followbox-control-center.cmd` 的 `pull` 从 `reset --hard origin/master` 改为当前分支 `fetch --prune` + `merge --ff-only`，并让 push 使用当前分支。
+- 文件：`tools_local/start-followbox-control-center.cmd`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无固件/云端/H5 模块边界变更；仅收敛本机控制台 Git 工作流。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C 改动；脏工作区会拒绝 pull，不再丢弃本地文件。
+- 验证：`cmd /c tools_local\start-followbox-control-center.cmd pull` 在脏工作区按预期拒绝；`python tools/check_ai_handoff.py` PASS；目标文件 `git diff --check` PASS；残留 `reset --hard` / `origin/master` 扫描无匹配。
+- 当前状态：PASS
+- 下一步：继续 Phase 1，统一 Python/PowerShell 控制台 pull 策略为“显式 stash/commit 后再拉取”。
+
+### 2026-06-20 12:05 - Codex - DevSpace/OTA/本地控制台流程方案落文档
+- 改动：扩展 `DEVSPACE-AI-WORKFLOW.md`，把宿主机/VM/Git/cloud/OTA/tools_local 的目标流程、角色分工、迁移阶段和后续 Codex 实施规则写成正式方案。
+- 文件：`DEVSPACE-AI-WORKFLOW.md`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无固件模块边界变更；新增开发流程路线，明确 DevSpace 管 cloud/H5，PlatformIO 管固件，`tools_local` 收敛为薄控制台。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C 改动；方案继续要求 OTA 安装显式授权，硬件验证本地安全门控。
+- 验证：未运行构建；本次仅文档方案更新。
+- 当前状态：NEXT_TASK_READY
+- 下一步：优先实现 Phase 1：把 `tools_local` 的破坏性 pull 改成安全同步，再补 DevSpace `package-ota` / `cloud-check` 命令。
+
+### 2026-06-20 09:35 - Codex - DevSpace 与 GPT/Codex 工作流配置
+- 改动：新增 DevSpace 云控开发配置，并把 GPT 规划、Codex 实操、DevSpace 云端开发边界写入仓库规则。
+- 文件：`devspace.yaml`, `cloud/Dockerfile`, `cloud/.dockerignore`, `k8s/followbox-cloud.yaml`, `DEVSPACE-AI-WORKFLOW.md`, `.gitignore`, `AGENTS.md`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：开发工作流新增 Kubernetes/DevSpace 入口；未改固件模块边界、GPIO、协议或 H5 嵌入路径。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C 改动；明确 DevSpace 不承载烧录、串口监控或真机安全验证。
+- 验证：YAML 解析、`node --check cloud/server.js`、`npm install --package-lock-only --dry-run`、`git diff --check`、AI handoff 门禁均 PASS；当前机器未发现 `devspace`、`kubectl`、`docker` 命令，PlatformIO `pio` 可用。
+- 当前状态：NEEDS_TOOLCHAIN_SETUP。
+- 下一步：安装 DevSpace/Docker/kubectl 后运行 `devspace dev`；固件侧继续用 `devspace run-pipeline firmware-check` 或本机 `pio run` 验证。
+
 ### 2026-06-20 00:20 - Codex - OTA 正式发布规范落库
 - 改动：新增当前实现的 OTA 发布规范，并把它加入 README 权威文档入口。
 - 文件：`OTA-UPDATE-SPEC.md`, `README.md`, `AI-HANDOFF-MEMORY.md`。

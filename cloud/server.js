@@ -102,6 +102,16 @@ function deployVersion() {
   }
 }
 
+function healthSummary() {
+  return {
+    ok: true,
+    service: "followbox-cloud",
+    at: nowIso(),
+    version: deployVersion(),
+    firmware_manifest: fs.existsSync(FIRMWARE_MANIFEST),
+  };
+}
+
 function writeVideoPart(res, frame, contentType) {
   res.write(`--followboxframe\r\n`);
   res.write(`Content-Type: ${contentType || "image/jpeg"}\r\n`);
@@ -307,6 +317,11 @@ const server = http.createServer(async (req, res) => {
   const match = url.pathname.match(/^\/api\/device\/([^/]+)\/(ingest|command|events)$/);
 
   try {
+    if (url.pathname === "/api/health" && req.method === "GET") {
+      send(res, 200, healthSummary());
+      return;
+    }
+
     if (firmwareMatch) {
       const [, deviceId, action] = firmwareMatch;
       const device = getDevice(deviceId);
