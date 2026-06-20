@@ -9,10 +9,11 @@
 2. 每条记录控制在 **8-12 行以内**，只写对下一个 AI 有用的信息。
 3. 不写长日志、不贴完整 diff、不贴大段代码、不写 token/API key/密码。
 4. 必须写清：改了哪些文件、当前状态、验证结果、下一步。
-5. 如果本次只是读取/分析、没有改文件，只有在形成重要架构结论、安全阻塞、关键排错结论或改变下一步路线时才追加“分析结论”；普通问答/例行查看不追加。
-6. 新记录放在 `## 最新交接记录` 下面，旧记录往下排。
-7. 如果某条记录已经过期，可以移动到 `## 已过期/归档记录`，不要让顶部堆太长。
-8. 交接记录只记录“本次新增的信息”，不要重复抄写 `FIRMWARE-SPEC.md`、`PIN-MAP-V1.md`、`skills/README.md` 已经固定的长期事实。
+5. 用户要求每次修改文件后都要准备 H5 页面可安装的 OTA 烧录版：涉及设备固件/本地车端 H5/协议/Profile 的改动必须递增 `FOLLOWBOX_FIRMWARE_VERSION` 并运行 `python tools/package_ota.py`；纯云端/纯文档改动也要在 `OTA：` 行说明不需要设备 OTA 的原因。
+6. 如果本次只是读取/分析、没有改文件，只有在形成重要架构结论、安全阻塞、关键排错结论或改变下一步路线时才追加“分析结论”；普通问答/例行查看不追加。
+7. 新记录放在 `## 最新交接记录` 下面，旧记录往下排。
+8. 如果某条记录已经过期，可以移动到 `## 已过期/归档记录`，不要让顶部堆太长。
+9. 交接记录只记录“本次新增的信息”，不要重复抄写 `FIRMWARE-SPEC.md`、`PIN-MAP-V1.md`、`skills/README.md` 已经固定的长期事实。
 
 ## 推荐格式
 
@@ -22,12 +23,23 @@
 - 文件：`path1`, `path2`, `path3`
 - 架构影响：无 / 有，说明是否改模块边界、GPIO、安全链路、协议
 - 安全影响：无 / 有，说明是否碰 motor/e-stop/GPIO/ADC/I2C/电源
+- OTA：版本 `<version>`，`cloud/firmware/firmware.bin` 与 `manifest.json` 已生成；或说明不需要设备 OTA 的原因
 - 验证：<build/test/check/log 结果；没有验证就写 未验证>
 - 当前状态：PASS / NEEDS_VERIFICATION / BLOCKED / NEXT_TASK_READY
 - 下一步：<给下一个 AI 的最短明确动作>
 ```
 
 ## 最新交接记录
+### 2026-06-20 21:07 - Codex - 固定每次改文件后产出 H5 OTA 版
+- 改动：把“修改设备相关文件后必须递增固件版本并生成 H5 可安装 OTA 包”写入运行门禁和交接记忆模板。
+- 文件：`AI-AGENT-RUNBOOK.md`, `AI-HANDOFF-MEMORY.md`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`
+- 架构影响：无运行链路变更；强化发布流程，H5 仍只显式检查/授权安装。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C 逻辑改动；OTA `force=false`，不自动安装。
+- OTA：版本 `2026.06.20-tof-debug.1`，`firmware.bin` 已生成，size `1130496`，MD5 `8125b9ce00f7825d7ab1da27fc836cfd`，`force=false`。
+- 验证：`python tools/package_ota.py --notes ...` PASS；`node --check cloud/server.js` PASS；manifest/bin/version 一致性 PASS；`python tools/check_ai_handoff.py` PASS。
+- 当前状态：NEEDS_DEPLOY_AND_H5_INSTALL
+- 下一步：部署 `cloud/firmware/manifest.json` 与 `cloud/firmware/firmware.bin` 到服务器后，在 H5 点击“检查更新”再授权安装。
+
 ### 2026-06-20 20:44 - Codex - TOF 三路 NACK 排故日志增强
 - 结论：用户日志 `init_attempt == mux_nack` 且 `read_count=0`，说明失败卡在 TCA9548A 通道选择阶段，尚未进入 VL53L1X 初始化/测距。
 - 改动：TOF 启动时打印 SDA/SCL 电平与 TCA 0x70-0x77 地址扫描；初始化/重试失败打印通道、Wire 返回码、累计计数；TLM 补 `timeout/busclr/reinit`。

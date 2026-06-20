@@ -25,7 +25,9 @@
 
 只读问答可按 skills/README.md 的轻量读取规则执行；涉及固件、安全、GPIO、电源、上电、运动测试时必须读取全部权威文件。skills 中的样机事实只是摘要，若与 PIN-MAP-V1.md/FIRMWARE-SPEC.md/CURRENT-WIRING-AI.md 冲突，以权威文件为准并先报告冲突。
 
-如果你修改了任何代码、架构、文档、Profile、协议、测试方案或技能文件，结束前必须在 AI-HANDOFF-MEMORY.md 的“## 最新交接记录”下方顶部追加 8-12 行短交接记录，包含：改动、文件、架构影响、安全影响、验证、当前状态、下一步。
+如果你修改了任何代码、架构、文档、Profile、协议、测试方案或技能文件，结束前必须在 AI-HANDOFF-MEMORY.md 的“## 最新交接记录”下方顶部追加 8-12 行短交接记录，包含：改动、文件、架构影响、安全影响、OTA、验证、当前状态、下一步。
+
+用户要求所有文件修改都要产出可通过 H5 页面安装的 OTA 烧录版。凡是修改会影响设备固件行为、配置、协议或本地车端 H5 的任务，收尾必须递增 `firmware/include/config/ota_config.h` 的 `FOLLOWBOX_FIRMWARE_VERSION`，运行 `python tools/package_ota.py --notes "<本次摘要>"`，并在交接记录写清 OTA 版本、`cloud/firmware/manifest.json` 的 size/MD5、`cloud/firmware/firmware.bin` 是否已生成。仅修改云端 H5/纯文档且不需要设备固件更新时，也必须在交接记录的 `OTA：` 行明确写“不需要设备 OTA”的原因。
 
 禁止跳过交接记忆；如果没有验证，写“验证：未验证”，不能假装通过。
 ```
@@ -37,7 +39,8 @@ codex exec --full-auto '
 你在 FollowBox 项目中工作。开始前必须读取 README.md、AI-HANDOFF-MEMORY.md、skills/README.md，并按任务类型读取对应 skills/*/SKILL.md。
 必须遵守 FIRMWARE-SPEC.md、CURRENT-WIRING-AI.md、PIN-MAP-V1.md、profiles/example_bldc_analog_36v.yaml。
 只读问答可按 skills/README.md 的轻量读取规则执行；涉及固件、安全、GPIO、电源、上电、运动测试时必须读取全部权威文件。skills 中的样机事实只是摘要，冲突时以权威文件为准并先报告冲突。
-如果修改任何文件，结束前必须更新 AI-HANDOFF-MEMORY.md：在“## 最新交接记录”下方顶部追加 8-12 行，写清改动、文件、架构影响、安全影响、验证、当前状态、下一步。
+如果修改任何文件，结束前必须更新 AI-HANDOFF-MEMORY.md：在“## 最新交接记录”下方顶部追加 8-12 行，写清改动、文件、架构影响、安全影响、OTA、验证、当前状态、下一步。
+用户要求每次文件修改后都要准备 H5 页面可安装的 OTA 烧录版；涉及设备固件/本地车端 H5/协议/Profile 的改动必须递增 FOLLOWBOX_FIRMWARE_VERSION 并运行 python tools/package_ota.py，纯云端/纯文档改动也要在 OTA 行说明不需要设备 OTA 的原因。
 完成后运行或说明验证结果，并确保 python3 tools/check_ai_handoff.py 通过。
 
 任务：<这里写具体任务>
@@ -50,7 +53,8 @@ codex exec --full-auto '
 你在 FollowBox 项目中工作。先读 README.md、AI-HANDOFF-MEMORY.md、skills/README.md，并按任务读取对应 skills/*/SKILL.md。
 必须遵守 FIRMWARE-SPEC.md、CURRENT-WIRING-AI.md、PIN-MAP-V1.md、profiles/example_bldc_analog_36v.yaml。
 只读问答可按 skills/README.md 的轻量读取规则执行；涉及固件、安全、GPIO、电源、上电、运动测试时必须读取全部权威文件。skills 中的样机事实只是摘要，冲突时以权威文件为准并先报告冲突。
-如果修改任何文件，结束前必须更新 AI-HANDOFF-MEMORY.md，在“## 最新交接记录”下方顶部追加 8-12 行短记录：改动、文件、架构影响、安全影响、验证、当前状态、下一步。
+如果修改任何文件，结束前必须更新 AI-HANDOFF-MEMORY.md，在“## 最新交接记录”下方顶部追加 8-12 行短记录：改动、文件、架构影响、安全影响、OTA、验证、当前状态、下一步。
+用户要求每次文件修改后都要准备 H5 页面可安装的 OTA 烧录版；涉及设备固件/本地车端 H5/协议/Profile 的改动必须递增 FOLLOWBOX_FIRMWARE_VERSION 并运行 python tools/package_ota.py，纯云端/纯文档改动也要在 OTA 行说明不需要设备 OTA 的原因。
 不要贴大段代码，不要写密钥，不要假装验证。
 完成后运行或说明：python3 tools/check_ai_handoff.py
 
