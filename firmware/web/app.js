@@ -20,6 +20,11 @@ const els = {
   uwbDetail: $("uwb-detail"),
   uwbBearing: $("uwb-bearing"),
   obstacle: $("obstacle"),
+  imu: $("imu"),
+  imuYaw: $("imu-yaw"),
+  imuRate: $("imu-rate"),
+  imuPr: $("imu-pr"),
+  imuDetail: $("imu-detail"),
   lidar: $("lidar"),
   lidarLeft: $("lidar-left"),
   lidarCenter: $("lidar-center"),
@@ -303,6 +308,19 @@ function renderState(s) {
     ? `${fmtMm(o.front_left_mm)} / ${fmtMm(o.front_center_mm)} / ${fmtMm(o.front_right_mm)}`
     : `侧 ${fmtMm(o.side_left_mm)} / ${fmtMm(o.side_right_mm)}`;
   latestObstacleData = o;
+
+  const imu = s.imu ?? {};
+  const imuValid = !!imu.valid;
+  els.imu.textContent = imuValid ? "有效" : "无效";
+  setTextState(els.imu, imuValid, Number(imu.last_update_ms || 0) > 0);
+  els.imuYaw.textContent = imuValid ? fmt(imu.yaw_deg, "°", 1) : "--";
+  els.imuRate.textContent = imuValid ? fmt(imu.yaw_rate_dps, "°/s", 1) : "--";
+  els.imuPr.textContent = imuValid
+    ? `${fmt(imu.pitch_deg, "°", 1)} / ${fmt(imu.roll_deg, "°", 1)}`
+    : "--";
+  els.imuDetail.textContent = imuValid
+    ? `更新 ${fmtAge(s.now_ms, imu.last_update_ms)}`
+    : (Number(imu.last_update_ms || 0) > 0 ? "姿态帧已超时" : "等待 IMU 串口姿态帧");
 
   // ── Canvas redraw (RAF-throttled — WS may push at 5-10 Hz) ──
   if (!canvasDirty) {

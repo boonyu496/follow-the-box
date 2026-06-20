@@ -28,6 +28,27 @@
 ```
 
 ## 最新交接记录
+### 2026-06-20 18:05 - Codex - JY62 姿态遥测接入 H5/云端
+- 结论：JY62 未显示的主因是 `/ws/state` 未输出 `imu` 节点，云端后端只原样转发 state；同时 `UART_NUM_IMU=-1` 仍让 IMU 串口默认禁用。
+- 改动：`buildStateJson()` 增加只读 `imu` 字段，本地 H5 与云端 H5 传感器页新增 JY62 姿态卡，协议和烟测断言同步更新。
+- 文件：`firmware/src/web/telemetry_api.cpp`, `firmware/{web,data}/{index.html,app.js}`, `cloud/public/{index.html,app.js}`, `protocols/H5-API.md`, `firmware/tools/logic_smoke_test.cpp`
+- 架构影响：有协议字段扩展；不改模块边界，不启用 IMU UART，不改变运动链路。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/GPIO 使能改动；`FOLLOW_YAW_DAMP_GAIN=0`，IMU 仍只读诊断，不绕过 `safety_manager`。
+- 验证：`node --check` 通过云端/本地/打包 H5 JS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`git diff --check` 仅 CRLF 警告。
+- 验证补充：Windows `g++` 主机烟测编译返回 1 但 stdout/stderr 为空，未得到可用逻辑烟测结果。
+- 当前状态：NEEDS_HARDWARE_VERIFICATION
+- 下一步：若要看到实时姿态，确认 JY62 TX→GPIO42 已做 3.3V 电平转换且共地，再把 `UART_NUM_IMU` 从 `-1` 改为 `0` 并按实物波特率校准。
+
+### 2026-06-20 16:06 - Codex - 雷达RX0硬件链路复核写入图一
+- 结论：线上 `boonai.cn/fb` 已运行 `2026.06.20-lidar-s2.1`，H5 雷达仍显示 `RX 0 / 包 0 / 圈 0`，优先判定为雷达 UART 无字节输入而非云端部署失败。
+- 改动：在 `ASSEMBLY-WIRING-MINDMAP.html` 新增“激光雷达 UART 链路统一复核”，写明 GPIO3/GPIO43、150000 8N1、断电逐线、低能量上电和 H5 分流判断。
+- 文件：`ASSEMBLY-WIRING-MINDMAP.html`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无固件代码变更；仅把现场排查步骤写入装配图一，便于后续统一查线。
+- 安全影响：有文档/装配安全影响；要求保持急停、禁止电机使能，TX 电平超 3.3V 或接线不确定时立即断电。
+- 验证：关键词检索确认图一新增块存在；`git diff --check` 无空白错误（仅CRLF提示）；`python tools\check_ai_handoff.py` PASS；未做实物测量。
+- 当前状态：NEXT_TASK_READY
+- 下一步：按图一用万用表/USB-TTL/逻辑分析仪确认雷达 TX 是否进入 ESP32 GPIO3；若 H5 RX 增长但包仍为0，再核对波特率和实物 S2 型号。
+
 ### 2026-06-20 15:36 - Codex - EAI S2 雷达波特率与 OTA 发布
 - 改动：按 `zhiliao/EaiLidarTest-V1.12.3-20241220/config/config.json` 将 S2-YJ/S2-YD 默认雷达 UART 从 115200 改为 150000，并递增 OTA 版本。
 - 文件：`firmware/include/config/profile_defaults.h`, `firmware/include/config/board_pins.h`, `profiles/example_bldc_analog_36v.yaml`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`

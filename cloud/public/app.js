@@ -18,6 +18,11 @@ const els = {
   uwbDetail: $("uwb-detail"),
   uwbBearing: $("uwb-bearing"),
   uwbConf: $("uwb-conf"),
+  imuStatus: $("imu-status"),
+  imuYaw: $("imu-yaw"),
+  imuRate: $("imu-rate"),
+  imuPr: $("imu-pr"),
+  imuDetail: $("imu-detail"),
   lidarStatus: $("lidar-status"),
   lidarLeft: $("lidar-left"),
   lidarCenter: $("lidar-center"),
@@ -349,6 +354,7 @@ function render(payload) {
   const uwb = s.uwb || {};
   const motor = s.motor || {};
   const lidar = s.lidar || {};
+  const imu = s.imu || {};
   const tof = s.tof || {};
   const ultrasonic = s.ultrasonic || {};
   const obstacle = s.obstacle || {};
@@ -422,6 +428,19 @@ function render(payload) {
   els.uwbBearing.textContent = uwb.valid ? `${fmt(uwb.bearing_deg, "°", 1)}` : "--";
   els.uwbConf.textContent = uwb.valid ? `q${uwb.confidence ?? 0}` : "--";
   els.uwbDetail.textContent = uwb.valid ? "目标有效" : "等待目标";
+
+  // JY62 / WitMotion IMU
+  const imuValid = !!imu.valid;
+  els.imuStatus.textContent = imuValid ? "有效" : "无效";
+  setTextState(els.imuStatus, imuValid, Number(imu.last_update_ms || 0) > 0);
+  els.imuYaw.textContent = imuValid ? fmt(imu.yaw_deg, "°", 1) : "--";
+  els.imuRate.textContent = imuValid ? fmt(imu.yaw_rate_dps, "°/s", 1) : "--";
+  els.imuPr.textContent = imuValid
+    ? `${fmt(imu.pitch_deg, "°", 1)} / ${fmt(imu.roll_deg, "°", 1)}`
+    : "--";
+  els.imuDetail.textContent = imuValid
+    ? `更新 ${fmtAge(s.now_ms, imu.last_update_ms)}`
+    : (Number(imu.last_update_ms || 0) > 0 ? "姿态帧已超时" : "等待 IMU 串口姿态帧");
 
   // EAI S2 LiDAR (raw, before obstacle fusion)
   const lidarFrontCount = [

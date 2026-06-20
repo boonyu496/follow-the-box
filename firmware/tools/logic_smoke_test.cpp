@@ -673,6 +673,12 @@ void testTelemetryJson() {
   state.cloud.connected = true;
   state.cloud.last_update_ms = 123400;
   state.cloud.last_seq = 42;
+  state.imu.valid = true;
+  state.imu.last_update_ms = 123450;
+  state.imu.yaw_deg = 45.0f;
+  state.imu.yaw_rate_dps = 3.5f;
+  state.imu.pitch_deg = -1.2f;
+  state.imu.roll_deg = 0.8f;
 
   char buf[2560];
   const size_t n = buildStateJson(state, buf, sizeof(buf));
@@ -682,6 +688,9 @@ void testTelemetryJson() {
   assert(jsonContains(buf, "\"stop_reason\":\"NONE\""));
   assert(jsonContains(buf, "\"cloud\":{\"connected\":true"));
   assert(jsonContains(buf, "\"last_seq\":42"));
+  assert(jsonContains(buf, "\"imu\":{\"valid\":true"));
+  assert(jsonContains(buf, "\"yaw_deg\":45.0"));
+  assert(jsonContains(buf, "\"yaw_rate_dps\":3.5"));
   assert(jsonContains(buf, "\"distance_mm\":1500"));
   assert(jsonContains(buf, "\"last_update_ms\":123000"));
   assert(jsonContains(buf, "\"front_center_mm\":800"));

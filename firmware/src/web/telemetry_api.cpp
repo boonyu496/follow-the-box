@@ -73,6 +73,8 @@ size_t buildStateJson(const SystemState& state, char* out, size_t out_size) {
       "\"stop_reason\":\"%s\",\"max_speed_scale\":%.2f},"
       "\"rc\":{\"online\":%s,\"last_update_ms\":%u},"
       "\"cloud\":{\"connected\":%s,\"last_update_ms\":%u,\"last_seq\":%u},"
+      "\"imu\":{\"valid\":%s,\"last_update_ms\":%u,\"yaw_deg\":%.1f,"
+      "\"yaw_rate_dps\":%.1f,\"pitch_deg\":%.1f,\"roll_deg\":%.1f},"
       "\"uwb\":{\"valid\":%s,\"distance_mm\":%d,\"bearing_deg\":%.1f,"
       "\"confidence\":%u,\"last_update_ms\":%u},"
       "\"obstacle\":{\"front_left_mm\":%d,\"front_center_mm\":%d,"
@@ -110,6 +112,12 @@ size_t buildStateJson(const SystemState& state, char* out, size_t out_size) {
       state.cloud.connected ? "true" : "false",
       static_cast<unsigned>(state.cloud.last_update_ms),
       static_cast<unsigned>(state.cloud.last_seq),
+      state.imu.valid ? "true" : "false",
+      static_cast<unsigned>(state.imu.last_update_ms),
+      static_cast<double>(state.imu.yaw_deg),
+      static_cast<double>(state.imu.yaw_rate_dps),
+      static_cast<double>(state.imu.pitch_deg),
+      static_cast<double>(state.imu.roll_deg),
       state.uwb.valid ? "true" : "false", state.uwb.distance_mm,
       static_cast<double>(state.uwb.bearing_deg),
       static_cast<unsigned>(state.uwb.confidence),
