@@ -28,6 +28,24 @@
 ```
 
 ## 最新交接记录
+### 2026-06-20 16:35 - Codex - 云端遥控链路显示修复
+- 改动：云端 H5 状态页新增 DS600 遥控与云端上报卡片，并修正链路状态按 5 秒遥测新鲜度显示；服务器 SSE 事件补 `commandAt` 用于命令下发时间。
+- 文件：`cloud/public/index.html`, `cloud/public/app.js`, `cloud/public/deploy-version.txt`, `cloud/server.js`, `firmware/src/cloud/cloud_client.cpp`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无模块边界/GPIO/PWM 变更；云端仍原样转发固件 `state.rc/state.cloud`，固件云端客户端仅刷新同 seq 轮询的链路时间。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C 改动；同 seq 不重复应用动作，deadman 过期仍等服务器返回新 stop seq 后走安全链停车。
+- 验证：`node --check cloud/server.js cloud/public/app.js` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools\check_ai_handoff.py` PASS；`git diff --check` 仅 CRLF 提示。
+- 当前状态：NEEDS_DEPLOY_AND_HARDWARE_VERIFY
+- 下一步：部署云端静态/后端后，打开云端状态页确认 `DS600 遥控` 在线/离线与 `云端上报 seq` 随设备上报变化。
+
+### 2026-06-20 18:24 - Codex - JY62固件链路复核补入图一
+- 改动：在 `ASSEMBLY-WIRING-MINDMAP.html` 的雷达复核块后新增 JY62/JY61P IMU 固件链路统一复核。
+- 文件：`ASSEMBLY-WIRING-MINDMAP.html`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无固件代码变更；仅把 GPIO42/UART0→SensorTask→Jy61pImu→SystemState.imu→H5/云端 state 的检查路径写入装配图。
+- 安全影响：有文档/装配安全影响；强调保持急停、禁止电机使能，TX 高于 3.3V 未转换或 GPIO42 误接时立即断电。
+- 验证：HTML 脚本语法检查 PASS；关键词检索确认 JY62 复核块存在；`git diff --check` 仅 CRLF 警告。
+- 当前状态：NEXT_TASK_READY
+- 下一步：现场按图一确认 JY62 TX→GPIO42 电平转换、共地、9600 8N1/0x55帧后，再启用 `UART_NUM_IMU=0` 做实测。
+
 ### 2026-06-20 18:05 - Codex - JY62 姿态遥测接入 H5/云端
 - 结论：JY62 未显示的主因是 `/ws/state` 未输出 `imu` 节点，云端后端只原样转发 state；同时 `UART_NUM_IMU=-1` 仍让 IMU 串口默认禁用。
 - 改动：`buildStateJson()` 增加只读 `imu` 字段，本地 H5 与云端 H5 传感器页新增 JY62 姿态卡，协议和烟测断言同步更新。

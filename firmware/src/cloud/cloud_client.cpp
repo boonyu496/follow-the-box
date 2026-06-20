@@ -204,7 +204,11 @@ bool CloudClient::applyCommandBody(const char* body, size_t length,
 
   portENTER_CRITICAL(&mux_);
   if (seq == input_.last_seq) {
-    // Same command as last poll: already applied, ignore (dedupe).
+    // Same command as last poll: keep the cloud link fresh without reapplying
+    // motion. If the server-side deadman expires, the next GET returns a new
+    // stop seq and clears motion through the normal path.
+    input_.connected = true;
+    input_.last_update_ms = now_ms;
     portEXIT_CRITICAL(&mux_);
     return false;
   }

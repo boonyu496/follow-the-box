@@ -49,6 +49,10 @@ const els = {
   commandAge: $("command-age"),
   lastIngest: $("last-ingest"),
   linkStatus: $("link-status"),
+  rcStatus: $("rc-status"),
+  rcAge: $("rc-age"),
+  cloudTelemetry: $("cloud-telemetry"),
+  cloudTelemetryAge: $("cloud-telemetry-age"),
   camera: $("camera"),
   cameraStream: $("camera-stream"),
   cameraPlaceholder: $("camera-placeholder"),
@@ -187,6 +191,11 @@ function validityLabel(validCount, totalCount) {
 function fmtAge(now, last) {
   if (typeof now !== "number" || typeof last !== "number" || last <= 0) return "--";
   return `${Math.max(0, Math.round((now - last) / 1000))}s 前`;
+}
+
+function fmtWallAge(last) {
+  if (typeof last !== "number" || last <= 0) return "--";
+  return `${Math.max(0, Math.round((Date.now() - last) / 1000))}s 前`;
 }
 
 function estimateBatteryPercent(voltage) {
@@ -358,6 +367,8 @@ function render(payload) {
   const tof = s.tof || {};
   const ultrasonic = s.ultrasonic || {};
   const obstacle = s.obstacle || {};
+  const rc = s.rc || {};
+  const cloudLink = s.cloud || {};
   const command = payload.command || {};
 
   latestState = s;
@@ -410,6 +421,10 @@ function render(payload) {
       ? `点动 F${Math.round((command.forward || 0) * 100)} T${Math.round((command.turn || 0) * 100)}`
       : command.safe_idle ? "安全停" : "空闲";
   }
+  if (els.commandAge) {
+    els.commandAge.textContent = payload.commandAt
+      ? `下发 ${fmtWallAge(payload.commandAt)}` : "等待命令";
+  }
 
   // Last ingest
   if (els.lastIngest) {
@@ -419,8 +434,26 @@ function render(payload) {
 
   // Link status
   if (els.linkStatus) {
-    els.linkStatus.textContent = payload.lastIngestAt ? "云端在线" : "等待数据";
-    setTextState(els.linkStatus, !!payload.lastIngestAt, !payload.lastIngestAt);
+    els.linkStatus.textContent = serverSaysOnline
+      ? "遥测在线" : (payload.lastIngestAt ? "遥测超时" : "等待数据");
+    setTextState(els.linkStatus, serverSaysOnline, !!payload.lastIngestAt);
+  }
+
+  // Physical RC and cloud-device link telemetry from firmware /ws/state.
+  if (els.rcStatus) {
+    els.rcStatus.textContent = rc.online ? "在线" : "离线";
+    setTextState(els.rcStatus, !!rc.online, !rc.online);
+  }
+  if (els.rcAge) {
+    els.rcAge.textContent = `更新 ${fmtAge(s.now_ms, rc.last_update_ms)}`;
+  }
+  if (els.cloudTelemetry) {
+    els.cloudTelemetry.textContent = cloudLink.connected
+      ? `seq ${cloudLink.last_seq ?? 0}` : "离线";
+    setTextState(els.cloudTelemetry, !!cloudLink.connected, !cloudLink.connected);
+  }
+  if (els.cloudTelemetryAge) {
+    els.cloudTelemetryAge.textContent = `轮询 ${fmtAge(s.now_ms, cloudLink.last_update_ms)}`;
   }
 
   // UWB

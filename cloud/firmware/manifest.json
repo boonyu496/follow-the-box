@@ -1,8 +1,6 @@
 {
-  "version": "2026.06.20-lidar-s2.1",
-  "file": "firmware.bin",
-  "md5": "cf8dd232319afbd841bde2e80b30dd70",
-  "size": 1129024,
-  "force": false,
-  "notes": "EAI S2-YJ/S2-YD 雷达 UART 默认波特率改为 150000，匹配 EaiLidarTest V1.12.3 配置；H5 可通过雷达 RX/包/圈诊断检查数据恢复。"
+  "version": "2026.06.20-20260620-163600",
+  "md5": "5453e04fe463b049cf854935e5f44c4c",
+  "size": 1129408,
+  "timestamp": "2026-06-20T08:36:00Z"
 }

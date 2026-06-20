@@ -78,6 +78,7 @@ function broadcast(device) {
     state: device.state,
     logs: device.logs.slice(-200),
     command: device.command,
+    commandAt: device.commandAt,
     ota: device.ota,
     video: {
       lastFrameAt: device.video.lastFrameAt,

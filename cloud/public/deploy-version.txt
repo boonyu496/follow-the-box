@@ -1,5 +1,5 @@
 FollowBox cloud deploy package
-built_at=2026-06-19T08:45:00+08:00
+built_at=2026-06-20T16:35:00+08:00
 cache_policy=no-store+versioned-assets
 path=https://www.boonai.cn/fb/
-feature=explicit-consent-ota
+feature=cloud-rc-link-status

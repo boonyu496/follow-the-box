@@ -335,6 +335,28 @@
 "### 立即停止条件\n" +
 "#### 雷达异常发热、5V掉压、TX电平高于3.3V且未转换、GPIO3被误接到电源/地/其他模块，立即断电复核\n" +
 "\n" +
+"## 🟩 JY62/JY61P IMU 固件链路统一复核 [H5姿态无效时先查这里]\n" +
+"### 当前固件与H5诊断口径\n" +
+"#### JY62/JY61P 使用 WitMotion 0x55 串口帧；0x53角度帧输出 Yaw/Pitch/Roll，0x52角速度帧输出 yaw_rate\n" +
+"#### 固件链路：GPIO42/UART0 → SensorTask.drainImu → Jy61pImu parser → SystemState.imu → buildStateJson → 本地H5/云端state\n" +
+"#### 当前默认 UART_NUM_IMU=-1，表示 IMU 串口禁用；H5/云端 JY62 姿态卡会持续显示无效\n" +
+"#### 只有确认接线、电平和波特率后，才把 firmware/include/config/board_pins.h 的 UART_NUM_IMU 从 -1 改为 0\n" +
+"#### FOLLOW_YAW_DAMP_GAIN 当前为0，IMU只做只读诊断；姿态无效不能绕过 safety_manager 或提高速度\n" +
+"### 断电逐线检查\n" +
+"#### JY62 VCC 接 5V 低压母线，GND 接公共低压GND；模块旁建议并 0.1μF 去耦\n" +
+"#### JY62 TX 必须经10k/20k分压或电平转换后接 ESP32 GPIO42，不接 GPIO3/雷达RX、GPIO18/UWB RX 或旧预留脚\n" +
+"#### 首版 RX/配置线不接 ESP32；固件只读姿态，不向模块下发配置命令\n" +
+"#### 确认 ESP32 GND、JY62 GND、DC-DC VOUT- 单点共地；主电流不能走传感器地线\n" +
+"#### 用万用表蜂鸣档确认 GPIO42 到 JY62 TX 通，且与 5V、GND、GPIO3、GPIO18 无短路\n" +
+"### 低能量上电验收 [保持急停、禁止电机使能]\n" +
+"#### 先只给 ESP32 与 JY62 上电，不接电机动力；上电后保持控制盒静止至少3秒等待IMU零偏稳定\n" +
+"#### 万用表测 JY62 TX 进入 GPIO42 前静态高电平应约3.3V；若是5V电平，先断电加电平转换再接GPIO42\n" +
+"#### 用 USB-TTL 或逻辑分析仪夹 JY62 TX/GND，确认有 0x55 开头的持续串口帧，优先试 9600 8N1\n" +
+"#### 若固件已启用UART_NUM_IMU=0，H5/云端传感器页 JY62 姿态应从无效变有效，Yaw/Pitch/Roll 随手动转动车体变化\n" +
+"#### 若 H5仍无效但 USB-TTL 有帧，优先核对 UART_NUM_IMU、GPIO42脚位、IMU_UART_BAUD 和 0x53角度帧是否存在\n" +
+"### 立即停止条件\n" +
+"#### JY62异常发热、5V掉压、TX高于3.3V且未转换、GPIO42被误接到电源/地/雷达/UWB、或上电后姿态剧烈漂移，立即断电复核\n" +
+"\n" +
 "## 🟪 TOF 接线统一复核 [待办，未验收前不得视为可用]\n" +
 "### ESP32-S3 ↔ TCA9548A 主总线 [逐线连接]\n" +
 "#### ESP32 3V3 → TCA9548A VIN/VCC\n" +
