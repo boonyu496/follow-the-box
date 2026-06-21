@@ -102,6 +102,7 @@ constexpr uint8_t TOF_TCA9548A_ADDR = 0x70;
 constexpr uint8_t TOF_CHANNEL_FRONT_CENTER = 0;
 constexpr uint8_t TOF_CHANNEL_FRONT_LEFT = 1;
 constexpr uint8_t TOF_CHANNEL_FRONT_RIGHT = 2;
+constexpr uint32_t TOF_I2C_CLOCK_HZ = 100000;        // safer for prototype wiring
 constexpr uint32_t TOF_TIMING_BUDGET_US = 50000;     // 50 ms Long-mode budget
 constexpr uint32_t TOF_CONTINUOUS_PERIOD_MS = 50;    // inter-measurement period
 constexpr uint32_t TOF_STALE_TIMEOUT_MS = 300;       // matches OBSTACLE_STALE_TIMEOUT_MS

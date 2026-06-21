@@ -19,7 +19,27 @@ const els = {
   uwb: $("uwb"),
   uwbDetail: $("uwb-detail"),
   uwbBearing: $("uwb-bearing"),
+  sensorSummary: $("sensor-summary"),
+  sensorUwbStatus: $("sensor-uwb-status"),
+  sensorUwbAge: $("sensor-uwb-age"),
+  sensorImuStatus: $("sensor-imu-status"),
+  sensorImuAge: $("sensor-imu-age"),
+  sensorLidarStatus: $("sensor-lidar-status"),
+  sensorLidarAge: $("sensor-lidar-age"),
+  sensorTofStatus: $("sensor-tof-status"),
+  sensorTofAge: $("sensor-tof-age"),
+  sensorUltraStatus: $("sensor-ultra-status"),
+  sensorUltraAge: $("sensor-ultra-age"),
+  sensorCameraStatus: $("sensor-camera-status"),
+  sensorCameraAge: $("sensor-camera-age"),
+  sensorPowerStatus: $("sensor-power-status"),
+  sensorPowerAge: $("sensor-power-age"),
+  sensorFusionStatus: $("sensor-fusion-status"),
+  sensorFusionAge: $("sensor-fusion-age"),
   obstacle: $("obstacle"),
+  obstacleFrontDetail: $("obstacle-front-detail"),
+  obstacleSideDetail: $("obstacle-side-detail"),
+  obstacleAge: $("obstacle-age"),
   imu: $("imu"),
   imuYaw: $("imu-yaw"),
   imuRate: $("imu-rate"),
@@ -49,6 +69,11 @@ const els = {
   ultrasonic: $("ultrasonic"),
   ultraLeft: $("ultra-left"),
   ultraRight: $("ultra-right"),
+  ultraDetail: $("ultra-detail"),
+  sensorAuxStatus: $("sensor-aux-status"),
+  sensorBatteryDetail: $("sensor-battery-detail"),
+  sensorCameraDetail: $("sensor-camera-detail"),
+  sensorAuxDetail: $("sensor-aux-detail"),
   camera: $("camera"),
   cameraLink: $("camera-link"),
   cameraStream: $("camera-stream"),
@@ -168,6 +193,28 @@ function validityLabel(validCount, totalCount) {
   return "无效";
 }
 
+function setStatus(el, text, ok, warn = false) {
+  if (!el) return;
+  el.textContent = text;
+  setTextState(el, ok, warn);
+}
+
+function ageText(now, last) {
+  const age = fmtAge(now, last);
+  return age === "--" ? "未更新" : age;
+}
+
+function sensorOnline(snapshot, now, staleMs = 1000) {
+  if (!snapshot) return false;
+  if (snapshot.valid) return true;
+  const last = Number(snapshot.last_update_ms || 0);
+  return last > 0 && typeof now === "number" && now - last <= staleMs;
+}
+
+function validCountLabel(validCount, totalCount) {
+  return `${validCount}/${totalCount}`;
+}
+
 function setConn(online) {
   els.conn.textContent = online ? "已连接" : "未连接";
   els.conn.classList.toggle("fb-pill--ok", online);
@@ -222,6 +269,10 @@ function switchView(name) {
   document.querySelectorAll(".fb-nav-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === name);
   });
+  if (["drive", "sensors", "status", "settings"].includes(name) &&
+      location.hash !== `#${name}`) {
+    history.replaceState(null, "", `#${name}`);
+  }
   requestAnimationFrame(() => {
     if (latestState) {
       setupCanvasDPI(els.uwbCanvas);
@@ -266,6 +317,12 @@ function renderState(s) {
   els.uwbMini.textContent = u.valid ? fmt(u.distance_mm / 1000, "m", 1) : "--";
   els.uwbBearing.textContent = u.valid ? `${fmt(u.bearing_deg, "°", 1)} / q${u.confidence ?? 0}` : "--";
   els.uwbDetail.textContent = u.valid ? "目标有效" : "等待目标";
+  setStatus(els.sensorUwbStatus, u.valid ? "有效" : "无效", !!u.valid, Number(u.last_update_ms || 0) > 0);
+  if (els.sensorUwbAge) {
+    els.sensorUwbAge.textContent = u.valid
+      ? `${fmt(u.distance_mm, "mm")} / ${fmt(u.bearing_deg, "°", 1)}`
+      : ageText(s.now_ms, u.last_update_ms);
+  }
   latestUwbData = u;
 
   // Raw EAI S2 data, before TOF/ultrasonic obstacle fusion. Keeping this
@@ -295,6 +352,9 @@ function renderState(s) {
   }
   els.lidar.textContent = lidar.valid ? "有效" : "无效";
   setTextState(els.lidar, !!lidar.valid, lidarRxBytes > 0);
+  setStatus(els.sensorLidarStatus, lidar.valid ? "有效" : (lidarRxBytes > 0 ? "有字节" : "无数据"),
+            !!lidar.valid, lidarRxBytes > 0);
+  if (els.sensorLidarAge) els.sensorLidarAge.textContent = ageText(s.now_ms, lidar.last_update_ms);
   els.lidarDetail.textContent =
     `侧向 ${fmtMm(lidar.side_left_mm)} / ${fmtMm(lidar.side_right_mm)}` +
     ` · RX ${lidarRxBytes} · 包 ${lidarPackets} · 圈 ${lidarScans}` +
@@ -307,6 +367,16 @@ function renderState(s) {
   els.obstacle.textContent = hasFrontObstacle || !hasSideObstacle
     ? `${fmtMm(o.front_left_mm)} / ${fmtMm(o.front_center_mm)} / ${fmtMm(o.front_right_mm)}`
     : `侧 ${fmtMm(o.side_left_mm)} / ${fmtMm(o.side_right_mm)}`;
+  setStatus(els.sensorFusionStatus, o.valid ? "有效" : "无效", !!o.valid, Number(o.last_update_ms || 0) > 0);
+  if (els.sensorFusionAge) els.sensorFusionAge.textContent = ageText(s.now_ms, o.last_update_ms);
+  if (els.obstacleFrontDetail) {
+    els.obstacleFrontDetail.textContent =
+      `${fmtMm(o.front_left_mm)} / ${fmtMm(o.front_center_mm)} / ${fmtMm(o.front_right_mm)}`;
+  }
+  if (els.obstacleSideDetail) {
+    els.obstacleSideDetail.textContent = `${fmtMm(o.side_left_mm)} / ${fmtMm(o.side_right_mm)}`;
+  }
+  if (els.obstacleAge) els.obstacleAge.textContent = ageText(s.now_ms, o.last_update_ms);
   latestObstacleData = o;
 
   const imu = s.imu ?? {};
@@ -321,6 +391,8 @@ function renderState(s) {
   els.imuDetail.textContent = imuValid
     ? `更新 ${fmtAge(s.now_ms, imu.last_update_ms)}`
     : (Number(imu.last_update_ms || 0) > 0 ? "姿态帧已超时" : "等待 IMU 串口姿态帧");
+  setStatus(els.sensorImuStatus, imuValid ? "有效" : "无效", imuValid, Number(imu.last_update_ms || 0) > 0);
+  if (els.sensorImuAge) els.sensorImuAge.textContent = ageText(s.now_ms, imu.last_update_ms);
 
   // ── Canvas redraw (RAF-throttled — WS may push at 5-10 Hz) ──
   if (!canvasDirty) {
@@ -340,6 +412,9 @@ function renderState(s) {
   ].filter(Boolean).length;
   els.tof.textContent = validityLabel(tofValidCount, 3);
   setTextState(els.tof, tofValidCount === 3, tofValidCount > 0);
+  setStatus(els.sensorTofStatus, validCountLabel(tofValidCount, 3),
+            tofValidCount === 3, tofValidCount > 0);
+  if (els.sensorTofAge) els.sensorTofAge.textContent = ageText(s.now_ms, tof.last_update_ms);
   setBar("left", tof.front_left_mm, channelValid(tof, "front_left_valid", "front_left_mm"));
   setBar("center", tof.front_center_mm, channelValid(tof, "front_center_valid", "front_center_mm"));
   setBar("right", tof.front_right_mm, channelValid(tof, "front_right_valid", "front_right_mm"));
@@ -359,7 +434,10 @@ function renderState(s) {
   }
   els.tofDetail.textContent =
     `初始化 0b${initMask.toString(2).padStart(3, "0")} / 尝试 ${initAttempts}` +
-    ` / 失败 ${initFailures} / NACK ${muxNacks} / ${tofDiagnosis}`;
+    ` / 失败 ${initFailures} / 读取 ${tof.read_count || 0}` +
+    ` / 超时 ${tof.timeout_count || 0} / NACK ${muxNacks}` +
+    ` / BusClear ${tof.bus_clear_count || 0} / 重连 ${tof.reinit_count || 0}` +
+    ` / ${tofDiagnosis}`;
 
   const us = s.ultrasonic ?? {};
   const usValidCount = [
@@ -368,8 +446,15 @@ function renderState(s) {
   ].filter(Boolean).length;
   els.ultrasonic.textContent = validityLabel(usValidCount, 2);
   setTextState(els.ultrasonic, usValidCount === 2, usValidCount > 0);
+  setStatus(els.sensorUltraStatus, validCountLabel(usValidCount, 2),
+            usValidCount === 2, usValidCount > 0);
+  if (els.sensorUltraAge) els.sensorUltraAge.textContent = ageText(s.now_ms, us.last_update_ms);
   els.ultraLeft.textContent = channelMm(us, "left_valid", "left_mm");
   els.ultraRight.textContent = channelMm(us, "right_valid", "right_mm");
+  if (els.ultraDetail) {
+    els.ultraDetail.textContent =
+      `更新 ${ageText(s.now_ms, us.last_update_ms)} / L ${us.left_valid ? "有效" : "无效"} / R ${us.right_valid ? "有效" : "无效"}`;
+  }
 
   const m = s.motor ?? {};
   els.motor.textContent = m.enable ? "使能" : "关闭";
@@ -392,9 +477,37 @@ function renderState(s) {
   els.camera.textContent = cam.online ? "摄像头在线" : "摄像头离线";
   els.cameraLink.textContent = cam.online ? "在线" : "离线";
   setTextState(els.cameraLink, !!cam.online, !cam.online);
+  setStatus(els.sensorCameraStatus, cam.online ? "在线" : "离线", !!cam.online, !cam.online);
+  if (els.sensorCameraAge) els.sensorCameraAge.textContent = cam.stream_url ? "有地址" : "无地址";
+  if (els.sensorCameraDetail) els.sensorCameraDetail.textContent = cam.online ? "在线" : "离线";
+  setStatus(els.sensorPowerStatus, p.low_battery ? "低电压" : (p.battery_voltage != null ? "正常" : "无数据"),
+            !p.low_battery && p.battery_voltage != null, p.battery_voltage != null);
+  if (els.sensorPowerAge) els.sensorPowerAge.textContent = p.battery_voltage != null ? `${p.battery_voltage.toFixed(2)}V` : "未更新";
+  if (els.sensorBatteryDetail) {
+    els.sensorBatteryDetail.textContent =
+      p.battery_voltage != null ? `${p.battery_voltage.toFixed(2)}V / ${Math.round(batteryPct)}%` : "--";
+  }
+  if (els.sensorAuxStatus) {
+    els.sensorAuxStatus.textContent = `${p.low_battery ? "电池告警" : "电池正常"} / ${cam.online ? "视频在线" : "视频离线"}`;
+  }
   if (cam.stream_url) {
     lastTelemetryCameraUrl = cam.stream_url;
     if (!userCameraOverride) setCameraStream(cam.stream_url);
+  }
+
+  const sensorOkCount = [
+    !!u.valid,
+    imuValid,
+    !!lidar.valid,
+    tofValidCount > 0,
+    usValidCount > 0,
+    !!cam.online,
+    p.battery_voltage != null && !p.low_battery,
+    !!o.valid,
+  ].filter(Boolean).length;
+  if (els.sensorSummary) {
+    els.sensorSummary.textContent = `在线/有效 ${sensorOkCount}/8`;
+    setTextState(els.sensorSummary, sensorOkCount >= 7, sensorOkCount >= 4);
   }
 
   const wiz = $("wizard-status");
@@ -988,4 +1101,8 @@ setupCanvasDPI(els.uwbCanvas);
 setupCanvasDPI(els.obstacleCanvas);
 drawUwb({});
 drawObstacle({});
+const initialView = (location.hash || "").slice(1);
+if (["drive", "sensors", "status", "settings"].includes(initialView)) {
+  switchView(initialView);
+}
 connectWs();

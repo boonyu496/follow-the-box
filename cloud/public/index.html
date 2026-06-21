@@ -47,13 +47,30 @@
             </div>
           </div>
         </div>
-        <div class="fb-mode-dock">
+        <div class="fb-mode-dock fb-mode-dock--cloud">
           <button class="fb-mode-btn fb-mode-btn--safe" id="safe-idle">安全停</button>
           <button class="fb-mode-btn fb-mode-btn--manual" id="deadman">按住点动</button>
         </div>
       </section>
 
       <section id="view-sensors" class="fb-view">
+        <article class="fb-panel">
+          <header class="fb-section-head">
+            <strong>传感器总览</strong>
+            <span id="sensor-summary">等待遥测</span>
+          </header>
+          <div class="fb-sensor-grid">
+            <div><span>UWB</span><strong id="sensor-uwb-status">--</strong><em id="sensor-uwb-age">--</em></div>
+            <div><span>IMU</span><strong id="sensor-imu-status">--</strong><em id="sensor-imu-age">--</em></div>
+            <div><span>LiDAR</span><strong id="sensor-lidar-status">--</strong><em id="sensor-lidar-age">--</em></div>
+            <div><span>TOF</span><strong id="sensor-tof-status">--</strong><em id="sensor-tof-age">--</em></div>
+            <div><span>超声</span><strong id="sensor-ultra-status">--</strong><em id="sensor-ultra-age">--</em></div>
+            <div><span>Camera</span><strong id="sensor-camera-status">--</strong><em id="sensor-camera-age">视频只读</em></div>
+            <div><span>电池</span><strong id="sensor-power-status">--</strong><em id="sensor-power-age">--</em></div>
+            <div><span>融合</span><strong id="sensor-fusion-status">--</strong><em id="sensor-fusion-age">--</em></div>
+          </div>
+        </article>
+
         <article class="fb-panel fb-map-panel">
           <header class="fb-section-head">
             <strong>空间地图</strong>
@@ -131,6 +148,7 @@
               <div><span>左</span><strong id="ultra-left">--</strong></div>
               <div><span>右</span><strong id="ultra-right">--</strong></div>
             </div>
+            <small id="ultra-detail" class="fb-sensor-detail">--</small>
           </article>
 
           <article class="fb-panel">
@@ -143,6 +161,10 @@
               <div class="fb-tof-cell fb-tof-center"><em>正前</em><strong id="obstacle-center">--</strong></div>
               <div class="fb-tof-cell"><em>右前</em><strong id="obstacle-right">--</strong></div>
             </div>
+            <div class="fb-status-list fb-status-list--compact">
+              <div><span>侧向 L/R</span><strong id="obstacle-side">--</strong></div>
+              <div><span>融合更新时间</span><strong id="obstacle-age">--</strong></div>
+            </div>
           </article>
 
           <article class="fb-panel">
@@ -154,6 +176,18 @@
               <div><span>右轮</span><strong id="motor-right">--</strong></div>
             </div>
             <small id="motor-detail" style="display:block; text-align:center; padding:4px 0 12px">--</small>
+          </article>
+
+          <article class="fb-panel">
+            <header class="fb-section-head">
+              <strong>电源/视频</strong>
+              <span id="sensor-aux-status">--</span>
+            </header>
+            <div class="fb-side-range">
+              <div><span>电池</span><strong id="sensor-battery-detail">--</strong></div>
+              <div><span>视频</span><strong id="sensor-camera-detail">--</strong></div>
+            </div>
+            <small id="sensor-aux-detail" class="fb-sensor-detail">电池与摄像头只用于显示/诊断，不绕过安全链</small>
           </article>
         </div>
       </section>

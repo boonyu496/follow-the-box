@@ -19,12 +19,37 @@ const els = {
   uwb: $("uwb"),
   uwbDetail: $("uwb-detail"),
   uwbBearing: $("uwb-bearing"),
+  sensorSummary: $("sensor-summary"),
+  sensorUwbStatus: $("sensor-uwb-status"),
+  sensorUwbAge: $("sensor-uwb-age"),
+  sensorImuStatus: $("sensor-imu-status"),
+  sensorImuAge: $("sensor-imu-age"),
+  sensorLidarStatus: $("sensor-lidar-status"),
+  sensorLidarAge: $("sensor-lidar-age"),
+  sensorTofStatus: $("sensor-tof-status"),
+  sensorTofAge: $("sensor-tof-age"),
+  sensorUltraStatus: $("sensor-ultra-status"),
+  sensorUltraAge: $("sensor-ultra-age"),
+  sensorCameraStatus: $("sensor-camera-status"),
+  sensorCameraAge: $("sensor-camera-age"),
+  sensorPowerStatus: $("sensor-power-status"),
+  sensorPowerAge: $("sensor-power-age"),
+  sensorFusionStatus: $("sensor-fusion-status"),
+  sensorFusionAge: $("sensor-fusion-age"),
   obstacle: $("obstacle"),
+  obstacleFrontDetail: $("obstacle-front-detail"),
+  obstacleSideDetail: $("obstacle-side-detail"),
+  obstacleAge: $("obstacle-age"),
   imu: $("imu"),
   imuYaw: $("imu-yaw"),
   imuRate: $("imu-rate"),
   imuPr: $("imu-pr"),
   imuDetail: $("imu-detail"),
+  lidar: $("lidar"),
+  lidarLeft: $("lidar-left"),
+  lidarCenter: $("lidar-center"),
+  lidarRight: $("lidar-right"),
+  lidarDetail: $("lidar-detail"),
   motor: $("motor"),
   motorDetail: $("motor-detail"),
   driveLeft: $("drive-left"),
@@ -37,12 +62,18 @@ const els = {
   tofLeft: $("tof-left"),
   tofCenter: $("tof-center"),
   tofRight: $("tof-right"),
+  tofDetail: $("tof-detail"),
   tofLeftBar: $("tof-left-bar"),
   tofCenterBar: $("tof-center-bar"),
   tofRightBar: $("tof-right-bar"),
   ultrasonic: $("ultrasonic"),
   ultraLeft: $("ultra-left"),
   ultraRight: $("ultra-right"),
+  ultraDetail: $("ultra-detail"),
+  sensorAuxStatus: $("sensor-aux-status"),
+  sensorBatteryDetail: $("sensor-battery-detail"),
+  sensorCameraDetail: $("sensor-camera-detail"),
+  sensorAuxDetail: $("sensor-aux-detail"),
   camera: $("camera"),
   cameraLink: $("camera-link"),
   cameraStream: $("camera-stream"),
@@ -51,6 +82,8 @@ const els = {
   cameraUrl: $("camera-url"),
   cameraUrlState: $("camera-url-state"),
   btnCameraReload: $("btn-camera-reload"),
+  logs: $("logs"),
+  clearLogs: $("clear-logs"),
   joy: $("joy"),
   stick: $("stick"),
   uwbCanvas: $("uwb-canvas"),
@@ -84,6 +117,16 @@ const wifiEls = {
   save: $("btn-wifi-save"),
 };
 
+const otaEls = {
+  state: $("ota-local-state"),
+  current: $("ota-current-version"),
+  available: $("ota-available-version"),
+  check: $("btn-ota-check"),
+  install: $("btn-ota-install"),
+  later: $("btn-ota-later"),
+  hint: $("ota-local-hint"),
+};
+
 // modeLabels / stopLabels → loaded from ../shared/helpers.js
 
 const LOCAL_KEY_STORAGE = "followbox.localApiKey"; // sessionStorage — cleared on tab close
@@ -100,6 +143,7 @@ let activeCameraUrl = "";
 let lastTelemetryCameraUrl = "";
 let userCameraOverride = false;
 let latestState = null;
+let lastStateAt = 0;
 
 // ── Canvas redraw state (RAF throttled) ──
 let canvasDirty = false;
@@ -147,6 +191,28 @@ function validityLabel(validCount, totalCount) {
   if (validCount === totalCount) return "有效";
   if (validCount > 0) return "部分";
   return "无效";
+}
+
+function setStatus(el, text, ok, warn = false) {
+  if (!el) return;
+  el.textContent = text;
+  setTextState(el, ok, warn);
+}
+
+function ageText(now, last) {
+  const age = fmtAge(now, last);
+  return age === "--" ? "未更新" : age;
+}
+
+function sensorOnline(snapshot, now, staleMs = 1000) {
+  if (!snapshot) return false;
+  if (snapshot.valid) return true;
+  const last = Number(snapshot.last_update_ms || 0);
+  return last > 0 && typeof now === "number" && now - last <= staleMs;
+}
+
+function validCountLabel(validCount, totalCount) {
+  return `${validCount}/${totalCount}`;
 }
 
 function setConn(online) {
@@ -203,6 +269,10 @@ function switchView(name) {
   document.querySelectorAll(".fb-nav-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === name);
   });
+  if (["drive", "sensors", "status", "settings"].includes(name) &&
+      location.hash !== `#${name}`) {
+    history.replaceState(null, "", `#${name}`);
+  }
   requestAnimationFrame(() => {
     if (latestState) {
       setupCanvasDPI(els.uwbCanvas);
@@ -217,6 +287,7 @@ function switchView(name) {
 
 function renderState(s) {
   latestState = s;
+  lastStateAt = Date.now();
   const mode = s.mode ?? "--";
   els.mode.textContent = modeLabels[mode] ?? mode;
   els.sysTime.textContent = s.now_ms != null ? `${Math.round(s.now_ms / 1000)}s` : "--";
@@ -246,7 +317,48 @@ function renderState(s) {
   els.uwbMini.textContent = u.valid ? fmt(u.distance_mm / 1000, "m", 1) : "--";
   els.uwbBearing.textContent = u.valid ? `${fmt(u.bearing_deg, "°", 1)} / q${u.confidence ?? 0}` : "--";
   els.uwbDetail.textContent = u.valid ? "目标有效" : "等待目标";
+  setStatus(els.sensorUwbStatus, u.valid ? "有效" : "无效", !!u.valid, Number(u.last_update_ms || 0) > 0);
+  if (els.sensorUwbAge) {
+    els.sensorUwbAge.textContent = u.valid
+      ? `${fmt(u.distance_mm, "mm")} / ${fmt(u.bearing_deg, "°", 1)}`
+      : ageText(s.now_ms, u.last_update_ms);
+  }
   latestUwbData = u;
+
+  // Raw EAI S2 data, before TOF/ultrasonic obstacle fusion. Keeping this
+  // separate makes a dead or misconfigured lidar visible instead of allowing
+  // another ranging sensor to make the fused obstacle card look healthy.
+  const lidar = s.lidar ?? {};
+  const lidarRxBytes = Number(lidar.rx_bytes || 0);
+  const lidarPackets = Number(lidar.packets || 0);
+  const lidarScans = Number(lidar.scans || 0);
+  const lidarChecksumErrors = Number(lidar.checksum_errors || 0);
+  const lidarFramingErrors = Number(lidar.framing_errors || 0);
+  els.lidarLeft.textContent = fmtMm(lidar.front_left_mm);
+  els.lidarCenter.textContent = fmtMm(lidar.front_center_mm);
+  els.lidarRight.textContent = fmtMm(lidar.front_right_mm);
+
+  let lidarDiagnosis = "等待串口数据";
+  if (lidar.valid) {
+    lidarDiagnosis = "扫描有效";
+  } else if (lidarRxBytes === 0) {
+    lidarDiagnosis = "无串口数据：检查供电、雷达 TX→GPIO3 和共地";
+  } else if (lidarPackets === 0) {
+    lidarDiagnosis = "有字节但无有效包：检查型号、波特率和协议";
+  } else if (lidarScans === 0) {
+    lidarDiagnosis = "已解包但未完成一圈：检查电机转动和起始包";
+  } else {
+    lidarDiagnosis = "扫描数据已超时";
+  }
+  els.lidar.textContent = lidar.valid ? "有效" : "无效";
+  setTextState(els.lidar, !!lidar.valid, lidarRxBytes > 0);
+  setStatus(els.sensorLidarStatus, lidar.valid ? "有效" : (lidarRxBytes > 0 ? "有字节" : "无数据"),
+            !!lidar.valid, lidarRxBytes > 0);
+  if (els.sensorLidarAge) els.sensorLidarAge.textContent = ageText(s.now_ms, lidar.last_update_ms);
+  els.lidarDetail.textContent =
+    `侧向 ${fmtMm(lidar.side_left_mm)} / ${fmtMm(lidar.side_right_mm)}` +
+    ` · RX ${lidarRxBytes} · 包 ${lidarPackets} · 圈 ${lidarScans}` +
+    ` · 校验错 ${lidarChecksumErrors} · 帧错 ${lidarFramingErrors} · ${lidarDiagnosis}`;
 
   const o = s.obstacle ?? {};
   const hasFrontObstacle = positiveNumber(o.front_left_mm) ||
@@ -255,6 +367,16 @@ function renderState(s) {
   els.obstacle.textContent = hasFrontObstacle || !hasSideObstacle
     ? `${fmtMm(o.front_left_mm)} / ${fmtMm(o.front_center_mm)} / ${fmtMm(o.front_right_mm)}`
     : `侧 ${fmtMm(o.side_left_mm)} / ${fmtMm(o.side_right_mm)}`;
+  setStatus(els.sensorFusionStatus, o.valid ? "有效" : "无效", !!o.valid, Number(o.last_update_ms || 0) > 0);
+  if (els.sensorFusionAge) els.sensorFusionAge.textContent = ageText(s.now_ms, o.last_update_ms);
+  if (els.obstacleFrontDetail) {
+    els.obstacleFrontDetail.textContent =
+      `${fmtMm(o.front_left_mm)} / ${fmtMm(o.front_center_mm)} / ${fmtMm(o.front_right_mm)}`;
+  }
+  if (els.obstacleSideDetail) {
+    els.obstacleSideDetail.textContent = `${fmtMm(o.side_left_mm)} / ${fmtMm(o.side_right_mm)}`;
+  }
+  if (els.obstacleAge) els.obstacleAge.textContent = ageText(s.now_ms, o.last_update_ms);
   latestObstacleData = o;
 
   const imu = s.imu ?? {};
@@ -269,6 +391,8 @@ function renderState(s) {
   els.imuDetail.textContent = imuValid
     ? `更新 ${fmtAge(s.now_ms, imu.last_update_ms)}`
     : (Number(imu.last_update_ms || 0) > 0 ? "姿态帧已超时" : "等待 IMU 串口姿态帧");
+  setStatus(els.sensorImuStatus, imuValid ? "有效" : "无效", imuValid, Number(imu.last_update_ms || 0) > 0);
+  if (els.sensorImuAge) els.sensorImuAge.textContent = ageText(s.now_ms, imu.last_update_ms);
 
   // ── Canvas redraw (RAF-throttled — WS may push at 5-10 Hz) ──
   if (!canvasDirty) {
@@ -288,9 +412,32 @@ function renderState(s) {
   ].filter(Boolean).length;
   els.tof.textContent = validityLabel(tofValidCount, 3);
   setTextState(els.tof, tofValidCount === 3, tofValidCount > 0);
+  setStatus(els.sensorTofStatus, validCountLabel(tofValidCount, 3),
+            tofValidCount === 3, tofValidCount > 0);
+  if (els.sensorTofAge) els.sensorTofAge.textContent = ageText(s.now_ms, tof.last_update_ms);
   setBar("left", tof.front_left_mm, channelValid(tof, "front_left_valid", "front_left_mm"));
   setBar("center", tof.front_center_mm, channelValid(tof, "front_center_valid", "front_center_mm"));
   setBar("right", tof.front_right_mm, channelValid(tof, "front_right_valid", "front_right_mm"));
+  const initMask = Number(tof.init_ok_mask || 0);
+  const initAttempts = Number(tof.init_attempt_count || 0);
+  const initFailures = Number(tof.init_failure_count || 0);
+  const muxNacks = Number(tof.mux_nack_count || 0);
+  let tofDiagnosis = "等待初始化诊断";
+  if (tofValidCount > 0) {
+    tofDiagnosis = `读取正常，累计 ${tof.read_count || 0}`;
+  } else if (muxNacks > 0) {
+    tofDiagnosis = "TCA9548A 无响应：检查 3.3V、GPIO10/11、上拉和地址";
+  } else if (initFailures > 0) {
+    tofDiagnosis = "MUX 已响应，VL53L1X 无响应：检查通道供电和接线";
+  } else if (initAttempts > 0) {
+    tofDiagnosis = "TOF 尚未产生有效距离";
+  }
+  els.tofDetail.textContent =
+    `初始化 0b${initMask.toString(2).padStart(3, "0")} / 尝试 ${initAttempts}` +
+    ` / 失败 ${initFailures} / 读取 ${tof.read_count || 0}` +
+    ` / 超时 ${tof.timeout_count || 0} / NACK ${muxNacks}` +
+    ` / BusClear ${tof.bus_clear_count || 0} / 重连 ${tof.reinit_count || 0}` +
+    ` / ${tofDiagnosis}`;
 
   const us = s.ultrasonic ?? {};
   const usValidCount = [
@@ -299,8 +446,15 @@ function renderState(s) {
   ].filter(Boolean).length;
   els.ultrasonic.textContent = validityLabel(usValidCount, 2);
   setTextState(els.ultrasonic, usValidCount === 2, usValidCount > 0);
+  setStatus(els.sensorUltraStatus, validCountLabel(usValidCount, 2),
+            usValidCount === 2, usValidCount > 0);
+  if (els.sensorUltraAge) els.sensorUltraAge.textContent = ageText(s.now_ms, us.last_update_ms);
   els.ultraLeft.textContent = channelMm(us, "left_valid", "left_mm");
   els.ultraRight.textContent = channelMm(us, "right_valid", "right_mm");
+  if (els.ultraDetail) {
+    els.ultraDetail.textContent =
+      `更新 ${ageText(s.now_ms, us.last_update_ms)} / L ${us.left_valid ? "有效" : "无效"} / R ${us.right_valid ? "有效" : "无效"}`;
+  }
 
   const m = s.motor ?? {};
   els.motor.textContent = m.enable ? "使能" : "关闭";
@@ -323,9 +477,37 @@ function renderState(s) {
   els.camera.textContent = cam.online ? "摄像头在线" : "摄像头离线";
   els.cameraLink.textContent = cam.online ? "在线" : "离线";
   setTextState(els.cameraLink, !!cam.online, !cam.online);
+  setStatus(els.sensorCameraStatus, cam.online ? "在线" : "离线", !!cam.online, !cam.online);
+  if (els.sensorCameraAge) els.sensorCameraAge.textContent = cam.stream_url ? "有地址" : "无地址";
+  if (els.sensorCameraDetail) els.sensorCameraDetail.textContent = cam.online ? "在线" : "离线";
+  setStatus(els.sensorPowerStatus, p.low_battery ? "低电压" : (p.battery_voltage != null ? "正常" : "无数据"),
+            !p.low_battery && p.battery_voltage != null, p.battery_voltage != null);
+  if (els.sensorPowerAge) els.sensorPowerAge.textContent = p.battery_voltage != null ? `${p.battery_voltage.toFixed(2)}V` : "未更新";
+  if (els.sensorBatteryDetail) {
+    els.sensorBatteryDetail.textContent =
+      p.battery_voltage != null ? `${p.battery_voltage.toFixed(2)}V / ${Math.round(batteryPct)}%` : "--";
+  }
+  if (els.sensorAuxStatus) {
+    els.sensorAuxStatus.textContent = `${p.low_battery ? "电池告警" : "电池正常"} / ${cam.online ? "视频在线" : "视频离线"}`;
+  }
   if (cam.stream_url) {
     lastTelemetryCameraUrl = cam.stream_url;
     if (!userCameraOverride) setCameraStream(cam.stream_url);
+  }
+
+  const sensorOkCount = [
+    !!u.valid,
+    imuValid,
+    !!lidar.valid,
+    tofValidCount > 0,
+    usValidCount > 0,
+    !!cam.online,
+    p.battery_voltage != null && !p.low_battery,
+    !!o.valid,
+  ].filter(Boolean).length;
+  if (els.sensorSummary) {
+    els.sensorSummary.textContent = `在线/有效 ${sensorOkCount}/8`;
+    setTextState(els.sensorSummary, sensorOkCount >= 7, sensorOkCount >= 4);
   }
 
   const wiz = $("wizard-status");
@@ -529,6 +711,34 @@ function connectWs() {
       /* ignore malformed frame */
     }
   };
+}
+
+async function pollStateFallback() {
+  if (Date.now() - lastStateAt < 2000) {
+    return;
+  }
+  try {
+    const res = await fetch("/api/state", { cache: "no-store" });
+    if (!res.ok) return;
+    renderState(await res.json());
+    setConn(true);
+  } catch (e) {
+    /* WebSocket reconnect owns the offline indicator. */
+  }
+}
+
+async function refreshLogs() {
+  if (!els.logs) return;
+  try {
+    const res = await fetch("/api/logs", { cache: "no-store" });
+    if (!res.ok) return;
+    const body = await res.json();
+    if (Array.isArray(body.logs) && body.logs.length) {
+      els.logs.textContent = body.logs.slice(-120).join("\n");
+    }
+  } catch (e) {
+    /* keep last visible logs */
+  }
 }
 
 // ── Joystick ──
@@ -758,7 +968,117 @@ if (wifiEls.save) {
   });
 }
 
+// ── Explicit-consent OTA ──
+
+let otaAvailableVersion = "";
+let otaPollTimer = null;
+
+function renderOtaStatus(st) {
+  otaEls.current.textContent = st.current_version || "--";
+  otaEls.available.textContent = st.available_version || "--";
+  otaAvailableVersion = st.update_available ? (st.available_version || "") : "";
+  const busy = st.state === "installing" || st.state === "rebooting";
+  otaEls.check.disabled = busy;
+  otaEls.install.hidden = false;
+  otaEls.install.disabled = busy || !otaAvailableVersion;
+  otaEls.install.textContent = busy
+    ? (st.state === "rebooting" ? "正在重启" : "正在安装")
+    : (otaAvailableVersion ? "安装更新" : "暂无可安装更新");
+  otaEls.later.hidden = !otaAvailableVersion || busy;
+
+  const labels = {
+    idle: "已是最新",
+    checking: "检查中",
+    update_available: "发现新版本",
+    installing: "正在安装",
+    rebooting: "校验完成，正在重启",
+    failed: "更新检查/安装失败",
+  };
+  otaEls.state.textContent = labels[st.state] || "未检查";
+  setTextState(otaEls.state, st.state === "idle", st.state === "checking");
+  otaEls.hint.textContent = st.state === "failed"
+    ? `失败：${st.reason || "未知原因"}。若安装已开始，车辆将保持安全停机，请受控重启或 USB 恢复。`
+    : st.update_available
+      ? `新版本 ${st.available_version} 可安装；不点击安装不会写入固件。`
+      : "检查更新不会自动安装。";
+}
+
+async function refreshOtaStatus() {
+  try {
+    const res = await fetch("/api/ota/status", { cache: "no-store" });
+    if (res.ok) renderOtaStatus(await res.json());
+  } catch (e) {
+    otaEls.state.textContent = "设备连接失败";
+  }
+}
+
+function pollOtaStatus() {
+  clearInterval(otaPollTimer);
+  let remaining = 30;
+  otaPollTimer = setInterval(async () => {
+    await refreshOtaStatus();
+    remaining -= 1;
+    if (remaining <= 0) clearInterval(otaPollTimer);
+  }, 1000);
+}
+
+otaEls.check?.addEventListener("click", async () => {
+  otaEls.check.disabled = true;
+  otaEls.install.disabled = true;
+  otaEls.install.textContent = "检查中";
+  otaEls.state.textContent = "提交检查请求";
+  try {
+    const res = await fetch("/api/ota/check", { method: "POST", headers: authHeaders() });
+    if (!res.ok) throw new Error(res.status === 401 ? "本地控制 Key 无效" : "设备未联网或 OTA 忙");
+    pollOtaStatus();
+  } catch (e) {
+    otaEls.state.textContent = "检查失败";
+    otaEls.hint.textContent = e.message;
+  } finally {
+    otaEls.check.disabled = false;
+  }
+});
+
+otaEls.install?.addEventListener("click", async () => {
+  if (!otaAvailableVersion) return;
+  if (!confirm(`安装固件 ${otaAvailableVersion}？安装期间车辆会强制停止并自动重启。`)) return;
+  otaEls.install.disabled = true;
+  try {
+    const res = await fetch("/api/ota/install", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ version: otaAvailableVersion }),
+    });
+    if (!res.ok) throw new Error(res.status === 401 ? "本地控制 Key 无效" : "版本已变化，请重新检查");
+    otaEls.state.textContent = "等待设备安装";
+    otaEls.hint.textContent = "请勿断电；页面断开属于设备重启的预期现象。";
+    pollOtaStatus();
+  } catch (e) {
+    otaEls.state.textContent = "安装请求失败";
+    otaEls.hint.textContent = e.message;
+    otaEls.install.disabled = false;
+  }
+});
+
+otaEls.later?.addEventListener("click", () => {
+  otaAvailableVersion = "";
+  otaEls.install.hidden = false;
+  otaEls.install.disabled = true;
+  otaEls.install.textContent = "已暂不安装";
+  otaEls.later.hidden = true;
+  otaEls.state.textContent = "已暂不安装";
+  otaEls.hint.textContent = "未提交安装请求；之后可再次检查。";
+});
+
+refreshOtaStatus();
+
 // ── Online/Offline detection ──
+if (els.clearLogs) {
+  els.clearLogs.addEventListener("click", () => {
+    els.logs.textContent = "";
+  });
+}
+
 window.addEventListener("online", () => {
   if (!ws || ws.readyState > 1) connectWs();
 });
@@ -768,7 +1088,10 @@ window.addEventListener("offline", () => {
 
 // ── Init ──
 
+setInterval(pollStateFallback, 1000);
+setInterval(refreshLogs, 2000);
 setInterval(refreshWifiStatus, 5000);
+refreshLogs();
 refreshWifiStatus();
 refreshLocalKeyUi();
 restoreCameraOverride();
@@ -778,4 +1101,8 @@ setupCanvasDPI(els.uwbCanvas);
 setupCanvasDPI(els.obstacleCanvas);
 drawUwb({});
 drawObstacle({});
+const initialView = (location.hash || "").slice(1);
+if (["drive", "sensors", "status", "settings"].includes(initialView)) {
+  switchView(initialView);
+}
 connectWs();

@@ -25,7 +25,11 @@ const uint8_t kChannels[kChannelCount] = {
 
 VL53L1X g_sensors[kChannelCount];
 bool g_channel_ready[kChannelCount] = {false, false, false};
-I2cBus g_i2c_bus(pins::PIN_I2C_SDA, pins::PIN_I2C_SCL);
+I2cBus g_i2c_bus(pins::PIN_I2C_SDA, pins::PIN_I2C_SCL,
+                 profile::TOF_I2C_CLOCK_HZ);
+uint8_t g_tca_addr = profile::TOF_TCA9548A_ADDR;
+bool g_logged_full_bus_scan = false;
+bool g_logged_swapped_pin_scan = false;
 
 enum class InitResult : uint8_t {
   kOk,
@@ -38,10 +42,20 @@ struct InitOutcome {
   uint8_t wire_error = 0;
 };
 
+struct I2cScanSummary {
+  uint8_t ack_count = 0;
+  uint8_t first_ack_addr = 0;
+  uint8_t addr_nack_count = 0;
+  uint8_t data_nack_count = 0;
+  uint8_t bus_error_count = 0;
+  uint8_t timeout_count = 0;
+  uint8_t other_error_count = 0;
+};
+
 // Select one TCA9548A downstream channel (exclusive). Returns the Wire error
 // code: 0=ACK, 2=address NACK, 3=data NACK, 4=other bus error, 5=timeout.
 uint8_t selectMuxChannelRaw(uint8_t channel) {
-  Wire.beginTransmission(profile::TOF_TCA9548A_ADDR);
+  Wire.beginTransmission(g_tca_addr);
   Wire.write(static_cast<uint8_t>(1u << channel));
   return Wire.endTransmission();
 }
@@ -55,22 +69,133 @@ uint8_t probeAddress(uint8_t address) {
   return Wire.endTransmission();
 }
 
+void tallyI2cProbe(uint8_t address, uint8_t err, I2cScanSummary& summary) {
+  if (err == 0) {
+    if (summary.first_ack_addr == 0) summary.first_ack_addr = address;
+    ++summary.ack_count;
+  } else if (err == 2) {
+    ++summary.addr_nack_count;
+  } else if (err == 3) {
+    ++summary.data_nack_count;
+  } else if (err == 4) {
+    ++summary.bus_error_count;
+  } else if (err == 5) {
+    ++summary.timeout_count;
+  } else {
+    ++summary.other_error_count;
+  }
+}
+
 bool shouldLogFailure(uint32_t count) {
   return count <= 3 || count % 10 == 0;
 }
 
-void logTcaAddressScan() {
-  uint8_t found_count = 0;
+void restoreTofI2cClock() {
+  Wire.setClock(profile::TOF_I2C_CLOCK_HZ);
+}
+
+void logI2cLevels(const char* phase) {
+  FB_LOGW("TOF i2c %s: SDA=GPIO%d level=%d SCL=GPIO%d level=%d",
+          phase, pins::PIN_I2C_SDA, digitalRead(pins::PIN_I2C_SDA),
+          pins::PIN_I2C_SCL, digitalRead(pins::PIN_I2C_SCL));
+}
+
+void logFullBusScanOnce() {
+  if (g_logged_full_bus_scan) return;
+  g_logged_full_bus_scan = true;
+
+  I2cScanSummary summary;
+  for (uint8_t addr = 0x08; addr <= 0x77; ++addr) {
+    const uint8_t err = probeAddress(addr);
+    tallyI2cProbe(addr, err, summary);
+    if (err == 0) {
+      FB_LOGW("TOF scan-all: ACK addr=0x%02x", addr);
+    }
+  }
+
+  if (summary.ack_count == 0) {
+    FB_LOGW(
+        "TOF scan-all: no ACK devices addr_nack=%u data_nack=%u bus_err=%u "
+        "timeout=%u other=%u",
+        summary.addr_nack_count, summary.data_nack_count,
+        summary.bus_error_count, summary.timeout_count,
+        summary.other_error_count);
+  }
+}
+
+void logSwappedPinScanOnce() {
+  if (g_logged_swapped_pin_scan) return;
+  g_logged_swapped_pin_scan = true;
+
+  FB_LOGW("TOF swap-check: scanning once with SDA=GPIO%d SCL=GPIO%d",
+          pins::PIN_I2C_SCL, pins::PIN_I2C_SDA);
+  Wire.end();
+  if (!Wire.begin(pins::PIN_I2C_SCL, pins::PIN_I2C_SDA,
+                  profile::TOF_I2C_CLOCK_HZ)) {
+    FB_LOGW("TOF swap-check: Wire.begin failed");
+    g_i2c_bus.begin();
+    restoreTofI2cClock();
+    return;
+  }
+  restoreTofI2cClock();
+
+  I2cScanSummary summary;
   for (uint8_t addr = 0x70; addr <= 0x77; ++addr) {
     const uint8_t err = probeAddress(addr);
+    tallyI2cProbe(addr, err, summary);
     if (err == 0) {
-      ++found_count;
+      FB_LOGW(
+          "TOF swap-check: ACK addr=0x%02x with reversed pins; verify GPIO10=SDA "
+          "and GPIO11=SCL wiring",
+          addr);
+    }
+  }
+  if (summary.ack_count == 0) {
+    FB_LOGW(
+        "TOF swap-check: no ACK with reversed pins addr_nack=%u data_nack=%u "
+        "bus_err=%u timeout=%u other=%u",
+        summary.addr_nack_count, summary.data_nack_count,
+        summary.bus_error_count, summary.timeout_count,
+        summary.other_error_count);
+  }
+
+  Wire.end();
+  if (!g_i2c_bus.begin()) {
+    FB_LOGW("TOF swap-check: restore normal I2C bus saw unreleased lines");
+  }
+  restoreTofI2cClock();
+}
+
+void detectAndLogTcaAddress() {
+  I2cScanSummary summary;
+  for (uint8_t addr = 0x70; addr <= 0x77; ++addr) {
+    const uint8_t err = probeAddress(addr);
+    tallyI2cProbe(addr, err, summary);
+    if (err == 0) {
       FB_LOGI("TOF scan: TCA candidate ACK addr=0x%02x", addr);
     }
   }
-  if (found_count == 0) {
-    FB_LOGW("TOF scan: no TCA9548A ACK in 0x70-0x77 (cfg=0x%02x)",
-            profile::TOF_TCA9548A_ADDR);
+  if (summary.ack_count == 0) {
+    FB_LOGW(
+        "TOF scan: no TCA9548A ACK in 0x70-0x77 (cfg=0x%02x) "
+        "addr_nack=%u data_nack=%u bus_err=%u timeout=%u other=%u",
+        profile::TOF_TCA9548A_ADDR, summary.addr_nack_count,
+        summary.data_nack_count, summary.bus_error_count, summary.timeout_count,
+        summary.other_error_count);
+    logI2cLevels("after-scan");
+    logFullBusScanOnce();
+    logSwappedPinScanOnce();
+    g_tca_addr = profile::TOF_TCA9548A_ADDR;
+    return;
+  }
+  g_tca_addr = summary.first_ack_addr;
+  if (summary.ack_count > 1) {
+    FB_LOGW("TOF scan: multiple TCA-range ACKs count=%u using=0x%02x",
+            summary.ack_count, g_tca_addr);
+  }
+  if (g_tca_addr != profile::TOF_TCA9548A_ADDR) {
+    FB_LOGW("TOF scan: using detected TCA addr=0x%02x (cfg=0x%02x)",
+            g_tca_addr, profile::TOF_TCA9548A_ADDR);
   }
 }
 
@@ -100,6 +225,9 @@ void TofVl53l1xArray::begin() {
   initialised_ = false;
   consecutive_failures_ = 0;
   last_recovery_attempt_ms_ = 0;
+  g_tca_addr = profile::TOF_TCA9548A_ADDR;
+  g_logged_full_bus_scan = false;
+  g_logged_swapped_pin_scan = false;
   for (uint8_t i = 0; i < kChannelCount; ++i) g_channel_ready[i] = false;
 
   // First prototype has no XSHUT: clear the bus before probing so a sensor that
@@ -116,8 +244,8 @@ void TofVl53l1xArray::begin() {
     stats_.bus_clear_count++;
     FB_LOGW("TOF begin: I2C bus not released, bus_clear=%d", recovered ? 1 : 0);
   }
-  Wire.setClock(400000);
-  logTcaAddressScan();
+  restoreTofI2cClock();
+  detectAndLogTcaAddress();
 
   for (uint8_t i = 0; i < kChannelCount; ++i) {
     const uint8_t channel = kChannels[i];
@@ -240,8 +368,10 @@ void TofVl53l1xArray::markChannelFailed(uint8_t channel, uint32_t now_ms) {
 
   // Releasing the bus is bounded to nine SCL pulses. Re-initialisation is
   // deliberately deferred and limited to one channel per recovery interval.
+  logI2cLevels("before-clear");
   g_i2c_bus.busClear();
-  Wire.setClock(400000);
+  restoreTofI2cClock();
+  detectAndLogTcaAddress();
   stats_.bus_clear_count++;
   stats_.last_recovery_ms = now_ms;
   FB_LOGW("TOF recovery: bus_clear count=%lu last_failure_ch=%u",

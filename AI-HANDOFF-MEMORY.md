@@ -30,6 +30,101 @@
 ```
 
 ## 最新交接记录
+### 2026-06-21 15:48 - Codex - 手机 H5 紧凑布局与 AP 同步
+- 改动：云端 H5、AP/局域网 H5 移动端总览改为 4 列紧凑宫格，恢复明确纵向滚动，底部导航只响应按钮区域；补齐 AP 静态目录缺失的 `/shared/helpers.js`。
+- 文件：`cloud/public/style.css`, `cloud/public/deploy-version.txt`, `firmware/web/style.css`, `firmware/data/index.html`, `firmware/data/app.js`, `firmware/data/style.css`, `firmware/data/shared/helpers.js`
+- 架构影响：无固件模块边界/协议/GPIO 变更；`firmware/data/` 已与 `firmware/web/` 前端副本同步。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/运动链路改动；H5 仍不直接设置 PWM、不清安全锁、不绕过安装向导。
+- OTA：不需要应用固件 OTA；本次只改云端静态页面与 LittleFS/AP 静态资源，真机 AP 生效需执行 `pio run -d firmware -e esp32-s3-devkitc-1 -t uploadfs`。
+- 验证：Playwright Chrome 手机视口截图 PASS：`cloud-mobile-final.png`, `data-mobile-final.png`；全页截图高度云端 `390x2403`、AP `390x2172`，确认页面可纵向滚动；`firmware/web` 与 `firmware/data` CSS/JS/helper 比对一致。
+- 当前状态：NEEDS_DEPLOY_OR_UPLOADFS
+- 下一步：部署云端静态文件；车端 AP/局域网页执行 uploadfs 后，用手机访问 `http://192.168.4.1/#sensors` 验证真实浏览器滚动。
+
+### 2026-06-21 15:29 - Codex - H5 传感器页补全与滚动修复
+- 改动：AP/局域网 H5 与云端 H5 传感器页新增总览、融合细节、电源/视频卡片，并恢复移动端纵向滚动；支持 `#sensors/#status/#settings` 直达页面。
+- 文件：`firmware/web/index.html`, `firmware/web/app.js`, `firmware/web/style.css`, `cloud/public/index.html`, `cloud/public/app.js`, `cloud/public/style.css`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`
+- 架构影响：无固件模块边界/协议/GPIO 变更；AP 页和局域网页仍共用 `firmware/web/`，`firmware/data/` 保持遗留副本未改。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/运动链路改动；H5 仍只显示遥测并发低速请求，不新增绕过安全链能力。
+- OTA：版本 `2026.06.21-h5-sensors.1` 已生成应用固件包，size `1131904`，MD5 `d211210caa45b1eb89540808a71b6bf9`，`force=false`；注意当前应用 OTA 不更新 LittleFS 页面，真机车端 H5 仍需 `pio run -d firmware -e esp32-s3-devkitc-1 -t uploadfs`。
+- 验证：`node --check firmware/web/app.js` PASS；`node --check cloud/public/app.js` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS；`python tools/package_ota.py --notes ...` PASS；Playwright Chrome 截图 `output/playwright/{local,cloud}-{mobile,desktop}.png` PASS。
+- 当前状态：NEEDS_DEPLOY_OR_UPLOADFS
+- 下一步：部署云端静态文件与 manifest/bin；若要更新车端 AP/局域网页，执行真机 `uploadfs` 后访问 `http://192.168.4.1/#sensors` 验证全量传感器显示。
+
+### 2026-06-20 23:18 - Codex - TOF debug.6 日志复核
+- 结论：用户贴回 `2026.06.20-tof-debug.6` 日志，标准 GPIO10=SDA/GPIO11=SCL、反向 GPIO11=SDA/GPIO10=SCL、全地址 `0x08-0x77` 扫描均无 ACK。
+- 改动：无固件/云端代码改动；仅复核日志与现有 TOF/I2C 实现，确认软件侧已排除 TCA 地址偏移、SDA/SCL 反接和总线卡低。
+- 文件：`AI-HANDOFF-MEMORY.md`
+- 架构影响：无；TOF 仍保持只读快照，失败时 invalid，不进入运动输出链路。
+- 安全影响：无 motor/e-stop/PWM/ADC/运动链路改动；下一步仅允许断电万用表检查 I2C 主干。
+- OTA：不需要设备 OTA；本次不改固件、车端 H5、云端运行代码或协议。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；用户日志显示 `scan-all: no ACK devices` 与 `swap-check: no ACK`。
+- 当前状态：BLOCKED_NEED_HARDWARE_EVIDENCE
+- 下一步：断电测 TCA9548A VCC/GND、A0/A1/A2 是否接 GND、GPIO10/11 到 TCA SDA/SCL 通断、SDA/SCL 对 3V3 上拉约 4.7k；先只接 ESP32+TCA，确认扫描出现 `0x70` 后再逐路接 TOF。
+
+### 2026-06-20 23:07 - Codex - TOF SDA/SCL 反接诊断
+- 结论：用户新日志仍为 SDA/SCL 高电平但 `0x70-0x77` 全部 address NACK，断点在 TCA9548A 主干 ACK 前，尚未触达 VL53L1X。
+- 改动：标准 GPIO10=SDA/GPIO11=SCL 扫描全 NACK 时，临时反向 GPIO11=SDA/GPIO10=SCL 扫一次并打印 `TOF swap-check`，随后恢复正常 I2C 配置；版本递增到 `2026.06.20-tof-debug.6`。
+- 文件：`firmware/src/sensors/tof_vl53l1x_array.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无模块边界/GPIO 常量/协议变更；TOF 仍只读快照，反接扫描只做一次诊断，不作为正式运行配置。
+- 安全影响：无 motor/e-stop/PWM/ADC/运动链路改动；仅短暂重配 TOF I2C 引脚用于诊断，完成后恢复 GPIO10/11。
+- OTA：版本 `2026.06.20-tof-debug.6` 已本地生成，size `1131904`，MD5 `9dd269b632a7464758250ed3d9a0b263`，`force=false`。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build --notes "TOF SDA/SCL reversed-pin diagnostic scan"` PASS。
+- 当前状态：NEEDS_HARDWARE_VERIFICATION
+- 下一步：安装新版后抓启动 15 秒日志；若 `TOF swap-check` 有 ACK，断电改线为 GPIO10=SDA/GPIO11=SCL；若反扫也无 ACK，查 TCA 3V3/GND、共地、模块方向、A0/A1/A2 和主干通断。
+
+### 2026-06-20 22:50 - Codex - TOF I2C 扫描错误码细化
+- 结论：新日志仍显示 `0x70-0x77` 全无 TCA9548A ACK，软件已进入硬件主干排故阶段，尚未触达 VL53L1X 测距。
+- 改动：TOF 扫描日志增加 Wire 错误码统计、恢复前后 SDA/SCL 电平、首次全 I2C 总线 ACK 扫描；固件版本递增到 `2026.06.20-tof-debug.5`。
+- 文件：`firmware/src/sensors/tof_vl53l1x_array.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无模块边界/GPIO/协议变更；TOF 仍只读快照，失败时保持 invalid。
+- 安全影响：无 motor/e-stop/PWM/ADC/运动链路改动；仅 I2C 诊断日志，运行期 Bus Clear 边界不变。
+- OTA：版本 `2026.06.20-tof-debug.5` 已本地生成，size `1131312`，MD5 `646c43d99e213be186bfdaa9ba670c3f`，`force=false`。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build --notes "TOF I2C scan error breakdown"` PASS。
+- 当前状态：NEEDS_HARDWARE_VERIFICATION
+- 下一步：安装新版后抓启动 15 秒日志；若 `scan-all` 也无 ACK，断电量 TCA 3V3/GND、GPIO10/11、4.7k 上拉与 A0/A1/A2；若 `scan-all` 有 0x29，检查 TOF 是否绕过 TCA 直连主干。
+
+### 2026-06-20 22:28 - Codex - TOF I2C 降速与恢复重扫
+- 结论：用户日志仍为 `wire=2 mux_nack ch=0`、`read_count=0`，断点在 TCA9548A 主干 ACK/选通，尚未进入 VL53L1X 测距。
+- 改动：TOF I2C 时钟从 400k 降到 100k；每次 Bus Clear 后重新扫描 `0x70-0x77` 并更新可用 TCA 地址。
+- 文件：`firmware/include/config/profile_defaults.h`, `firmware/src/sensors/tof_vl53l1x_array.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无模块边界/GPIO/协议变更；TOF 仍只读快照，失败时保持 invalid。
+- 安全影响：无 motor/e-stop/PWM/ADC/运动链路改动；仅 I2C 诊断与恢复策略调整。
+- OTA：版本 `2026.06.20-tof-debug.4` 已本地生成，size `1130640`，MD5 `4e1fc5a2dc07328e470de836c3e5ade8`，`force=false`。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build --notes "TOF I2C 100k and recovery rescan"` PASS。
+- 当前状态：NEEDS_HARDWARE_VERIFICATION
+- 下一步：安装新版后抓启动起 15 秒日志，重点看 `TOF begin` 电平与 `TOF scan` 是否 ACK；若仍无 ACK，断电复核 TCA 3V3/GND、GPIO10/11、4.7k 上拉、A0/A1/A2 地址脚。
+
+### 2026-06-20 22:05 - Codex - TOF TCA 地址自动识别
+- 结论：用户新日志仍为 `wire=2 mux_nack ch=0`、`read_count=0`，断点仍在 TCA9548A 主地址/主干 I2C，尚未进入三只 VL53L1X。
+- 改动：TOF 启动扫描 `0x70-0x77` 后自动采用第一个 ACK 的 TCA 地址；若无 ACK 继续按 `0x70` 并打印无 TCA。
+- 文件：`firmware/src/sensors/tof_vl53l1x_array.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无模块边界/GPIO/协议变更；TOF 仍只读快照，不伪造距离。
+- 安全影响：无 motor/e-stop/PWM/ADC 变更；仅 I2C 诊断/地址选择，Bus Clear 逻辑保持原边界。
+- OTA：版本 `2026.06.20-tof-debug.3` 已本地生成，size `1130608`，MD5 `c090fe97e38cfb04bf70e42a7839ef32`，`force=false`。
+- 验证：`pio run -d firmware` PASS；`python tools/package_ota.py --notes ...` PASS。
+- 当前状态：NEEDS_HARDWARE_VERIFICATION
+- 下一步：安装新版后查看启动日志；若出现 `using detected TCA addr=0x7x` 则复测 TOF，若仍 `no TCA9548A ACK` 则断电量 TCA 3V3/GND、GPIO10/11 到 SDA/SCL、4.7k 上拉和 A0/A1/A2。
+
+### 2026-06-20 21:31 - Codex - DevConsole路径修复与OTA发布
+- 改动：修复 DevConsole 旧包误把 cloud 路径指到 `tools_local/cloud` 的问题，OTA 发布改为调用 `tools/package_ota.py` 并重打包 `FollowBox-DevConsole.exe`。
+- 文件：`tools_local/dev-console.py`, `tools_local/FollowBox-DevConsole.exe`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无固件模块边界变更；本地工具链改为以项目根 `D:\car\Follow the box` 为源，并保持 manifest/bin/固件版本一致。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C 运行逻辑改动；OTA `force=false`，不会自动触发设备安装。
+- OTA：版本 `2026.06.20-tof-debug.2` 已生成并上传云端，size `1130496`，MD5 `9e4871a2cae7225622fc0b3e4f7924ab`，远端校验 PASS。
+- 验证：`python tools/package_ota.py --notes ...` PASS；`python -m py_compile` PASS；新 exe `/api/git/status` 路径冒烟 PASS；SSH/SCP 上传与远端 manifest/bin 校验 PASS。
+- 当前状态：NEEDS_H5_INSTALL
+- 下一步：在 `https://www.boonai.cn/fb/` 点击检查更新，确认可用版本 `2026.06.20-tof-debug.2` 后手动授权安装。
+
+### 2026-06-20 21:11 - Codex - Codex 插件配置启用
+- 改动：按用户确认启用 GitHub 与 Product Design 插件，并保留现有 browser/chrome/pdf/documents/spreadsheets/presentations 插件。
+- 文件：`C:\Users\陈雨\.codex\config.toml`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无 FollowBox 固件/云端/协议模块边界变更；仅调整 Codex 工作台能力入口。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C/电源改动。
+- OTA：不需要设备 OTA；本次不改固件、车端 H5、云端运行代码或协议。
+- 验证：TOML 解析 PASS；确认 `github@openai-curated-remote`、`product-design@openai-curated-remote`、browser/chrome 均 enabled；`python tools/check_ai_handoff.py` PASS。
+- 当前状态：PASS
+- 下一步：确认 `github@openai-curated-remote` 与 `product-design@openai-curated-remote` enabled 后重启/刷新 Codex 会话使用。
+
 ### 2026-06-20 21:07 - Codex - 固定每次改文件后产出 H5 OTA 版
 - 改动：把“修改设备相关文件后必须递增固件版本并生成 H5 可安装 OTA 包”写入运行门禁和交接记忆模板。
 - 文件：`AI-AGENT-RUNBOOK.md`, `AI-HANDOFF-MEMORY.md`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`
