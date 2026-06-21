@@ -30,6 +30,39 @@
 ```
 
 ## 最新交接记录
+### 2026-06-21 22:31 - Codex - TOF 有效性与刷新修复
+- 结论：云端实时遥测确认设备运行 `debug.8`，`init_ok_mask=0x6`、`mux_nack=0`、CH0 持续 `sensor_nack 0x29 wire=2`；已知正常左传感器换到中间仍失败，故 CH0 断点在 TCA CH0 下游口/线束而非传感器本体或 H5。
+- 改动：测距必须同时满足 VL53L1X `RangeValid` 与距离阈值；三路改为独立 stale 失效；运行时 I2C 读错误摘除通道并恢复；跳过未就绪通道，周期输出测距诊断；云端遥测由 1Hz 提到 4Hz。
+- 文件：`firmware/src/sensors/tof_vl53l1x_array.{h,cpp}`, `firmware/include/config/{cloud_config.h,ota_config.h}`, `cloud/firmware/{manifest.json,firmware.bin}`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无模块/GPIO/协议边界变化；TOF 仍只写快照，经既有融合与 safety 链使用。
+- 安全影响：有，修复旧代码会让坏 `range_status` 或单路旧值保持 valid 的问题；新逻辑 fail-closed，不改 PWM/电机/急停，不执行实体动作。
+- OTA：`2026.06.21-tof-debug.9` 已发布云端，size `1134288`，MD5 `698d14b1ec5e61fdc53594d90b432917`，`force=false`；未请求设备安装。
+- 验证：PlatformIO 构建 PASS；公网 version API 显示 `current=debug.8`、`available=debug.9`；公网下载后二进制 size/MD5 与 manifest 完全一致。
+- 当前状态：NEEDS_H5_INSTALL_AND_HARDWARE_VERIFICATION
+- 下一步：用户保持车辆禁止运动，在 H5 手动安装 debug.9；用手前后移动目标比较 4Hz 云端数值和 `TOF range ch=1/2`；CH0 继续用逻辑分析仪/示波器确认 SC0/SD0 是否有 I2C 脉冲，不能仅凭通断与空载 3.3V 判定。
+
+### 2026-06-21 20:18 - Codex - TOF 单路无显示与量程状态诊断
+- 结论：云端实时遥测确认设备运行 `2026.06.21-tof-debug.7`，`init_ok_mask=0x6` 表示 CH1/左前与 CH2/右前均已初始化，只有 CH0/前中持续 `sensor_nack addr=0x29 wire=2`；H5 只有左前约 105mm 有效，说明右前是“已初始化但测距无效”，不是与 CH0 相同的 NACK 故障。
+- 改动：TOF 每路首次测距以及节流后的无效测距日志增加 `channel`、`raw_mm`、VL53L1X `range_status`、样本/无效计数和距离阈值结果，用于区分 SignalFail/OutOfBoundsFail/HardwareFail/过近或超量程；不改变现有有效性和安全门控行为。
+- 文件：`firmware/src/sensors/tof_vl53l1x_array.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无模块边界/GPIO/遥测协议变更；诊断仍由传感器模块写日志，TOF 失败继续保持 invalid。
+- 安全影响：无 motor/e-stop/PWM/ADC/运动链路改动；仅增加只读 TOF 测距状态日志，未授权或执行实体运动。
+- OTA：版本 `2026.06.21-tof-debug.8` 已发布云端，size `1133984`，MD5 `489dc8ef15a9c612b4df984193835a3b`，`force=false`。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；远端 size/MD5 与 manifest 校验一致；H5 API 显示 `current=debug.7`、`available=debug.8`、`update_available=true`。
+- 当前状态：NEEDS_H5_INSTALL_AND_HARDWARE_VERIFICATION
+- 下一步：用户在 H5 手动安装 debug.8；观察 `TOF range ch=1/2` 的 `raw/status`。断电后按 TCA 通道线束换位定位 CH0 NACK；若最右模块的 VIN/VCC-GND 确为 2.6V，先断开该模块并分别测空载线端与模块电阻，禁止带电换线。
+
+### 2026-06-21 19:10 - Codex - TOF 下游逐通道诊断与恢复轮询
+- 结论：云端实时遥测确认设备运行 `2026.06.20-tof-debug.6`，TCA 已响应（`mux_nack=0`），但三路 VL53L1X 均未初始化（`init_ok_mask=0`、`read_count=0`），故障点已下移到 TCA 通道后的传感器侧。
+- 改动：每路选通后先探测 VL53L1X 默认地址 `0x29` 并读取 Model ID `0xEACC`，日志区分 `sensor_nack` / `sensor_bad_id` / `sensor_boot_fail`；运行期恢复改为 CH0/CH1/CH2 轮询，不再长期卡在 CH0。
+- 文件：`firmware/src/sensors/tof_vl53l1x_array.cpp`, `firmware/src/sensors/tof_vl53l1x_array.h`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`
+- 架构影响：无模块边界/GPIO/遥测协议变更；TOF 仍是只读快照，失败时保持 invalid。
+- 安全影响：无 motor/e-stop/PWM/ADC/运动链路改动；仅 I2C 下游探测日志与失败通道重试顺序。
+- OTA：版本 `2026.06.21-tof-debug.7` 已发布云端，size `1133360`，MD5 `8e6590f614da5856d097ac3df9e27c9e`，`force=false`。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；远端 size/MD5 校验一致；H5 API 显示 `current=debug.6`、`available=debug.7`、`update_available=true`、OTA `idle`。
+- 当前状态：NEEDS_H5_INSTALL_AND_HARDWARE_LOG
+- 下一步：用户在 H5 手动安装 debug.7；重启后查看三路启动日志，按 `sensor_nack` 查通道供电/SDA/SCL，按 `sensor_bad_id` 核对模块型号，按 `sensor_boot_fail` 查电源稳定与 XSHUT/复位。
+
 ### 2026-06-21 15:48 - Codex - 手机 H5 紧凑布局与 AP 同步
 - 改动：云端 H5、AP/局域网 H5 移动端总览改为 4 列紧凑宫格，恢复明确纵向滚动，底部导航只响应按钮区域；补齐 AP 静态目录缺失的 `/shared/helpers.js`。
 - 文件：`cloud/public/style.css`, `cloud/public/deploy-version.txt`, `firmware/web/style.css`, `firmware/data/index.html`, `firmware/data/app.js`, `firmware/data/style.css`, `firmware/data/shared/helpers.js`

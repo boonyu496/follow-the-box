@@ -10,7 +10,7 @@ namespace followbox {
 struct TofStats {
   uint32_t init_ok_mask = 0;       // bit c set when channel c initialised
   uint32_t init_attempt_count = 0;  // boot + runtime channel init attempts
-  uint32_t init_failure_count = 0;  // mux selected, but VL53L1X did not answer
+  uint32_t init_failure_count = 0;  // mux selected, but sensor probe/init failed
   uint32_t read_count = 0;         // successful ranging reads (all channels)
   uint32_t timeout_count = 0;      // VL53L1X read timeouts
   uint32_t mux_nack_count = 0;     // TCA9548A channel-select failures
@@ -46,7 +46,8 @@ class TofVl53l1xArray {
   const TofStats& stats() const { return stats_; }
 
  private:
-  void applyChannelReading(uint8_t channel, int distance_mm, uint32_t now_ms);
+  void applyChannelReading(uint8_t channel, int distance_mm,
+                           bool measurement_valid, uint32_t now_ms);
   void markChannelFailed(uint8_t channel, uint32_t now_ms);
   void serviceRecovery(uint32_t now_ms);
   void invalidateStale(uint32_t now_ms);
@@ -56,6 +57,7 @@ class TofVl53l1xArray {
   uint8_t next_channel_ = 0;
   bool initialised_ = false;
   uint8_t consecutive_failures_ = 0;
+  uint8_t next_recovery_index_ = 0;
   uint32_t last_recovery_attempt_ms_ = 0;
 };
 

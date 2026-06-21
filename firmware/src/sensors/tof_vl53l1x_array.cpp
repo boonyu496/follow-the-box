@@ -17,6 +17,8 @@ namespace {
 // stays free of the Arduino/library types, matching the HAL-in-cpp convention.
 // There is exactly one TofVl53l1xArray.
 constexpr uint8_t kChannelCount = 3;
+constexpr uint8_t kVl53l1xDefaultAddress = 0x29;
+constexpr uint16_t kVl53l1xExpectedModelId = 0xEACC;
 const uint8_t kChannels[kChannelCount] = {
     profile::TOF_CHANNEL_FRONT_CENTER,
     profile::TOF_CHANNEL_FRONT_LEFT,
@@ -25,6 +27,10 @@ const uint8_t kChannels[kChannelCount] = {
 
 VL53L1X g_sensors[kChannelCount];
 bool g_channel_ready[kChannelCount] = {false, false, false};
+uint32_t g_range_sample_count[kChannelCount] = {0, 0, 0};
+uint32_t g_invalid_range_count[kChannelCount] = {0, 0, 0};
+uint32_t g_channel_last_valid_ms[kChannelCount] = {0, 0, 0};
+uint32_t g_read_io_error_count = 0;
 I2cBus g_i2c_bus(pins::PIN_I2C_SDA, pins::PIN_I2C_SCL,
                  profile::TOF_I2C_CLOCK_HZ);
 uint8_t g_tca_addr = profile::TOF_TCA9548A_ADDR;
@@ -34,12 +40,16 @@ bool g_logged_swapped_pin_scan = false;
 enum class InitResult : uint8_t {
   kOk,
   kMuxNack,
+  kSensorNack,
+  kSensorModelMismatch,
   kSensorInitFailed,
 };
 
 struct InitOutcome {
   InitResult result = InitResult::kOk;
   uint8_t wire_error = 0;
+  uint16_t model_id = 0;
+  bool timed_out = false;
 };
 
 struct I2cScanSummary {
@@ -88,6 +98,40 @@ void tallyI2cProbe(uint8_t address, uint8_t err, I2cScanSummary& summary) {
 
 bool shouldLogFailure(uint32_t count) {
   return count <= 3 || count % 10 == 0;
+}
+
+bool shouldLogRangeSample(uint32_t samples, uint32_t invalid_samples,
+                          bool valid) {
+  if (samples <= 3) return true;
+  if (valid && samples % 50 == 0) return true;
+  return !valid && (invalid_samples <= 3 || invalid_samples % 50 == 0);
+}
+
+void logSensorInitFailure(const char* phase, uint8_t channel,
+                          const InitOutcome& outcome, uint32_t failures,
+                          uint32_t attempts) {
+  if (outcome.result == InitResult::kSensorNack) {
+    FB_LOGW(
+        "TOF %s sensor_nack ch=%u addr=0x%02x wire=%u failures=%lu "
+        "attempts=%lu",
+        phase, channel, kVl53l1xDefaultAddress, outcome.wire_error,
+        static_cast<unsigned long>(failures),
+        static_cast<unsigned long>(attempts));
+  } else if (outcome.result == InitResult::kSensorModelMismatch) {
+    FB_LOGW(
+        "TOF %s sensor_bad_id ch=%u model=0x%04x expected=0x%04x "
+        "failures=%lu attempts=%lu",
+        phase, channel, outcome.model_id, kVl53l1xExpectedModelId,
+        static_cast<unsigned long>(failures),
+        static_cast<unsigned long>(attempts));
+  } else {
+    FB_LOGW(
+        "TOF %s sensor_boot_fail ch=%u model=0x%04x wire=%u timeout=%d "
+        "failures=%lu attempts=%lu",
+        phase, channel, outcome.model_id, outcome.wire_error,
+        outcome.timed_out ? 1 : 0, static_cast<unsigned long>(failures),
+        static_cast<unsigned long>(attempts));
+  }
 }
 
 void restoreTofI2cClock() {
@@ -202,18 +246,34 @@ void detectAndLogTcaAddress() {
 InitOutcome initSensorOnChannel(uint8_t channel) {
   const uint8_t mux_err = selectMuxChannelRaw(channel);
   if (mux_err != 0) {
-    return {InitResult::kMuxNack, mux_err};
+    return {InitResult::kMuxNack, mux_err, 0, false};
   }
+  delayMicroseconds(10);
+
+  const uint8_t sensor_probe_err = probeAddress(kVl53l1xDefaultAddress);
+  if (sensor_probe_err != 0) {
+    return {InitResult::kSensorNack, sensor_probe_err, 0, false};
+  }
+
   VL53L1X& sensor = g_sensors[channel];
   sensor.setBus(&Wire);
   sensor.setTimeout(profile::TOF_CONTINUOUS_PERIOD_MS * 2);
+  const uint16_t model_id =
+      sensor.readReg16Bit(VL53L1X::IDENTIFICATION__MODEL_ID);
+  if (sensor.last_status != 0) {
+    return {InitResult::kSensorNack, sensor.last_status, model_id, false};
+  }
+  if (model_id != kVl53l1xExpectedModelId) {
+    return {InitResult::kSensorModelMismatch, 0, model_id, false};
+  }
   if (!sensor.init()) {
-    return {InitResult::kSensorInitFailed, 0};
+    return {InitResult::kSensorInitFailed, sensor.last_status, model_id,
+            sensor.timeoutOccurred()};
   }
   sensor.setDistanceMode(VL53L1X::Long);
   sensor.setMeasurementTimingBudget(profile::TOF_TIMING_BUDGET_US);
   sensor.startContinuous(profile::TOF_CONTINUOUS_PERIOD_MS);
-  return {InitResult::kOk, 0};
+  return {InitResult::kOk, 0, model_id, false};
 }
 
 }  // namespace
@@ -224,11 +284,18 @@ void TofVl53l1xArray::begin() {
   next_channel_ = 0;
   initialised_ = false;
   consecutive_failures_ = 0;
+  next_recovery_index_ = 0;
   last_recovery_attempt_ms_ = 0;
   g_tca_addr = profile::TOF_TCA9548A_ADDR;
   g_logged_full_bus_scan = false;
   g_logged_swapped_pin_scan = false;
-  for (uint8_t i = 0; i < kChannelCount; ++i) g_channel_ready[i] = false;
+  for (uint8_t i = 0; i < kChannelCount; ++i) {
+    g_channel_ready[i] = false;
+    g_range_sample_count[i] = 0;
+    g_invalid_range_count[i] = 0;
+    g_channel_last_valid_ms[i] = 0;
+  }
+  g_read_io_error_count = 0;
 
   // First prototype has no XSHUT: clear the bus before probing so a sensor that
   // latched SDA low from a prior boot does not wedge the whole mux.
@@ -267,9 +334,9 @@ void TofVl53l1xArray::begin() {
               static_cast<unsigned long>(stats_.init_attempt_count));
     } else {
       stats_.init_failure_count++;
-      FB_LOGW("TOF init sensor_fail ch=%u failures=%lu attempts=%lu",
-              channel, static_cast<unsigned long>(stats_.init_failure_count),
-              static_cast<unsigned long>(stats_.init_attempt_count));
+      logSensorInitFailure("init", channel, outcome,
+                           stats_.init_failure_count,
+                           stats_.init_attempt_count);
     }
   }
 }
@@ -281,14 +348,20 @@ void TofVl53l1xArray::update(uint32_t now_ms) {
     return;
   }
 
-  // Round-robin one channel per call to keep each update bounded and non-blocking.
-  const uint8_t channel = kChannels[next_channel_];
-  next_channel_ = static_cast<uint8_t>((next_channel_ + 1) % kChannelCount);
-
-  if (!g_channel_ready[channel]) {
-    applyChannelReading(channel, -1, now_ms);
-    return;
+  // Round-robin one ready channel per call. Skipping failed channels in memory
+  // keeps the surviving sensors responsive while recovery retries the missing
+  // channel separately; there is still at most one downstream I2C read here.
+  uint8_t channel = kChannelCount;
+  for (uint8_t i = 0; i < kChannelCount; ++i) {
+    const uint8_t candidate = kChannels[next_channel_];
+    next_channel_ = static_cast<uint8_t>((next_channel_ + 1) % kChannelCount);
+    if (g_channel_ready[candidate]) {
+      channel = candidate;
+      break;
+    }
   }
+  if (channel >= kChannelCount) return;
+
   if (!selectMuxChannel(channel)) {
     stats_.mux_nack_count++;
     if (shouldLogFailure(stats_.mux_nack_count)) {
@@ -297,16 +370,37 @@ void TofVl53l1xArray::update(uint32_t now_ms) {
               static_cast<unsigned long>(stats_.read_count));
     }
     markChannelFailed(channel, now_ms);
-    applyChannelReading(channel, -1, now_ms);
+    applyChannelReading(channel, -1, false, now_ms);
     return;
   }
 
   VL53L1X& sensor = g_sensors[channel];
-  if (!sensor.dataReady()) {
+  const bool data_ready = sensor.dataReady();
+  if (sensor.last_status != 0) {
+    const uint32_t errors = ++g_read_io_error_count;
+    if (shouldLogFailure(errors)) {
+      FB_LOGW("TOF read status_io_error ch=%u wire=%u errors=%lu", channel,
+              sensor.last_status, static_cast<unsigned long>(errors));
+    }
+    markChannelFailed(channel, now_ms);
+    applyChannelReading(channel, -1, false, now_ms);
+    return;
+  }
+  if (!data_ready) {
     return;  // no new range yet; leave the prior reading until the stale timeout
   }
 
   const uint16_t raw_mm = sensor.read(false);
+  if (sensor.last_status != 0) {
+    const uint32_t errors = ++g_read_io_error_count;
+    if (shouldLogFailure(errors)) {
+      FB_LOGW("TOF read range_io_error ch=%u wire=%u errors=%lu", channel,
+              sensor.last_status, static_cast<unsigned long>(errors));
+    }
+    markChannelFailed(channel, now_ms);
+    applyChannelReading(channel, -1, false, now_ms);
+    return;
+  }
   if (sensor.timeoutOccurred()) {
     stats_.timeout_count++;
     if (shouldLogFailure(stats_.timeout_count)) {
@@ -314,33 +408,57 @@ void TofVl53l1xArray::update(uint32_t now_ms) {
               channel, static_cast<unsigned long>(stats_.timeout_count));
     }
     markChannelFailed(channel, now_ms);
-    applyChannelReading(channel, -1, now_ms);
+    applyChannelReading(channel, -1, false, now_ms);
     return;
+  }
+
+  const VL53L1X::RangeStatus range_status = sensor.ranging_data.range_status;
+  const bool range_status_valid = range_status == VL53L1X::RangeValid;
+  const bool distance_in_range = raw_mm >= profile::TOF_MIN_VALID_MM &&
+                                 raw_mm <= profile::TOF_MAX_VALID_MM;
+  const bool diagnostic_valid = range_status_valid && distance_in_range;
+  const uint32_t sample_count = ++g_range_sample_count[channel];
+  uint32_t invalid_count = g_invalid_range_count[channel];
+  if (!diagnostic_valid) {
+    invalid_count = ++g_invalid_range_count[channel];
+  }
+  if (shouldLogRangeSample(sample_count, invalid_count, diagnostic_valid)) {
+    FB_LOGI(
+        "TOF range ch=%u raw=%u status=%u(%s) sample=%lu invalid=%lu "
+        "distance_ok=%d",
+        channel, raw_mm, static_cast<unsigned int>(range_status),
+        VL53L1X::rangeStatusToString(range_status),
+        static_cast<unsigned long>(sample_count),
+        static_cast<unsigned long>(invalid_count), distance_in_range ? 1 : 0);
   }
 
   consecutive_failures_ = 0;
   stats_.read_count++;
   stats_.last_read_ms = now_ms;
-  applyChannelReading(channel, static_cast<int>(raw_mm), now_ms);
+  applyChannelReading(channel, static_cast<int>(raw_mm), diagnostic_valid,
+                      now_ms);
 }
 
 void TofVl53l1xArray::applyChannelReading(uint8_t channel, int distance_mm,
+                                          bool measurement_valid,
                                           uint32_t now_ms) {
   const bool in_range = distance_mm >= profile::TOF_MIN_VALID_MM &&
                         distance_mm <= profile::TOF_MAX_VALID_MM;
+  const bool valid = measurement_valid && in_range;
 
   if (channel == profile::TOF_CHANNEL_FRONT_CENTER) {
-    snapshot_.front_center_valid = in_range;
-    if (in_range) snapshot_.front_center_mm = distance_mm;
+    snapshot_.front_center_valid = valid;
+    if (valid) snapshot_.front_center_mm = distance_mm;
   } else if (channel == profile::TOF_CHANNEL_FRONT_LEFT) {
-    snapshot_.front_left_valid = in_range;
-    if (in_range) snapshot_.front_left_mm = distance_mm;
+    snapshot_.front_left_valid = valid;
+    if (valid) snapshot_.front_left_mm = distance_mm;
   } else if (channel == profile::TOF_CHANNEL_FRONT_RIGHT) {
-    snapshot_.front_right_valid = in_range;
-    if (in_range) snapshot_.front_right_mm = distance_mm;
+    snapshot_.front_right_valid = valid;
+    if (valid) snapshot_.front_right_mm = distance_mm;
   }
 
-  if (in_range) {
+  if (valid) {
+    g_channel_last_valid_ms[channel] = now_ms;
     snapshot_.last_update_ms = now_ms;
   }
 
@@ -348,12 +466,18 @@ void TofVl53l1xArray::applyChannelReading(uint8_t channel, int distance_mm,
 }
 
 void TofVl53l1xArray::invalidateStale(uint32_t now_ms) {
-  // Invalidate the whole array if every channel stopped delivering fresh ranges.
-  if (isStale(now_ms, snapshot_.last_update_ms, profile::TOF_STALE_TIMEOUT_MS)) {
+  // Expire channels independently. A healthy left/right sensor must not keep a
+  // stale center reading valid indefinitely.
+  if (isStale(now_ms, g_channel_last_valid_ms[profile::TOF_CHANNEL_FRONT_LEFT],
+              profile::TOF_STALE_TIMEOUT_MS))
     snapshot_.front_left_valid = false;
+  if (isStale(now_ms,
+              g_channel_last_valid_ms[profile::TOF_CHANNEL_FRONT_CENTER],
+              profile::TOF_STALE_TIMEOUT_MS))
     snapshot_.front_center_valid = false;
+  if (isStale(now_ms, g_channel_last_valid_ms[profile::TOF_CHANNEL_FRONT_RIGHT],
+              profile::TOF_STALE_TIMEOUT_MS))
     snapshot_.front_right_valid = false;
-  }
   snapshot_.valid = snapshot_.front_left_valid || snapshot_.front_center_valid ||
                     snapshot_.front_right_valid;
 }
@@ -398,9 +522,13 @@ void TofVl53l1xArray::serviceRecovery(uint32_t now_ms) {
   }
 
   last_recovery_attempt_ms_ = now_ms;
-  for (uint8_t i = 0; i < kChannelCount; ++i) {
-    const uint8_t channel = kChannels[i];
+  for (uint8_t offset = 0; offset < kChannelCount; ++offset) {
+    const uint8_t index =
+        static_cast<uint8_t>((next_recovery_index_ + offset) % kChannelCount);
+    const uint8_t channel = kChannels[index];
     if (g_channel_ready[channel]) continue;
+    next_recovery_index_ =
+        static_cast<uint8_t>((index + 1) % kChannelCount);
     stats_.init_attempt_count++;
     const InitOutcome outcome = initSensorOnChannel(channel);
     const InitResult result = outcome.result;
@@ -430,9 +558,9 @@ void TofVl53l1xArray::serviceRecovery(uint32_t now_ms) {
     } else {
       stats_.init_failure_count++;
       if (shouldLogFailure(stats_.init_failure_count)) {
-        FB_LOGW("TOF reinit sensor_fail ch=%u failures=%lu attempts=%lu",
-                channel, static_cast<unsigned long>(stats_.init_failure_count),
-                static_cast<unsigned long>(stats_.init_attempt_count));
+        logSensorInitFailure("reinit", channel, outcome,
+                             stats_.init_failure_count,
+                             stats_.init_attempt_count);
       }
     }
     break;

@@ -1,6 +1,8 @@
 {
-  "version": "2026.06.21-20260621-165052",
-  "md5": "d211210caa45b1eb89540808a71b6bf9",
-  "size": 1131904,
-  "timestamp": "2026-06-21T08:50:52Z"
+  "version": "2026.06.21-tof-debug.9",
+  "file": "firmware.bin",
+  "md5": "698d14b1ec5e61fdc53594d90b432917",
+  "size": 1134288,
+  "force": false,
+  "notes": "TOF per-channel validity/staleness fix, runtime I2C recovery, and faster cloud telemetry"
 }

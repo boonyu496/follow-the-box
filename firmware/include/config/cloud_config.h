@@ -34,7 +34,9 @@ constexpr char DEVICE_ID[] = FOLLOWBOX_CLOUD_DEVICE_ID;
 #endif
 constexpr char DEVICE_TOKEN[] = FOLLOWBOX_CLOUD_DEVICE_TOKEN;
 
-constexpr uint32_t UPLOAD_INTERVAL_MS = 1000;
+// The cloud H5 otherwise shows TOF changes up to one second late. 4 Hz keeps
+// telemetry visibly responsive while the local AP/LAN H5 remains 10 Hz.
+constexpr uint32_t UPLOAD_INTERVAL_MS = 250;
 constexpr uint32_t COMMAND_POLL_INTERVAL_MS = 150;
 constexpr uint32_t HTTP_TIMEOUT_MS = 500;
 
