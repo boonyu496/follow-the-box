@@ -19,6 +19,7 @@ HOTRC DS600 接收机 PWM（首版只接 CH1-CH5）
 
 ```text
 GC-P2304-GS-2 UWB  -> UART GPIO17/18，3.3V
+EAI S2 激光雷达     -> DATA 接 GPIO3，CTL 接 GPIO43，5V/GND，串口电平需确认
 JY61P IMU          -> TX 接 GPIO42，5V 供电，串口电平需确认/分压
 VL53L1X ×3         -> TCA9548A -> I2C GPIO10/11，3.3V
 HC-SR04 ×2         -> 共享 TRIG GPIO9，Echo 分别进 GPIO40/41 且必须分压
@@ -69,9 +70,11 @@ ESP32-S3-CAM       -> 独立视频板，5V 供电，首版用 WiFi 视频/状态
 | 控制器软件使能 | GPIO39 | 输出 | 只驱动继电器/MOS，不直连高压电门锁；外部 10k 下拉 |
 | 左超声 ECHO | GPIO40 | 输入 | 左 HC-SR04 ECHO 分压后输入 |
 | 右超声 ECHO | GPIO41 | 输入 | 右 HC-SR04 ECHO 分压后输入 |
-| IMU RX | GPIO42 | 输入 | 接 JY61P TX；IMU 配置 TX 线 P1 可选 |
+| 激光雷达 DATA/RX | GPIO3 | 输入 | EAI S2 DATA/TX -> GPIO3；固件 UART2 150000 8N1 |
+| 激光雷达 CTL/TX | GPIO43 | 输出 | ESP32 TX -> 雷达 CTL/RX；固件发送 `A5 60` 后读 `AA55` 帧 |
+| IMU RX | GPIO42 | 输入 | 接 JY61P TX；若 5V 电平必须分压/电平转换 |
 
-保留/禁用：GPIO35、GPIO36、GPIO37、GPIO47、GPIO48 禁止作为电机驱动输出；GPIO0、GPIO3、GPIO19、GPIO20、GPIO43、GPIO44、GPIO45、GPIO46 不占用；GPIO33/34 未按具体模组确认前不作 P0 输出；GPIO38 板载 RGB 先保留。
+保留/禁用：GPIO35、GPIO36、GPIO37、GPIO47、GPIO48 禁止作为电机驱动输出；GPIO0、GPIO19、GPIO20、GPIO44、GPIO45、GPIO46 不占用；GPIO3 仅作雷达 DATA 输入，不作通用输出；GPIO43 仅作雷达 CTL/TX；GPIO33/34 未按具体模组确认前不作 P0 输出；GPIO38 板载 RGB 先保留。
 
 ---
 
@@ -261,6 +264,19 @@ CHx Signal -> 10k -> ESP32 GPIOx -> 20k -> GND
 | RX | GPIO17 |
 | 天线 | 外置 SMA/IPEX，不放铝盒内 |
 
+### EAI S2 激光雷达
+
+依据 `zhiliao/EaiLidarTest-V1.12.3-20241220/log/main.log`，EaiLidarTest 启动时先发送 `A560`，随后收到 `AA55` S2 三角协议数据；不要按 LD06/LD19 手册的 `54 2C / 230400` 协议配置当前实物，除非后续抓包证明实物已更换。
+
+| 雷达 | ESP32-S3 |
+|---|---|
+| 5V | 5V |
+| GND | GND |
+| DATA | GPIO3 |
+| CTL | GPIO43 |
+
+GPIO3/GPIO43 电平均按 3.3V 处理；若实测 DATA/CTL 高于 3.3V，必须加电平转换后再接 ESP32。
+
 ### JY61P IMU
 
 JY60/JY61P 上电初始 2-3 秒会估计静态零偏；控制盒外壳必须贴“上电后静止 3 秒”标识。固件 BOOT_SELF_TEST 阶段应等待 IMU 静止窗口完成，若检测到明显 yaw_rate/加速度扰动，则提示重新静置/重启，禁止直接进入 AUTO_FOLLOW。
@@ -312,7 +328,7 @@ Echo 分压：`ECHO -> 10k -> ESP32 GPIO -> 20k -> GND`。
 | GND | GND |
 | 视频/状态 | 首版走 WiFi/H5 页面，不占主控 UART |
 
-视频断流不能影响安全控制。GPIO16 已用于右倒车，GPIO42 已用于 IMU RX，首版不能再给摄像头 UART。
+视频断流不能影响安全控制。GPIO16 已用于右倒车，GPIO42 已用于 IMU RX，GPIO43 已用于雷达 CTL，首版不能再给摄像头 UART。
 
 ---
 
@@ -350,6 +366,8 @@ US_LEFT_ECHO_GPIO = 40
 US_RIGHT_ECHO_GPIO = 41
 UWB_TX_GPIO = 17
 UWB_RX_GPIO = 18
+LIDAR_RX_GPIO = 3
+LIDAR_TX_GPIO = 43
 IMU_RX_GPIO = 42
 IMU_TX_GPIO = -1  // P1 optional
 
@@ -386,13 +404,14 @@ BUZZER_GPIO = -1  // P1 optional or external I/O expander
 2. 只接 ESP32 + DS600，串口确认 CH1-CH5 脉宽、断联 failsafe；CH6 首版不接。
 3. 只接 TCA9548A + 三个 TOF，确认 CH0/CH1/CH2 都能读数。
 4. 只接 UWB，确认 distance/bearing 数据。
-5. 只接 IMU，确认 yaw/yaw_rate 方向。
-6. 车轮架空，只接一个控制器和一个电机，电门锁线经急停上电。
-7. 临时短接该控制器学习线，完成自学习；方向正确后断开学习线并绝缘。
-8. 用手动转把或 PWM→0-5V 模块测试最低油门。
-9. 再接另一个控制器和电机，重复自学习。
-10. 最后启用 ESP32 左右油门输出、刹车、倒车。
-11. 地面低速测试前，验证急停能通过电门锁线硬件停两个电机。
+5. 只接 EAI S2 雷达，确认 H5 雷达 RX/包/圈增长。
+6. 只接 IMU，确认 yaw/yaw_rate 方向。
+7. 车轮架空，只接一个控制器和一个电机，电门锁线经急停上电。
+8. 临时短接该控制器学习线，完成自学习；方向正确后断开学习线并绝缘。
+9. 用手动转把或 PWM→0-5V 模块测试最低油门。
+10. 再接另一个控制器和电机，重复自学习。
+11. 最后启用 ESP32 左右油门输出、刹车、倒车。
+12. 地面低速测试前，验证急停能通过电门锁线硬件停两个电机。
 
 ---
 

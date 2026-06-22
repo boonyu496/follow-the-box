@@ -34,6 +34,7 @@ mindmap
             VOUT 先引出，暂不接控制器
         阶段4：传感器接线
             UWB GC-P2304：TX→GPIO18 RX→GPIO17 3.3V/GND
+            EAI S2 雷达：DATA→GPIO3 CTL→GPIO43 5V/GND
             IMU JY61P：TX→GPIO42 5V/GND，5V 电平需转换
             TOF：TCA9548A SDA→GPIO10 SCL→GPIO11，4.7k 上拉到 3.3V
             超声 HC-SR04×2：TRIG→GPIO9，ECHO→GPIO40/41 分压
@@ -53,6 +54,7 @@ mindmap
             ESP32 + DS600 串口确认 PWM
             TCA9548A + TOF 确认读数
             UWB 确认距离/方位
+            雷达确认 RX/包/圈增长
             IMU 静止 3 秒确认 yaw
             架空单电机自学习
             油门校准
@@ -230,7 +232,16 @@ ESP32 复位/下载/看门狗时 GPIO 可能浮空，外部 10k 下拉确保 PWM
 | RX | GPIO17 (ESP32 TX) | UART 交叉 |
 | 天线 | 外置 SMA/IPEX | 离 DC-DC ≥50mm |
 
-### 5.2 JY61P IMU
+### 5.2 EAI S2 激光雷达
+
+| 雷达 | ESP32 | 说明 |
+|:---|---|:---|
+| 5V | 5V 母线 | 供电 5V |
+| GND | GND | 共地 |
+| DATA | GPIO3 | 雷达 DATA/TX -> ESP32 RX |
+| CTL | GPIO43 | ESP32 TX -> 雷达 CTL/RX；固件发送 `A5 60` |
+
+### 5.2b JY61P IMU
 
 | JY61P | ESP32 | 说明 |
 |:---|---|:---|
@@ -417,13 +428,19 @@ GPIO (待定) → NPN 三极管基极 (1kΩ 限流)
 - [ ] 串口读取距离/方位数据
 - [ ] 确认数据刷新率正常
 
-### Step 5：JY61P IMU
+### Step 5：EAI S2 激光雷达
+
+- [ ] DATA 接 GPIO3，CTL 接 GPIO43，5V/GND 共地
+- [ ] H5 雷达面板 `RX/包/圈` 持续增长
+- [ ] 若 RX=0，断电复核 DATA/CTL/共地和 3.3V 串口电平
+
+### Step 6：JY61P IMU
 
 - [ ] **上电后静止 3 秒**
 - [ ] 串口读取 yaw/yaw_rate
 - [ ] 手动旋转确认方向正确
 
-### Step 6：单电机自学习（架空！）
+### Step 7：单电机自学习（架空！）
 
 - [ ] 车轮架空，只接一个控制器 + 一个电机
 - [ ] 电门锁线经急停链上电
@@ -432,7 +449,7 @@ GPIO (待定) → NPN 三极管基极 (1kΩ 限流)
 - [ ] 方向正确后断开学习线并绝缘
 - [ ] 重复第二个控制器 + 电机
 
-### Step 7：油门校准
+### Step 8：油门校准
 
 - [ ] 不接控制器转把线
 - [ ] PWM→0-5V 模块输出接万用表
@@ -441,14 +458,14 @@ GPIO (待定) → NPN 三极管基极 (1kΩ 限流)
 - [ ] 接控制器（仍架空），找起转电压
 - [ ] 写入 throttle_min_active_mv / throttle_max_mv
 
-### Step 8：急停验证
+### Step 9：急停验证
 
 - [ ] 正常状态：两个控制器电门锁有电
 - [ ] 拍下急停：两控制器立即断电
 - [ ] ESP32 GPIO21 读到 HIGH
 - [ ] 旋开急停：电门锁恢复，但 ESP32 保持 ESTOP 锁定（需人工复位）
 
-### Step 9：地面低速测试
+### Step 10：地面低速测试
 
 - [ ] 仅在所有架空测试通过后
 - [ ] 先用遥控最低速
@@ -486,6 +503,8 @@ GPIO (待定) → NPN 三极管基极 (1kΩ 限流)
 左超声ECHO←│ GPIO40  ← 左HC-SR04 Echo分压后       │
 右超声ECHO←│ GPIO41  ← 右HC-SR04 Echo分压后       │
   IMU RX←│ GPIO42  ← JY61P TX (5V需分压)         │
+ 雷达CTL→│ GPIO43  → EAI S2 CTL/RX (发A5 60)    │
+ 雷达DATA←│ GPIO3  ← EAI S2 DATA/TX              │
           │                                       │
           │  5V  ← DC-DC VOUT+                    │
           │  GND ← DC-DC VOUT-                    │
@@ -493,7 +512,7 @@ GPIO (待定) → NPN 三极管基极 (1kΩ 限流)
           └──────────────────────────────────────┘
 
 禁用/保留：GPIO35/36/37/47/48 作废！禁止电机输出！
-不占用：GPIO0/3/19/20/33/34/38/43/44/45/46
+不占用：GPIO0/19/20/33/34/38/44/45/46；GPIO3 仅作雷达 DATA 输入，GPIO43 仅作雷达 CTL
 ```
 
 ---
@@ -526,7 +545,7 @@ GPIO (待定) → NPN 三极管基极 (1kΩ 限流)
 [ ] Step 3  焊 5 路 DS600 分压 → 接 CH1-CH5
 [ ] Step 4  焊左右 PWM→0-5V 模块 → 10k 下拉
 [ ] Step 5  焊 4 路 MOS/光耦驱动板 → 10k 下拉
-[ ] Step 6  焊 UWB / IMU / TOF / 超声 → 分压/上拉
+[ ] Step 6  焊 UWB / 雷达 / IMU / TOF / 超声 → 分压/上拉
 [ ] Step 7  焊急停链 + GPIO21 反馈 → 电池 ADC
 [ ] Step 8  装 ESP32-S3-CAM
 [ ] Step 9  电池 → 控制器 → 电机主回路

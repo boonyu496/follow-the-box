@@ -103,13 +103,14 @@ constexpr uint8_t TOF_CHANNEL_FRONT_CENTER = 0;
 constexpr uint8_t TOF_CHANNEL_FRONT_LEFT = 1;
 constexpr uint8_t TOF_CHANNEL_FRONT_RIGHT = 2;
 constexpr uint32_t TOF_I2C_CLOCK_HZ = 100000;        // safer for prototype wiring
-constexpr uint32_t TOF_TIMING_BUDGET_US = 50000;     // 50 ms Long-mode budget
-constexpr uint32_t TOF_CONTINUOUS_PERIOD_MS = 50;    // inter-measurement period
+constexpr uint32_t TOF_TIMING_BUDGET_US = 33000;     // 33 ms Medium-mode budget
+constexpr uint32_t TOF_CONTINUOUS_PERIOD_MS = 33;    // inter-measurement period
 constexpr uint32_t TOF_STALE_TIMEOUT_MS = 300;       // matches OBSTACLE_STALE_TIMEOUT_MS
 constexpr uint32_t TOF_REINIT_INTERVAL_MS = 1000;    // retry one failed mux channel per second
 constexpr uint8_t TOF_FAILURES_BEFORE_BUS_CLEAR = 3; // repeated NACK/timeout recovery threshold
 constexpr int TOF_MIN_VALID_MM = 40;                 // below this = no target / cross-talk
-constexpr int TOF_MAX_VALID_MM = 4000;               // VL53L1X Long-mode ceiling
+constexpr int TOF_MAX_VALID_MM = 4000;               // reject impossible/overflow readings
+constexpr int TOF_LOG_DELTA_MM = 30;                 // debug log when range changes this much
 
 // --- Side ultrasonic: two HC-SR04 sharing TRIG GPIO9, Echo GPIO40/41 (divided) ---
 // Both fire together; the echoes are captured non-blocking via pin interrupts so

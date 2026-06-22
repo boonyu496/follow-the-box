@@ -20,6 +20,8 @@ UWB UART      -> TX GPIO17 / RX GPIO18
 控制器故障输入  -> GPIO2
 软件使能       -> GPIO39
 左/右超声 Echo -> GPIO40 / GPIO41，必须分压
+激光雷达 DATA  -> GPIO3
+激光雷达 CTL   -> GPIO43
 IMU RX        -> GPIO42，接 JY61P TX
 ```
 

@@ -1,9 +1,19 @@
 #include "sensors/sensor_task.h"
 
+#include <cstddef>
+
 #include "config/board_pins.h"
 #include "config/profile_defaults.h"
+#include "core/time_utils.h"
+#include "telemetry/debug_console.h"
 
 namespace followbox {
+
+namespace {
+constexpr uint8_t kLidarStartCommand[] = {0xA5, 0x60};
+constexpr uint32_t kLidarStartupGraceMs = 3000;
+constexpr uint32_t kLidarDiagPeriodMs = 5000;
+}  // namespace
 
 SensorTask::SensorTask()
     : uwb_uart_(pins::UART_NUM_UWB, pins::PIN_UWB_RX, pins::PIN_UWB_TX,
@@ -23,7 +33,24 @@ void SensorTask::begin() {
   estop_status_.begin();
   estop_active_ = true;
   uwb_uart_.begin();
-  lidar_uart_.begin();
+  if (lidar_uart_.begin()) {
+    const size_t written = sendLidarStartCommand();
+    FB_LOGI(
+        "LIDAR begin: uart=%d rx=GPIO%d tx=GPIO%d baud=%lu start=A560 "
+        "written=%u",
+        pins::UART_NUM_LIDAR, pins::PIN_LIDAR_RX, pins::PIN_LIDAR_TX,
+        static_cast<unsigned long>(profile::LIDAR_UART_BAUD),
+        static_cast<unsigned>(written));
+    if (written != sizeof(kLidarStartCommand)) {
+      FB_LOGW("LIDAR begin start_write_short expected=%u written=%u",
+              static_cast<unsigned>(sizeof(kLidarStartCommand)),
+              static_cast<unsigned>(written));
+    }
+  } else if (lidar_uart_.isEnabled()) {
+    FB_LOGW("LIDAR begin failed: uart=%d rx=GPIO%d tx=GPIO%d baud=%lu",
+            pins::UART_NUM_LIDAR, pins::PIN_LIDAR_RX, pins::PIN_LIDAR_TX,
+            static_cast<unsigned long>(profile::LIDAR_UART_BAUD));
+  }
   imu_uart_.begin();
   power_monitor_.begin();
   tof_.begin();
@@ -44,6 +71,7 @@ void SensorTask::update(uint32_t now_ms) {
   // invalidate when a stream stops instead of latching stale headings.
   uwb_parser_.update(now_ms);
   lidar_.update(now_ms);
+  logLidarDiagnostics(now_ms);
   imu_.update(now_ms);
 
   // Fuse the lidar sweep, forward TOF array and side ultrasonic into the single
@@ -93,6 +121,100 @@ void SensorTask::drainImu(uint32_t now_ms) {
     }
     imu_.pushByte(static_cast<uint8_t>(byte), now_ms);
   }
+}
+
+size_t SensorTask::sendLidarStartCommand() {
+  // EaiLidarTest V1.12.3 sends A5 60 immediately before S2 data appears.
+  return lidar_uart_.write(kLidarStartCommand, sizeof(kLidarStartCommand));
+}
+
+void SensorTask::logLidarDiagnostics(uint32_t now_ms) {
+  if (!lidar_uart_.isEnabled()) {
+    return;
+  }
+
+  if (last_lidar_diag_ms_ != 0 &&
+      elapsedMs(now_ms, last_lidar_diag_ms_) < kLidarDiagPeriodMs) {
+    return;
+  }
+  last_lidar_diag_ms_ = now_ms;
+
+  const LidarS2Stats& stats = lidar_.stats();
+  const ObstacleSnapshot& lidar = lidar_.snapshot();
+  const uint32_t delta_rx = stats.rx_byte_count - last_lidar_rx_bytes_;
+  const uint32_t delta_packets = stats.packet_count - last_lidar_packets_;
+  const uint32_t delta_scans = stats.scan_count - last_lidar_scans_;
+  const uint32_t delta_checksum_errors =
+      stats.checksum_error_count - last_lidar_checksum_errors_;
+  const uint32_t delta_framing_errors =
+      stats.framing_error_count - last_lidar_framing_errors_;
+
+  if (now_ms >= kLidarStartupGraceMs) {
+    if (stats.rx_byte_count == 0) {
+      FB_LOGW(
+          "LIDAR diag no_rx rx=0 packets=0 scans=0 baud=%lu "
+          "check DATA/TX->GPIO%d, CTL/RX->GPIO%d, 5V/GND, common ground, "
+          "and lidar motor/start",
+          static_cast<unsigned long>(profile::LIDAR_UART_BAUD),
+          pins::PIN_LIDAR_RX, pins::PIN_LIDAR_TX);
+    } else if (stats.packet_count == 0) {
+      FB_LOGW(
+          "LIDAR diag rx_no_packets rx=%lu(+%lu) framing=%lu(+%lu) "
+          "checksum=%lu(+%lu) baud=%lu check protocol/baud, DATA level, "
+          "ground and line noise",
+          static_cast<unsigned long>(stats.rx_byte_count),
+          static_cast<unsigned long>(delta_rx),
+          static_cast<unsigned long>(stats.framing_error_count),
+          static_cast<unsigned long>(delta_framing_errors),
+          static_cast<unsigned long>(stats.checksum_error_count),
+          static_cast<unsigned long>(delta_checksum_errors),
+          static_cast<unsigned long>(profile::LIDAR_UART_BAUD));
+    } else if (stats.scan_count == 0) {
+      FB_LOGW(
+          "LIDAR diag packets_no_scan rx=%lu packets=%lu(+%lu) scans=0 "
+          "last_packet=%lu check S2 AA55 triangle frames and start command A560",
+          static_cast<unsigned long>(stats.rx_byte_count),
+          static_cast<unsigned long>(stats.packet_count),
+          static_cast<unsigned long>(delta_packets),
+          static_cast<unsigned long>(stats.last_packet_ms));
+    } else if (!lidar.valid) {
+      FB_LOGW(
+          "LIDAR diag stale valid=0 rx=%lu packets=%lu scans=%lu(+%lu) "
+          "last_packet=%lu timeout=%lu check intermittent power/connector",
+          static_cast<unsigned long>(stats.rx_byte_count),
+          static_cast<unsigned long>(stats.packet_count),
+          static_cast<unsigned long>(stats.scan_count),
+          static_cast<unsigned long>(delta_scans),
+          static_cast<unsigned long>(stats.last_packet_ms),
+          static_cast<unsigned long>(profile::LIDAR_PACKET_TIMEOUT_MS));
+    } else if (delta_checksum_errors > 0 || delta_framing_errors > 0) {
+      FB_LOGW(
+          "LIDAR diag parse_errors rx=%lu packets=%lu scans=%lu "
+          "checksum=%lu(+%lu) framing=%lu(+%lu) check baud/noise/ground",
+          static_cast<unsigned long>(stats.rx_byte_count),
+          static_cast<unsigned long>(stats.packet_count),
+          static_cast<unsigned long>(stats.scan_count),
+          static_cast<unsigned long>(stats.checksum_error_count),
+          static_cast<unsigned long>(delta_checksum_errors),
+          static_cast<unsigned long>(stats.framing_error_count),
+          static_cast<unsigned long>(delta_framing_errors));
+    } else if (!lidar_healthy_logged_) {
+      FB_LOGI(
+          "LIDAR diag ok rx=%lu packets=%lu scans=%lu sectors=%d/%d/%d/%d/%d",
+          static_cast<unsigned long>(stats.rx_byte_count),
+          static_cast<unsigned long>(stats.packet_count),
+          static_cast<unsigned long>(stats.scan_count), lidar.front_left_mm,
+          lidar.front_center_mm, lidar.front_right_mm, lidar.side_left_mm,
+          lidar.side_right_mm);
+      lidar_healthy_logged_ = true;
+    }
+  }
+
+  last_lidar_rx_bytes_ = stats.rx_byte_count;
+  last_lidar_packets_ = stats.packet_count;
+  last_lidar_scans_ = stats.scan_count;
+  last_lidar_checksum_errors_ = stats.checksum_error_count;
+  last_lidar_framing_errors_ = stats.framing_error_count;
 }
 
 SensorDiagnostics SensorTask::diagnostics() const {

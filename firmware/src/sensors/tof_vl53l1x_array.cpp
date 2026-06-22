@@ -30,6 +30,7 @@ bool g_channel_ready[kChannelCount] = {false, false, false};
 uint32_t g_range_sample_count[kChannelCount] = {0, 0, 0};
 uint32_t g_invalid_range_count[kChannelCount] = {0, 0, 0};
 uint32_t g_channel_last_valid_ms[kChannelCount] = {0, 0, 0};
+int g_last_logged_range_mm[kChannelCount] = {-1, -1, -1};
 uint32_t g_read_io_error_count = 0;
 I2cBus g_i2c_bus(pins::PIN_I2C_SDA, pins::PIN_I2C_SCL,
                  profile::TOF_I2C_CLOCK_HZ);
@@ -100,10 +101,17 @@ bool shouldLogFailure(uint32_t count) {
   return count <= 3 || count % 10 == 0;
 }
 
-bool shouldLogRangeSample(uint32_t samples, uint32_t invalid_samples,
-                          bool valid) {
+bool shouldLogRangeSample(uint8_t channel, uint32_t samples,
+                          uint32_t invalid_samples, bool valid,
+                          uint16_t raw_mm) {
   if (samples <= 3) return true;
-  if (valid && samples % 50 == 0) return true;
+  if (valid) {
+    const int previous = channel < kChannelCount ? g_last_logged_range_mm[channel] : -1;
+    if (previous < 0) return true;
+    const int delta = raw_mm > previous ? raw_mm - previous : previous - raw_mm;
+    if (delta >= profile::TOF_LOG_DELTA_MM) return true;
+    return samples % 50 == 0;
+  }
   return !valid && (invalid_samples <= 3 || invalid_samples % 50 == 0);
 }
 
@@ -270,8 +278,14 @@ InitOutcome initSensorOnChannel(uint8_t channel) {
     return {InitResult::kSensorInitFailed, sensor.last_status, model_id,
             sensor.timeoutOccurred()};
   }
-  sensor.setDistanceMode(VL53L1X::Long);
-  sensor.setMeasurementTimingBudget(profile::TOF_TIMING_BUDGET_US);
+  if (!sensor.setDistanceMode(VL53L1X::Medium)) {
+    return {InitResult::kSensorInitFailed, sensor.last_status, model_id,
+            sensor.timeoutOccurred()};
+  }
+  if (!sensor.setMeasurementTimingBudget(profile::TOF_TIMING_BUDGET_US)) {
+    return {InitResult::kSensorInitFailed, sensor.last_status, model_id,
+            sensor.timeoutOccurred()};
+  }
   sensor.startContinuous(profile::TOF_CONTINUOUS_PERIOD_MS);
   return {InitResult::kOk, 0, model_id, false};
 }
@@ -294,6 +308,7 @@ void TofVl53l1xArray::begin() {
     g_range_sample_count[i] = 0;
     g_invalid_range_count[i] = 0;
     g_channel_last_valid_ms[i] = 0;
+    g_last_logged_range_mm[i] = -1;
   }
   g_read_io_error_count = 0;
 
@@ -324,8 +339,10 @@ void TofVl53l1xArray::begin() {
     if (ok) {
       stats_.init_ok_mask |= (1u << channel);
       initialised_ = true;
-      FB_LOGI("TOF init ok ch=%u mask=0x%lx", channel,
-              static_cast<unsigned long>(stats_.init_ok_mask));
+      FB_LOGI("TOF init ok ch=%u mask=0x%lx mode=medium budget=%lu period=%lu",
+              channel, static_cast<unsigned long>(stats_.init_ok_mask),
+              static_cast<unsigned long>(profile::TOF_TIMING_BUDGET_US),
+              static_cast<unsigned long>(profile::TOF_CONTINUOUS_PERIOD_MS));
     } else if (result == InitResult::kMuxNack) {
       stats_.mux_nack_count++;
       FB_LOGW("TOF init mux_nack ch=%u wire=%u nacks=%lu attempts=%lu",
@@ -422,7 +439,10 @@ void TofVl53l1xArray::update(uint32_t now_ms) {
   if (!diagnostic_valid) {
     invalid_count = ++g_invalid_range_count[channel];
   }
-  if (shouldLogRangeSample(sample_count, invalid_count, diagnostic_valid)) {
+  const bool log_sample =
+      shouldLogRangeSample(channel, sample_count, invalid_count,
+                           diagnostic_valid, raw_mm);
+  if (log_sample) {
     FB_LOGI(
         "TOF range ch=%u raw=%u status=%u(%s) sample=%lu invalid=%lu "
         "distance_ok=%d",
@@ -430,6 +450,9 @@ void TofVl53l1xArray::update(uint32_t now_ms) {
         VL53L1X::rangeStatusToString(range_status),
         static_cast<unsigned long>(sample_count),
         static_cast<unsigned long>(invalid_count), distance_in_range ? 1 : 0);
+    if (diagnostic_valid) {
+      g_last_logged_range_mm[channel] = raw_mm;
+    }
   }
 
   consecutive_failures_ = 0;

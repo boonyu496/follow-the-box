@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 class HardwareSerial;
@@ -23,6 +24,8 @@ class UartBus {
   int available();
   // Next received byte, or -1 when none / disabled.
   int read();
+  // Write raw bytes to the UART, returning the number accepted by the driver.
+  size_t write(const uint8_t* data, size_t length);
 
  private:
   HardwareSerial* serial_ = nullptr;

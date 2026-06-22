@@ -30,9 +30,9 @@ Current implementation stage:
 Motor GPIO/PWM output is owned only by `src/drive/drive_adapter_analog_bldc.*`
 after `SafetyManager::applyFinalGate()`.
 
-Sensor UART wiring (UWB on GPIO17/18, lidar UART, IMU on GPIO42) is still pending;
-the parsers above are byte-stream only and must be fed from a sensor task without
-blocking the control loop.
+Sensor UART wiring currently uses UWB on GPIO17/18, EAI S2 lidar DATA/CTL on
+GPIO3/GPIO43, and JY61P TX reserved on GPIO42. The parsers above are byte-stream
+only and must be fed from a sensor task without blocking the control loop.
 
 Quick checks from the project root:
 

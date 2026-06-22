@@ -27,23 +27,15 @@ constexpr int PIN_UWB_RX = 18;
 // UART resource assignment (ESP32-S3 has UART0 reserved for USB debug).
 constexpr int UART_NUM_UWB = 1;
 constexpr int UART_NUM_LIDAR = 2;
-// JY61P IMU: ESP32-S3 has 3 UART controllers. The debug log runs over native
-// USB-CDC (ARDUINO_USB_CDC_ON_BOOT=1), NOT UART0, so the UART0 *controller* is
-// free even though UART1=UWB and UART2=lidar are taken. The chosen enable path
-// is to remap free UART0 onto GPIO42 (PIN_IMU_RX, a legal non-boot pin) - a real
-// hardware UART with no contention against the UWB/lidar streams, preferred over
-// SoftwareSerial (lossy beside 230400 lidar) or sharing UART2 (lidar must stay
-// always-on). Kept -1 (disabled, imu stays invalid, yaw damping off) until that
-// bring-up: set UART_NUM_IMU=0, add a Serial0 case in UartBus, and confirm the
-// JY61P TX 5V -> GPIO42 level shift. Bench debug must not rely on UART0/GPIO43-44.
+// JY61P IMU: GPIO42 is reserved for JY61P TX. Keep the UART disabled until
+// bring-up confirms the module TX level, baud rate, and install-wizard yaw sign.
 constexpr int UART_NUM_IMU = -1;
 
 // EAI S2 lidar UART (UART2, 150000 baud for S2-YJ/S2-YD, 3.3V logic, direct connect).
 // GPIO3  = ESP32 RX <- lidar TX.  GPIO22/23 do NOT exist on ESP32-S3-DevKitC-1.
-// GPIO43 = ESP32 TX -> lidar RX (motor-speed control).  Safe because ARDUINO_USB_CDC_ON_BOOT=1
-// routes debug over native USB (GPIO19/20 internal), leaving UART0/GPIO43 free; the on-board
-// CH340 is a high-impedance RX and does not conflict.  Do NOT connect the UART USB port
-// simultaneously when GPIO43 is wired to lidar.
+// GPIO43 = ESP32 TX -> lidar CTL/RX. EaiLidarTest logs show an A5 60 command
+// before AA55 scan packets, so CTL must be on the firmware TX pin for modules
+// that do not free-run after power-up. GPIO42 remains reserved for JY61P.
 // GPIO19/20 are USB D-/D+ and MUST NOT be used.
 constexpr int PIN_LIDAR_RX = 3;
 constexpr int PIN_LIDAR_TX = 43;

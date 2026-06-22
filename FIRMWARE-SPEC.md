@@ -522,6 +522,8 @@ constexpr int PIN_CONTROLLER_FAULT = 2;
 // Remaining low-speed sensors / status.
 constexpr int PIN_US_LEFT_ECHO  = 40;
 constexpr int PIN_US_RIGHT_ECHO = 41;
+constexpr int PIN_LIDAR_RX      = 3;   // EAI S2 DATA/TX -> ESP32 RX.
+constexpr int PIN_LIDAR_TX      = 43;  // ESP32 TX -> EAI S2 CTL/RX; sends A5 60 before scan.
 constexpr int PIN_IMU_RX        = 42;  // JY61P TX -> ESP32 RX; IMU TX/config line is P1 optional.
 // constexpr int PIN_BUZZER     = -1;  // P1 optional or external I/O expander.
 // ESP32-S3-CAM UART is P1 optional; first version uses WiFi video/status instead.
@@ -530,7 +532,7 @@ constexpr int PIN_IMU_RX        = 42;  // JY61P TX -> ESP32 RX; IMU TX/config li
 禁用/保留：
 
 - 禁止外部输出：GPIO35、GPIO36、GPIO37、GPIO47、GPIO48。
-- 禁止占用启动/USB/下载敏感脚：GPIO0、GPIO3、GPIO19、GPIO20、GPIO43、GPIO44、GPIO45、GPIO46。
+- 禁止占用启动/USB/下载敏感脚：GPIO0、GPIO19、GPIO20、GPIO44、GPIO45、GPIO46；GPIO3 仅作 P1 雷达 DATA 输入，GPIO43 仅作 P1 雷达 CTL/TX，不作通用输出。
 - GPIO2 当前只作为控制器故障输入候选，必须高阻/光耦/分压输入，不能被外部电路在上电/下载阶段强拉到异常电平；实物确认前不能作为输出。
 - GPIO33、GPIO34 在带 OPI Flash/PSRAM 模组上也可能有风险，未按具体模组确认前不作为 P0 输出脚。
 - GPIO38 板载 RGB 先保留。
@@ -789,6 +791,8 @@ Profile 字段名、单位和权限必须稳定，H5 只能修改标记为可调
 | `pins.ultrasonic_shared_trig` | GPIO | 9 | 固定 | 否 | 超声共享 TRIG |
 | `pins.ultrasonic_left_echo` | GPIO | 40 | 固定 | 否 | 左 Echo 分压后输入 |
 | `pins.ultrasonic_right_echo` | GPIO | 41 | 固定 | 否 | 右 Echo 分压后输入 |
+| `pins.lidar_rx` | GPIO | 3 | 固定 | 否 | EAI S2 DATA/TX 输入 |
+| `pins.lidar_tx` | GPIO | 43 | 固定 | 否 | EAI S2 CTL/RX 输出 |
 | `pins.imu_rx` | GPIO | 42 | 固定 | 否 | JY61P TX 输入 |
 | `polarity.mcu_brake_out_active_level` | enum | `high` | high/low | 否 | GPIO 对 MOS/光耦输入有效电平 |
 | `polarity.controller_brake_line_active` | enum | `pull_to_gnd` | 固定/实测 | 否 | 控制器低刹有效方式 |

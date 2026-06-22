@@ -30,6 +30,67 @@
 ```
 
 ## 最新交接记录
+### 2026-06-22 00:57 - Codex - 雷达日志诊断版
+- 改动：附件日志显示 TCA `0x70` 在线但 TOF 三路 `0x29 sensor_nack`；本次新增 EAI S2 雷达启动/故障诊断日志，并把 `lidar` RX/包/圈/校验/帧错计数写入周期 `TLM`。
+- 文件：`firmware/src/sensors/sensor_task.{h,cpp}`, `firmware/src/telemetry/telemetry_logger.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{manifest.json,firmware.bin}`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无模块边界/GPIO/协议变化；雷达仍只产出只读 obstacle/诊断快照，TOF 仍走 TCA9548A/VL53L1X。
+- 安全影响：低；只增加日志和遥测字段输出，不改 motor/e-stop/PWM/ADC/drive_adapter，不绕过 safety_manager。
+- OTA：版本 `2026.06.22-lidar-log.1` 已生成，size `1134960`，MD5 `7749467ecfbbde765aecdc8caa2d9892`，`force=false`。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build --notes "LIDAR diagnostic logging in DevConsole/TLM"` PASS。
+- 当前状态：NEEDS_H5_INSTALL_AND_HARDWARE_VERIFICATION
+- 下一步：安装后抓启动 30 秒日志；若 `LIDAR diag no_rx` 查 EAI S2 DATA->GPIO3/CTL->GPIO43/5V/GND/共地/电机旋转；若 TLM `tof=0x0` 且 `sensor_nack` 继续，断电逐路查 TCA CH0/CH1/CH2 到 VL53L1X 的 3V3/GND/SDA/SCL。
+
+### 2026-06-22 00:42 - Codex - 云端 OTA 版本判定修复
+- 改动：修复云端 OTA 把 `2026.06.21-lidar-s2.3` 按字母序误判低于 `2026.06.21-tof-debug.9` 的问题；发布清单版本只要不同于设备当前版本即允许用户手动安装。
+- 文件：`cloud/server.js`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无固件模块/GPIO/协议变化；仅云端 `/firmware/version` 与 `/firmware/install` 的 update_available 判定。
+- 安全影响：低；仍要求 H5 人工确认安装，设备端仍校验版本、MD5、大小并走 OTA 流程。
+- OTA：不需要设备 OTA；本次只改云端服务端逻辑，已发布的 `2026.06.21-lidar-s2.3` 固件包和 manifest 保持可用。
+- 验证：`node --check cloud/server.js` PASS；`lidar-s2.3` vs `tof-debug.9` 场景验证输出 `update_available=true`。
+- 当前状态：NEEDS_CLOUD_RESTART_OR_DEPLOY
+- 下一步：重启/部署云端服务后在 H5 点“检查更新”，应出现安装按钮；若仍不出现，确认浏览器访问的是新服务实例。
+
+### 2026-06-21 23:55 - Codex - 雷达 CTL 引脚更正
+- 改动：更正上一条误判接线：GPIO42 继续留给 JY61P TX，EAI S2 雷达 `DATA->GPIO3`、`CTL->GPIO43(ESP32 TX)`；保留 EaiLidarTest 证据对应的 `A5 60` 启动命令。
+- 文件：`FIRMWARE-SPEC.md`, `CURRENT-WIRING-AI.md`, `PIN-MAP-V1.md`, `ASSEMBLY-WIRING-GUIDE.md`, `complete-wiring-table.md`, `CURRENT-FIRMWARE-ARCHITECTURE.md`, `profiles/example_bldc_analog_36v.yaml`, `firmware/{README.md,include/config/board_pins.h,include/config/ota_config.h}`, `cloud/firmware/{manifest.json,firmware.bin}`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有，撤回 `GPIO42=雷达CTL`，恢复 `PIN_IMU_RX=42`；雷达仍走 UART2，`PIN_LIDAR_TX=43` 发送启动命令，解析器仍只产出 obstacle/诊断快照。
+- 安全影响：无 motor/e-stop/PWM/ADC/drive_adapter 改动；不绕过 safety_manager。
+- OTA：版本 `2026.06.21-lidar-s2.3` 已生成，size `1133552`，MD5 `bc00a6e7029b0e7298cef3f3c6574c2a`，`force=false`；上一版 `lidar-s2.2` 引脚说明作废。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build --notes ...` PASS；Profile YAML 解析 PASS。
+- 当前状态：NEEDS_HARDWARE_VERIFICATION
+- 下一步：H5 手动安装 `lidar-s2.3` 后看雷达 `rx_bytes/packets/scans`；若 RX=0，用表确认 DATA->GPIO3、CTL->GPIO43、JY61P TX->GPIO42、共地和 3.3V 电平。
+
+### 2026-06-21 23:42 - Codex - EAI S2 雷达 CTL/启动修复
+- 改动：复核 `zhiliao/EaiLidarTest-V1.12.3-20241220`：PDF 的 LD06/LD19 是 `54 2C/230400`，但 `log/main.log` 实测 EaiLidarTest 收到 `AA55` S2 帧并先发送 `A560`；固件新增雷达启动命令并按现场接线改 CTL。
+- 文件：`FIRMWARE-SPEC.md`, `CURRENT-WIRING-AI.md`, `PIN-MAP-V1.md`, `ASSEMBLY-WIRING-GUIDE.md`, `complete-wiring-table.md`, `CURRENT-FIRMWARE-ARCHITECTURE.md`, `profiles/example_bldc_analog_36v.yaml`, `firmware/{README.md,include/config/board_pins.h,include/config/ota_config.h}`, `firmware/src/hal/uart_bus.{h,cpp}`, `firmware/src/sensors/sensor_task.{h,cpp}`, `cloud/firmware/{manifest.json,firmware.bin}`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有，GPIO42 暂由雷达 CTL/TX 使用，`PIN_IMU_RX=-1` 且 `UART_NUM_IMU=-1`，IMU 保持禁用；雷达仍只产出只读 obstacle/诊断快照。
+- 安全影响：无 motor/e-stop/PWM/ADC/drive_adapter 改动；不绕过 safety_manager，雷达仅作为避障输入。
+- OTA：版本 `2026.06.21-lidar-s2.2` 已生成，size `1133552`，MD5 `00fdde087ae531f08d21a2be3829fa36`，`force=false`。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build --notes ...` PASS。
+- 当前状态：NEEDS_HARDWARE_VERIFICATION
+- 下一步：H5 手动安装 `lidar-s2.2` 后看雷达 `rx_bytes/packets/scans`；若 RX 仍为 0，用表确认 DATA->GPIO3、CTL->GPIO42、5V/GND 共地且 CTL 电平为 3.3V。
+
+### 2026-06-21 23:21 - Codex - H5 TOF 实时性显示
+- 改动：本地 AP/LAN H5 与云端 H5 的 TOF 卡片新增 `采集/单路/遥测/年龄` 四项实时性指标；前端用 `tof.read_count` 与 `now_ms` 滚动计算 5 秒窗口内采集 Hz，不新增遥测协议字段。
+- 文件：`firmware/web/{index.html,app.js,style.css}`, `cloud/public/{index.html,app.js,style.css,deploy-version.txt}`, `firmware/include/config/ota_config.h`, `cloud/firmware/{manifest.json,firmware.bin}`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无 GPIO/传感器协议/安全链变更；H5 只读展示现有 `state.tof` 诊断字段。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C 运行逻辑改动；不新增控制按钮，不清安全锁，不绕过安装向导。
+- OTA：版本 `2026.06.21-tof-debug.11` 已生成，size `1133424`，MD5 `49767bc9869044b2fe03273fcb3f3cb3`，`force=false`；注意应用 OTA 不会写 LittleFS，本地 AP H5 仍需 `uploadfs`。
+- 验证：`node --check firmware/web/app.js` PASS；`node --check cloud/public/app.js` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build --notes ...` PASS。
+- 当前状态：NEEDS_DEPLOY_OR_UPLOADFS
+- 下一步：部署 `cloud/public` 后看云端 H5；若看车端 AP/LAN H5，执行 `pio run -d firmware -e esp32-s3-devkitc-1 -t uploadfs` 后访问传感器页，TOF 应显示采集Hz/单路Hz/遥测Hz/年龄。
+
+### 2026-06-21 23:00 - Codex - TOF 响应速度与 CH0 复核
+- 结论：用户新日志仍显示 `tof=0x6`，CH1/CH2 有效，CH0 持续 `sensor_nack addr=0x29 wire=2`；中间模块移到左边有数据，故 CH0 断点仍在 TCA CH0 下游口/线束/焊点/通道芯片侧。
+- 改动：TOF 由 Long/50ms 调为 Medium/33ms，提高近距避障刷新；`TOF range` 日志在有效距离变化 >=30mm 时立即打印，避免只看每 50 样本日志误判迟钝。
+- 文件：`firmware/include/config/profile_defaults.h`, `firmware/src/sensors/tof_vl53l1x_array.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无模块/GPIO/协议边界变化；TOF 仍只写快照，经既有融合与 safety 链使用。
+- 安全影响：低；仅 I2C 只读传感器采样参数与日志触发条件，不改 motor/e-stop/PWM/ADC/运动输出。
+- OTA：版本 `2026.06.21-tof-debug.10` 已生成，size `1133424`，MD5 `f28a57670626484b799b39b49e28e20b`，`force=false`。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build --notes ...` PASS。
+- 当前状态：NEEDS_H5_INSTALL_AND_HARDWARE_VERIFICATION
+- 下一步：H5 手动安装 debug.10 后，观察左右通道靠近/远离是否更快打印；CH0 断电测 TCA SC0/SD0 到中间 TOF SCL/SDA 的动态波形或把中间线束整体换到 CH1 判断线束/CH0 口。
+
 ### 2026-06-21 22:31 - Codex - TOF 有效性与刷新修复
 - 结论：云端实时遥测确认设备运行 `debug.8`，`init_ok_mask=0x6`、`mux_nack=0`、CH0 持续 `sensor_nack 0x29 wire=2`；已知正常左传感器换到中间仍失败，故 CH0 断点在 TCA CH0 下游口/线束而非传感器本体或 H5。
 - 改动：测距必须同时满足 VL53L1X `RangeValid` 与距离阈值；三路改为独立 stale 失效；运行时 I2C 读错误摘除通道并恢复；跳过未就绪通道，周期输出测距诊断；云端遥测由 1Hz 提到 4Hz。

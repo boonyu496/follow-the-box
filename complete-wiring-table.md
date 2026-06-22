@@ -27,11 +27,13 @@
 | GPIO16 | 输出 | MOS/光耦通道 3 输入 | GPIO16 -> IN，IN -> 10k -> GND | 右倒车线，只控制右控制器 |
 | GPIO17 | 输出 | UWB RX | ESP32 TX -> UWB RX | UART 交叉 |
 | GPIO18 | 输入 | UWB TX | UWB TX -> ESP32 RX | UART 交叉 |
+| GPIO3 | 输入 | EAI S2 激光雷达 DATA/TX | 雷达 DATA -> GPIO3 | UART2 RX，150000 8N1 |
 | GPIO21 | 输入 | 急停反馈低压侧 | 3V3 -> 10k -> GPIO21 -> 急停第二 NC -> GND，或光耦低压侧 | GPIO21=1 表示急停/断线故障 |
 | GPIO39 | 输出 | MOS/光耦/继电器通道 4 输入 | GPIO39 -> IN，IN -> 10k -> GND | 软件使能，不能直连 36V 电门锁 |
 | GPIO40 | 输入 | 左 HC-SR04 ECHO | Echo L -> 10k -> GPIO40 -> 20k -> GND | Echo 降压 |
 | GPIO41 | 输入 | 右 HC-SR04 ECHO | Echo R -> 10k -> GPIO41 -> 20k -> GND | Echo 降压 |
 | GPIO42 | 输入 | JY61P TX | JY61P TX -> GPIO42；若 TX 是 5V：TX -> 10k -> GPIO42 -> 20k -> GND | 首版只读 IMU TX |
+| GPIO43 | 输出 | EAI S2 激光雷达 CTL/RX | ESP32 TX -> 雷达 CTL | 固件发送 `A5 60` 启动 |
 
 ## 2. 电源与安全链
 
@@ -72,6 +74,10 @@
 | UWB-02 | UWB GC-P2304 | GND | GND 低压母线 | GND | - | 共地 |
 | UWB-03 | UWB GC-P2304 | TX | ESP32 | GPIO18 | - | UWB TX -> ESP32 RX |
 | UWB-04 | UWB GC-P2304 | RX | ESP32 | GPIO17 | - | ESP32 TX -> UWB RX |
+| LIDAR-01 | EAI S2 激光雷达 | 5V | 5V 低压母线 | 5V | - | 与 ESP32 共地 |
+| LIDAR-02 | EAI S2 激光雷达 | GND | GND 低压母线 | GND | - | 共地 |
+| LIDAR-03 | EAI S2 激光雷达 | DATA | ESP32 | GPIO3 | 3.3V 串口电平 | 雷达 DATA/TX -> ESP32 RX |
+| LIDAR-04 | EAI S2 激光雷达 | CTL | ESP32 | GPIO43 | 3.3V 串口电平 | ESP32 TX -> 雷达 CTL/RX |
 | IMU-01 | JY61P | VCC | 5V 低压母线 | 5V | - | 上电后静止 3 秒 |
 | IMU-02 | JY61P | GND | GND 低压母线 | GND | - | 模块保持水平 |
 | IMU-03 | JY61P | TX | ESP32 | GPIO42 | 若 TX 5V，10k/20k 分压 | 首版只读 TX |

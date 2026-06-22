@@ -47,4 +47,11 @@ int UartBus::read() {
   return serial_->read();
 }
 
+size_t UartBus::write(const uint8_t* data, size_t length) {
+  if (!started_ || serial_ == nullptr || data == nullptr || length == 0) {
+    return 0;
+  }
+  return serial_->write(data, length);
+}
+
 }  // namespace followbox

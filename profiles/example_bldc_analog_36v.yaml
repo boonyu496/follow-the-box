@@ -135,7 +135,7 @@ sensors:
     rx_pin: 3
     tx_pin: 43
     protocol: ydlidar_single_channel_triangle
-    source: zhiliao/EaiLidarTest-V1.12.3-20241220/config/config.json
+    source: zhiliao/EaiLidarTest-V1.12.3-20241220/config/config.json + log/main.log A560/AA55 evidence
 
 alert:
   buzzer_type: passive_5v

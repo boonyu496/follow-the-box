@@ -1,5 +1,5 @@
 FollowBox cloud deploy package
-built_at=2026-06-21T15:56:12+08:00
+built_at=2026-06-22T01:41:34+08:00
 cache_policy=no-store+versioned-assets
 path=https://www.boonai.cn/fb/
-feature=mobile-h5-compact-scroll
+feature=tof-realtime-rate-display

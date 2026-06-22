@@ -698,6 +698,44 @@ canvas {
 .fb-bar.warn { background: var(--fb-amber); }
 .fb-bar.danger { background: var(--fb-red); }
 
+.fb-tof-realtime {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 12px 10px;
+}
+
+.fb-tof-realtime > div {
+  min-width: 0;
+  min-height: 50px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 5px;
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--fb-r-sm);
+  background: var(--fb-panel-soft);
+}
+
+.fb-tof-realtime span {
+  color: var(--pico-secondary-color);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.fb-tof-realtime strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--fb-ink);
+  font-size: 15px;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .fb-bar-row strong,
 .fb-tof-cell strong,
 .fb-side-range strong {
@@ -1092,6 +1130,20 @@ details summary {
   .fb-tof-row {
     gap: 8px;
     padding: 10px;
+  }
+
+  .fb-tof-realtime {
+    gap: 6px;
+    padding: 0 10px 10px;
+  }
+
+  .fb-tof-realtime > div {
+    min-height: 44px;
+    padding: 6px 4px;
+  }
+
+  .fb-tof-realtime strong {
+    font-size: 13px;
   }
 
   .fb-sensor-grid {

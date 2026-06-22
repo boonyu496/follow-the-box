@@ -50,6 +50,10 @@ const els = {
   tofCenter: $("tof-center"),
   tofRight: $("tof-right"),
   tofDetail: $("tof-detail"),
+  tofSampleRate: $("tof-sample-rate"),
+  tofChannelRate: $("tof-channel-rate"),
+  tofTelemetryRate: $("tof-telemetry-rate"),
+  tofDataAge: $("tof-data-age"),
   ultrasonicStatus: $("ultrasonic-status"),
   ultraLeft: $("ultra-left"),
   ultraRight: $("ultra-right"),
@@ -140,6 +144,7 @@ const DEFAULT_OPERATOR_TOKEN = "0b6cf31c57bc202d002b04f843c9b430"; // matches se
 const MAX_RANGE_MM = 3000;
 const MAP_MAX_MM = 4000;
 const DEVICE_ONLINE_TTL_MS = 5000;
+const TOF_RATE_WINDOW_MS = 5000;
 // Resolve API URLs relative to app.js, so the cloud console keeps working when
 // deployed under a sub-path such as https://www.boonai.cn/fb/.
 const APP_BASE_URL = new URL(".", document.currentScript?.src || window.location.href);
@@ -176,6 +181,7 @@ let latestLastIngestAt = 0;
 let latestTelemetryFreshAt = 0;
 let sseTransportOpen = false;
 let latestVideoFrameSeq = -1;
+const tofRateWindow = [];
 
 // ── Spatial Map state (RAF throttled) ──
 let spatialDirty = false;
@@ -225,6 +231,65 @@ function ageText(now, last) {
 
 function validCountLabel(validCount, totalCount) {
   return `${validCount}/${totalCount}`;
+}
+
+function bitCount3(value) {
+  let v = Number(value || 0) & 0x7;
+  let count = 0;
+  while (v) {
+    count += v & 1;
+    v >>= 1;
+  }
+  return count;
+}
+
+function fmtHz(value) {
+  if (!Number.isFinite(value) || value < 0) return "--";
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)}Hz`;
+}
+
+function fmtLatency(value) {
+  if (!Number.isFinite(value) || value < 0) return "--";
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}s`;
+  return `${Math.round(value)}ms`;
+}
+
+function updateTofRealtimeStats(state, tof, validCount, initMask) {
+  const deviceMs = Number(state.now_ms);
+  const readCount = Number(tof.read_count);
+  const lastTofMs = Number(tof.last_update_ms || 0);
+  if (!Number.isFinite(deviceMs) || !Number.isFinite(readCount)) {
+    return { sampleHz: NaN, channelHz: NaN, telemetryHz: NaN, ageMs: NaN };
+  }
+
+  const last = tofRateWindow[tofRateWindow.length - 1];
+  if (last && (deviceMs < last.deviceMs || readCount < last.readCount)) {
+    tofRateWindow.length = 0;
+  }
+  tofRateWindow.push({ deviceMs, readCount, browserMs: performance.now() });
+  while (
+    tofRateWindow.length > 2 &&
+    deviceMs - tofRateWindow[0].deviceMs > TOF_RATE_WINDOW_MS
+  ) {
+    tofRateWindow.shift();
+  }
+
+  const first = tofRateWindow[0];
+  const latest = tofRateWindow[tofRateWindow.length - 1];
+  const deviceSpan = latest.deviceMs - first.deviceMs;
+  const browserSpan = latest.browserMs - first.browserMs;
+  const sampleHz =
+    deviceSpan > 0
+      ? (Math.max(0, latest.readCount - first.readCount) * 1000) / deviceSpan
+      : NaN;
+  const telemetryHz =
+    browserSpan > 0
+      ? (Math.max(0, tofRateWindow.length - 1) * 1000) / browserSpan
+      : NaN;
+  const activeChannels = Math.max(1, bitCount3(initMask) || validCount);
+  const channelHz = Number.isFinite(sampleHz) ? sampleHz / activeChannels : NaN;
+  const ageMs = lastTofMs > 0 ? Math.max(0, deviceMs - lastTofMs) : NaN;
+  return { sampleHz, channelHz, telemetryHz, ageMs };
 }
 
 function fmtAge(now, last) {
@@ -557,12 +622,21 @@ function render(payload) {
   setTextState(els.tofStatus, tofValidCount === 3, tofValidCount > 0);
   setStatus(els.sensorTofStatus, validCountLabel(tofValidCount, 3),
             tofValidCount === 3, tofValidCount > 0);
-  if (els.sensorTofAge) els.sensorTofAge.textContent = ageText(s.now_ms, tof.last_update_ms);
   const initMask = Number(tof.init_ok_mask || 0);
+  const tofRealtime = updateTofRealtimeStats(s, tof, tofValidCount, initMask);
+  if (els.tofSampleRate) els.tofSampleRate.textContent = fmtHz(tofRealtime.sampleHz);
+  if (els.tofChannelRate) els.tofChannelRate.textContent = fmtHz(tofRealtime.channelHz);
+  if (els.tofTelemetryRate) els.tofTelemetryRate.textContent = fmtHz(tofRealtime.telemetryHz);
+  if (els.tofDataAge) els.tofDataAge.textContent = fmtLatency(tofRealtime.ageMs);
+  if (els.sensorTofAge) {
+    els.sensorTofAge.textContent =
+      `${fmtHz(tofRealtime.sampleHz)} / ${fmtLatency(tofRealtime.ageMs)}`;
+  }
   els.tofDetail.textContent =
     `初始化 0b${initMask.toString(2).padStart(3, "0")}` +
     ` / 尝试 ${tof.init_attempt_count || 0} / 传感器失败 ${tof.init_failure_count || 0}` +
     ` / 读取 ${tof.read_count || 0}` +
+    ` / 采集 ${fmtHz(tofRealtime.sampleHz)} / 遥测 ${fmtHz(tofRealtime.telemetryHz)}` +
     ` / NACK ${tof.mux_nack_count || 0} / 超时 ${tof.timeout_count || 0}` +
     ` / 总线恢复 ${tof.bus_clear_count || 0} / 重连 ${tof.reinit_count || 0}`;
 

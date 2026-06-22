@@ -88,6 +88,7 @@ void TelemetryLogger::emit(const SystemState& state) {
   FB_LOGI(
       "TLM mode=%s stop=%s en=%d brk=%d L=%.2f%c R=%.2f%c scale=%.2f "
       "batt=%.1f estop=%d wiz=%d uwb=%d/%dmm "
+      "lidar=%d rx=%lu pkt=%lu scan=%lu ce=%lu fe=%lu "
       "tof=0x%lx/%lu init=%lu/%lu nack=%lu to=%lu busclr=%lu reinit=%lu",
       modeName(state.mode), stopName(state.safety.stop_reason), mc.enable ? 1 : 0,
       mc.brake ? 1 : 0, static_cast<double>(mc.left_target),
@@ -97,6 +98,14 @@ void TelemetryLogger::emit(const SystemState& state) {
       static_cast<double>(state.power.battery_voltage),
       state.estop_active ? 1 : 0, state.install_wizard_complete ? 1 : 0,
       state.uwb.valid ? 1 : 0, state.uwb.distance_mm,
+      state.sensor_diagnostics.lidar_valid ? 1 : 0,
+      static_cast<unsigned long>(state.sensor_diagnostics.lidar_rx_bytes),
+      static_cast<unsigned long>(state.sensor_diagnostics.lidar_packets),
+      static_cast<unsigned long>(state.sensor_diagnostics.lidar_scans),
+      static_cast<unsigned long>(
+          state.sensor_diagnostics.lidar_checksum_errors),
+      static_cast<unsigned long>(
+          state.sensor_diagnostics.lidar_framing_errors),
       static_cast<unsigned long>(state.sensor_diagnostics.tof_init_ok_mask),
       static_cast<unsigned long>(state.sensor_diagnostics.tof_read_count),
       static_cast<unsigned long>(state.sensor_diagnostics.tof_init_attempt_count),

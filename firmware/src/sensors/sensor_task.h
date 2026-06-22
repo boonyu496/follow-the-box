@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "core/types.h"
@@ -65,6 +66,8 @@ class SensorTask {
   void drainUwb(uint32_t now_ms);
   void drainLidar(uint32_t now_ms);
   void drainImu(uint32_t now_ms);
+  size_t sendLidarStartCommand();
+  void logLidarDiagnostics(uint32_t now_ms);
 
   UartBus uwb_uart_;
   UartBus lidar_uart_;
@@ -81,6 +84,13 @@ class SensorTask {
   bool estop_active_ = true;
   uint32_t sensor_heartbeat_ms_ = 0;
   uint32_t uwb_heartbeat_ms_ = 0;
+  uint32_t last_lidar_diag_ms_ = 0;
+  uint32_t last_lidar_rx_bytes_ = 0;
+  uint32_t last_lidar_packets_ = 0;
+  uint32_t last_lidar_scans_ = 0;
+  uint32_t last_lidar_checksum_errors_ = 0;
+  uint32_t last_lidar_framing_errors_ = 0;
+  bool lidar_healthy_logged_ = false;
 };
 
 }  // namespace followbox

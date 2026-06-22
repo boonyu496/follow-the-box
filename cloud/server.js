@@ -183,23 +183,6 @@ function readFirmwareManifest(deviceId) {
   };
 }
 
-function compareVersions(left, right) {
-  const tokenize = (value) => String(value || "").toLowerCase().match(/[0-9]+|[a-z]+/g) || [];
-  const a = tokenize(left);
-  const b = tokenize(right);
-  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
-    if (a[i] === b[i]) continue;
-    if (a[i] === undefined) return -1;
-    if (b[i] === undefined) return 1;
-    const aNum = /^\d+$/.test(a[i]);
-    const bNum = /^\d+$/.test(b[i]);
-    if (aNum && bNum) return Number(a[i]) > Number(b[i]) ? 1 : -1;
-    if (aNum !== bNum) return aNum ? 1 : -1;
-    return a[i] > b[i] ? 1 : -1;
-  }
-  return 0;
-}
-
 function currentFirmwareVersion(device) {
   return String(device.state?.firmware?.version || device.firmwareVersion || "");
 }
@@ -208,7 +191,10 @@ function firmwareSummary(deviceId, device, includeDownload, currentOverride = ""
   const manifest = readFirmwareManifest(deviceId);
   if (!manifest) return null;
   const current = String(currentOverride || currentFirmwareVersion(device));
-  const updateAvailable = !!current && compareVersions(manifest.version, current) > 0;
+  // Firmware labels include feature tracks such as tof-debug and lidar-s2 that
+  // are not globally ordered. The published manifest is the operator-approved
+  // candidate, so any different device version is installable after confirmation.
+  const updateAvailable = !!current && manifest.version !== current;
   const summary = {
     ok: true,
     version: manifest.version,
