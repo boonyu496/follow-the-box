@@ -230,7 +230,7 @@ void testFollowController() {
   assert(release.forward > 0.0f);  // beyond resume -> moves again
 }
 
-// --- LiDAR LD19 parser ----------------------------------------------------
+// --- Fitted 150000-baud AA55 LiDAR parser --------------------------------
 uint8_t lidarCrc(const uint8_t* data, uint8_t length) {
   static const uint8_t table[256] = {
       0x00, 0x4d, 0x9a, 0xd7, 0x79, 0x34, 0xe3, 0xae, 0xf2, 0xbf, 0x68, 0x25,
@@ -265,7 +265,7 @@ uint8_t lidarCrc(const uint8_t* data, uint8_t length) {
 std::vector<uint8_t> buildLidarPacket(float start_deg, float end_deg,
                                       uint16_t dist_mm, uint8_t ring_start) {
   constexpr uint8_t count = 8;
-  std::vector<uint8_t> p(10 + count * 2, 0);
+  std::vector<uint8_t> p(10 + count * 3, 0);
   p[0] = 0xAA;
   p[1] = 0x55;
   p[2] = ring_start ? 0x01 : 0x00;
@@ -282,9 +282,12 @@ std::vector<uint8_t> buildLidarPacket(float start_deg, float end_deg,
                       start ^ end;
   const uint16_t raw_distance = static_cast<uint16_t>(dist_mm * 4u);
   for (uint8_t i = 0; i < count; ++i) {
-    const size_t offset = 10 + i * 2;
-    p[offset] = raw_distance & 0xFF;
-    p[offset + 1] = (raw_distance >> 8) & 0xFF;
+    const size_t offset = 10 + i * 3;
+    const uint8_t quality = static_cast<uint8_t>(0x80u + i);
+    p[offset] = quality;
+    p[offset + 1] = raw_distance & 0xFF;
+    p[offset + 2] = (raw_distance >> 8) & 0xFF;
+    checksum ^= quality;
     checksum ^= raw_distance;
   }
   p[8] = checksum & 0xFF;
@@ -314,10 +317,11 @@ void testLidarParser() {
   assert(lidar.snapshot().front_center_mm == 1500);
   assert(lidar.snapshot().side_left_mm == 0);
 
-  // A corrupted XOR checksum is rejected.
+  // A corrupted checksum is rejected so noise cannot create obstacle data.
   std::vector<uint8_t> bad = buildLidarPacket(50.0f, 60.0f, 1000, false);
   bad[8] ^= 0xFF;
   feedLidar(lidar, bad, 120);
+  assert(lidar.stats().packet_count == 3);
   assert(lidar.stats().checksum_error_count == 1);
 
   // Timeout invalidates the snapshot.

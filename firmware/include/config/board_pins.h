@@ -31,11 +31,10 @@ constexpr int UART_NUM_LIDAR = 2;
 // bring-up confirms the module TX level, baud rate, and install-wizard yaw sign.
 constexpr int UART_NUM_IMU = -1;
 
-// EAI S2 lidar UART (UART2, 150000 baud for S2-YJ/S2-YD, 3.3V logic, direct connect).
+// Fitted OEM YDLIDAR UART (UART2, 150000 baud, 3.3V logic, direct connect).
 // GPIO3  = ESP32 RX <- lidar TX.  GPIO22/23 do NOT exist on ESP32-S3-DevKitC-1.
-// GPIO43 = ESP32 TX -> lidar CTL/RX. EaiLidarTest logs show an A5 60 command
-// before AA55 scan packets, so CTL must be on the firmware TX pin for modules
-// that do not free-run after power-up. GPIO42 remains reserved for JY61P.
+// GPIO43 = ESP32 TX -> lidar CTL/RX. Seller-linked ROS1/ROS2 drivers send
+// A5 60 before reading AA55 scan packets. GPIO42 remains reserved for JY61P.
 // GPIO19/20 are USB D-/D+ and MUST NOT be used.
 constexpr int PIN_LIDAR_RX = 3;
 constexpr int PIN_LIDAR_TX = 43;

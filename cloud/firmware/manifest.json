@@ -1,6 +1,8 @@
 {
-  "version": "2026.06.22-20260622-182417",
-  "md5": "7749467ecfbbde765aecdc8caa2d9892",
-  "size": 1134960,
-  "timestamp": "2026-06-22T10:24:17Z"
+  "version": "2026.06.22-lidar-rawcap.1",
+  "file": "firmware.bin",
+  "md5": "d749eeed05e43e52439a34121e481887",
+  "size": 1136240,
+  "force": false,
+  "notes": "LiDAR raw byte preview, AA55/542C signature counters, and parser reject diagnostics; no parser acceptance or motion-path change"
 }

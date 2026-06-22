@@ -39,9 +39,9 @@ constexpr float BATTERY_LOW_VOLTAGE = 33.0f;
 // Bound bytes drained per parser per update so the control loop never stalls
 // on a flooded UART; leftover bytes are picked up next tick.
 constexpr uint32_t UWB_UART_BAUD = 115200;
-// EaiLidarTest V1.12.3 config.json lists S2-YJ/S2-YD at 150000 baud
-// (singleChannel=true). S2-Pro is 115200, so override this only if the fitted
-// lidar label confirms S2-Pro.
+// Seller-linked ROS1/ROS2 drivers for the fitted OEM YDLIDAR module use
+// 150000 baud. Do not infer a different rate from generic S2 model tables;
+// require a raw-byte capture or a driver known to work with this exact unit.
 constexpr uint32_t LIDAR_UART_BAUD = 150000;
 constexpr int SENSOR_TASK_MAX_BYTES_PER_UPDATE = 512;
 
@@ -83,7 +83,7 @@ constexpr float IMU_ANGLE_FULL_SCALE_DEG = 180.0f;  // 0x53 Euler angles
 // is enabled anyway, FOLLOW_YAW_DAMP_GAIN = 0).
 constexpr float IMU_YAW_SIGN = 1.0f;
 
-// --- LiDAR YDLIDAR/EAI S2 (triangle protocol, UART 150000 8N1, AA 55 packet) ---
+// --- Fitted OEM YDLIDAR (UART 150000 8N1, intensity8, 10 + LSN*3 bytes) ---
 constexpr uint32_t LIDAR_PACKET_TIMEOUT_MS = 500;
 constexpr int LIDAR_MIN_VALID_MM = 50;
 constexpr int LIDAR_MAX_VALID_MM = 8000;

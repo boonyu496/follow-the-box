@@ -13,6 +13,21 @@ namespace {
 constexpr uint8_t kLidarStartCommand[] = {0xA5, 0x60};
 constexpr uint32_t kLidarStartupGraceMs = 3000;
 constexpr uint32_t kLidarDiagPeriodMs = 5000;
+
+void bytesToHex(const uint8_t* bytes, size_t count, char* out,
+                size_t out_size) {
+  static constexpr char kHex[] = "0123456789ABCDEF";
+  if (out == nullptr || out_size == 0) {
+    return;
+  }
+  const size_t max_bytes = (out_size - 1) / 2;
+  const size_t emit = count < max_bytes ? count : max_bytes;
+  for (size_t i = 0; i < emit; ++i) {
+    out[i * 2] = kHex[bytes[i] >> 4];
+    out[i * 2 + 1] = kHex[bytes[i] & 0x0Fu];
+  }
+  out[emit * 2] = '\0';
+}
 }  // namespace
 
 SensorTask::SensorTask()
@@ -159,20 +174,37 @@ void SensorTask::logLidarDiagnostics(uint32_t now_ms) {
           pins::PIN_LIDAR_RX, pins::PIN_LIDAR_TX);
     } else if (stats.packet_count == 0) {
       FB_LOGW(
-          "LIDAR diag rx_no_packets rx=%lu(+%lu) framing=%lu(+%lu) "
-          "checksum=%lu(+%lu) baud=%lu check protocol/baud, DATA level, "
-          "ground and line noise",
+          "LIDAR diag rx_no_packets rx=%lu(+%lu) aa55=%lu ld54=%lu "
+          "framing=%lu(+%lu) checksum=%lu(+%lu) baud=%lu",
           static_cast<unsigned long>(stats.rx_byte_count),
           static_cast<unsigned long>(delta_rx),
+          static_cast<unsigned long>(stats.aa55_header_count),
+          static_cast<unsigned long>(stats.ld_header_count),
           static_cast<unsigned long>(stats.framing_error_count),
           static_cast<unsigned long>(delta_framing_errors),
           static_cast<unsigned long>(stats.checksum_error_count),
           static_cast<unsigned long>(delta_checksum_errors),
           static_cast<unsigned long>(profile::LIDAR_UART_BAUD));
+      char raw_hex[97];
+      bytesToHex(lidar_.rawPreview(), lidar_.rawPreviewSize(), raw_hex,
+                 sizeof(raw_hex));
+      FB_LOGW(
+          "LIDAR raw first=%s rejects=count:%lu/fsa:%lu/lsa:%lu/ovf:%lu",
+          raw_hex,
+          static_cast<unsigned long>(stats.invalid_count_reject_count),
+          static_cast<unsigned long>(stats.first_angle_reject_count),
+          static_cast<unsigned long>(stats.last_angle_reject_count),
+          static_cast<unsigned long>(stats.overflow_reject_count));
+      if (lidar_.aa55PreviewSize() > 0) {
+        char aa55_hex[97];
+        bytesToHex(lidar_.aa55Preview(), lidar_.aa55PreviewSize(), aa55_hex,
+                   sizeof(aa55_hex));
+        FB_LOGW("LIDAR raw aa55=%s", aa55_hex);
+      }
     } else if (stats.scan_count == 0) {
       FB_LOGW(
           "LIDAR diag packets_no_scan rx=%lu packets=%lu(+%lu) scans=0 "
-          "last_packet=%lu check S2 AA55 triangle frames and start command A560",
+          "last_packet=%lu check AA55 intensity8 10+LSN*3 frames and start command A560",
           static_cast<unsigned long>(stats.rx_byte_count),
           static_cast<unsigned long>(stats.packet_count),
           static_cast<unsigned long>(delta_packets),

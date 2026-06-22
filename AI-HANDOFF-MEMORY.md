@@ -30,6 +30,25 @@
 ```
 
 ## 最新交接记录
+### 2026-06-22 20:58 - Codex - 激光雷达原始字节诊断版
+- 改动：对照买家 ROS1/ROS2 驱动、B 站作者源码、本地 EaiLidarTest 配置及官方 YDLidar SDK；保留现有 `10+LSN*3` parser，不再猜协议，仅增加原始证据采集。
+- 文件：`firmware/src/sensors/lidar_eai_s2.{h,cpp}`, `firmware/src/sensors/sensor_task.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{manifest.json,firmware.bin}`, `AI-HANDOFF-MEMORY.md`。
+- 诊断：每 5 秒输出首次 48 bytes hex、首次 `AA55` 后 48 bytes、`AA55/542C` 计数，以及 count/FSA/LSA/overflow 拒绝分类；不改变 packet 接受、checksum 或 obstacle validity。
+- 安全影响：只读 UART 诊断；无 GPIO/电机/安全门控变更，无效雷达继续保持 invalid。
+- OTA：版本 `2026.06.22-lidar-rawcap.1`，size `1136240`，MD5 `d749eeed05e43e52439a34121e481887`，`force=false`；已本地生成，未发布、未安装。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1 -j 4` PASS（RAM 22.6%，Flash 24.1%）；`python tools/package_ota.py --skip-build ...` PASS；仍需真机静止台架日志。
+- 当前状态：NEEDS_H5_INSTALL_AND_RAW_CAPTURE；下一步安装后保留含 `LIDAR diag`、`LIDAR raw first`、`LIDAR raw aa55` 的 15-30 秒日志，据此裁决协议变体或串口电气/接线故障。
+
+### 2026-06-22 19:29 - Codex - 激光雷达 intensity8 协议修复
+- 改动：依据卖家协议图、本机 EaiLidarTest `intensity=8` 配置及官方 YDLidar SDK，将雷达包从错误的 `10+LSN*2` 修正为含 `CS` 的 `10+LSN*3`，每点按 `quality + distance_lsb + distance_msb` 解析并保留 XOR 校验。
+- 文件：`firmware/src/sensors/lidar_eai_s2.{h,cpp}`, `firmware/tools/logic_smoke_test.cpp`, `firmware/src/sensors/sensor_task.cpp`, `firmware/include/config/{profile_defaults.h,board_pins.h,ota_config.h}`, 三份协议/接线文档及 OTA 产物。
+- 架构影响：无模块/GPIO/运动出口变更；仅修正现有 UART2 雷达 parser 的包长、字段偏移、checksum 和诊断文字。
+- 安全影响：涉及 obstacle 输入有效性；checksum/角度异常继续保持 invalid，不绕过 safety_manager，不改 motor/e-stop/PWM/drive_adapter。
+- OTA：版本 `2026.06.22-lidar-intensity8.1`，size `1136096`，MD5 `647176e5eb5d3605fe09b653ff4aecf0`，`force=false`；已本地生成，未发布、未安装。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py ...` PASS；`git diff --check` PASS；本机无 host `g++`，新增 smoke fixture 未运行。
+- 当前状态：NEEDS_H5_INSTALL_AND_HARDWARE_VERIFICATION。
+- 下一步：H5 手动安装该版本，静止台架观察 30 秒；期望 `packets/scans` 持续增加且出现 `LIDAR diag ok`，若仍为 0，保留完整 `rx/framing/checksum` 日志后再做原始字节抓取。
+
 ### 2026-06-22 00:57 - Codex - 雷达日志诊断版
 - 改动：附件日志显示 TCA `0x70` 在线但 TOF 三路 `0x29 sensor_nack`；本次新增 EAI S2 雷达启动/故障诊断日志，并把 `lidar` RX/包/圈/校验/帧错计数写入周期 `TLM`。
 - 文件：`firmware/src/sensors/sensor_task.{h,cpp}`, `firmware/src/telemetry/telemetry_logger.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{manifest.json,firmware.bin}`, `AI-HANDOFF-MEMORY.md`

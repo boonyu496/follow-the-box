@@ -19,7 +19,7 @@ HOTRC DS600 接收机 PWM（首版只接 CH1-CH5）
 
 ```text
 GC-P2304-GS-2 UWB  -> UART GPIO17/18，3.3V
-EAI S2 激光雷达     -> DATA 接 GPIO3，CTL 接 GPIO43，5V/GND，串口电平需确认
+实物拆机激光雷达   -> DATA 接 GPIO3，CTL 接 GPIO43，5V/GND，串口电平需确认
 JY61P IMU          -> TX 接 GPIO42，5V 供电，串口电平需确认/分压
 VL53L1X ×3         -> TCA9548A -> I2C GPIO10/11，3.3V
 HC-SR04 ×2         -> 共享 TRIG GPIO9，Echo 分别进 GPIO40/41 且必须分压
@@ -70,7 +70,7 @@ ESP32-S3-CAM       -> 独立视频板，5V 供电，首版用 WiFi 视频/状态
 | 控制器软件使能 | GPIO39 | 输出 | 只驱动继电器/MOS，不直连高压电门锁；外部 10k 下拉 |
 | 左超声 ECHO | GPIO40 | 输入 | 左 HC-SR04 ECHO 分压后输入 |
 | 右超声 ECHO | GPIO41 | 输入 | 右 HC-SR04 ECHO 分压后输入 |
-| 激光雷达 DATA/RX | GPIO3 | 输入 | EAI S2 DATA/TX -> GPIO3；固件 UART2 150000 8N1 |
+| 激光雷达 DATA/RX | GPIO3 | 输入 | 实物 DATA/TX -> GPIO3；固件 UART2 150000 8N1 |
 | 激光雷达 CTL/TX | GPIO43 | 输出 | ESP32 TX -> 雷达 CTL/RX；固件发送 `A5 60` 后读 `AA55` 帧 |
 | IMU RX | GPIO42 | 输入 | 接 JY61P TX；若 5V 电平必须分压/电平转换 |
 
@@ -264,9 +264,9 @@ CHx Signal -> 10k -> ESP32 GPIOx -> 20k -> GND
 | RX | GPIO17 |
 | 天线 | 外置 SMA/IPEX，不放铝盒内 |
 
-### EAI S2 激光雷达
+### 实物拆机激光雷达
 
-依据 `zhiliao/EaiLidarTest-V1.12.3-20241220/log/main.log`，EaiLidarTest 启动时先发送 `A560`，随后收到 `AA55` S2 三角协议数据；不要按 LD06/LD19 手册的 `54 2C / 230400` 协议配置当前实物，除非后续抓包证明实物已更换。
+卖家协议图、本机可工作的 EaiLidarTest 配置（`intensity=8`）和官方 YDLidar SDK 共同指向：实物使用 UART 150000 8N1，启动命令 `A5 60`，扫描帧头 `AA 55`。包布局为 `PH(2) + CT(1) + LSN(1) + FSA(2) + LSA(2) + CS(2) + LSN × 3`；每点是 `quality(1) + distance_lsb(1) + distance_msb(1)`，`CS` 对头字段、quality 和 distance 做 16-bit XOR。部分买家 ROS 驱动省略 `CS` 或把 quality 放在末尾，与卖家协议图冲突，不能据此降低校验要求。不得再按 `10 + LSN × 2` 截包，也不要套用 LD06/LD19 的 `54 2C / 230400` 协议。
 
 | 雷达 | ESP32-S3 |
 |---|---|

@@ -522,8 +522,8 @@ constexpr int PIN_CONTROLLER_FAULT = 2;
 // Remaining low-speed sensors / status.
 constexpr int PIN_US_LEFT_ECHO  = 40;
 constexpr int PIN_US_RIGHT_ECHO = 41;
-constexpr int PIN_LIDAR_RX      = 3;   // EAI S2 DATA/TX -> ESP32 RX.
-constexpr int PIN_LIDAR_TX      = 43;  // ESP32 TX -> EAI S2 CTL/RX; sends A5 60 before scan.
+constexpr int PIN_LIDAR_RX      = 3;   // Fitted OEM lidar DATA/TX -> ESP32 RX.
+constexpr int PIN_LIDAR_TX      = 43;  // ESP32 TX -> lidar CTL/RX; sends A5 60 before scan.
 constexpr int PIN_IMU_RX        = 42;  // JY61P TX -> ESP32 RX; IMU TX/config line is P1 optional.
 // constexpr int PIN_BUZZER     = -1;  // P1 optional or external I/O expander.
 // ESP32-S3-CAM UART is P1 optional; first version uses WiFi video/status instead.
@@ -791,8 +791,8 @@ Profile 字段名、单位和权限必须稳定，H5 只能修改标记为可调
 | `pins.ultrasonic_shared_trig` | GPIO | 9 | 固定 | 否 | 超声共享 TRIG |
 | `pins.ultrasonic_left_echo` | GPIO | 40 | 固定 | 否 | 左 Echo 分压后输入 |
 | `pins.ultrasonic_right_echo` | GPIO | 41 | 固定 | 否 | 右 Echo 分压后输入 |
-| `pins.lidar_rx` | GPIO | 3 | 固定 | 否 | EAI S2 DATA/TX 输入 |
-| `pins.lidar_tx` | GPIO | 43 | 固定 | 否 | EAI S2 CTL/RX 输出 |
+| `pins.lidar_rx` | GPIO | 3 | 固定 | 否 | 实物拆机雷达 DATA/TX 输入 |
+| `pins.lidar_tx` | GPIO | 43 | 固定 | 否 | 实物拆机雷达 CTL/RX 输出 |
 | `pins.imu_rx` | GPIO | 42 | 固定 | 否 | JY61P TX 输入 |
 | `polarity.mcu_brake_out_active_level` | enum | `high` | high/low | 否 | GPIO 对 MOS/光耦输入有效电平 |
 | `polarity.controller_brake_line_active` | enum | `pull_to_gnd` | 固定/实测 | 否 | 控制器低刹有效方式 |
