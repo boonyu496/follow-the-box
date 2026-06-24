@@ -6,6 +6,10 @@
 
 namespace followbox {
 
+namespace {
+constexpr float kBatteryOverrangeMarginV = 2.0f;
+}
+
 PowerMonitor::PowerMonitor()
     : battery_adc_(pins::PIN_BATTERY_ADC),
       controller_fault_(pins::PIN_CONTROLLER_FAULT, ActiveLevel::ACTIVE_LOW,
@@ -20,11 +24,18 @@ bool PowerMonitor::begin() {
 
 void PowerMonitor::update(uint32_t now_ms) {
   const uint32_t adc_mv = battery_adc_.readMillivolts(10);
-  snapshot_.valid = adc_mv > 0;
+  const float pack_voltage = packVoltageFromAdcMillivolts(adc_mv);
+  const bool adc_online = adc_mv > 0;
+  const bool voltage_supported =
+      pack_voltage <=
+      (static_cast<float>(profile::BATTERY_SUPPORTED_PACK_MAX_MV) / 1000.0f +
+       kBatteryOverrangeMarginV);
+  snapshot_.valid = adc_online && voltage_supported;
   snapshot_.last_update_ms = now_ms;
-  snapshot_.battery_voltage = packVoltageFromAdcMillivolts(adc_mv);
+  snapshot_.battery_voltage = pack_voltage;
   snapshot_.low_battery =
-      snapshot_.valid && snapshot_.battery_voltage <= profile::BATTERY_LOW_VOLTAGE;
+      adc_online &&
+      (!voltage_supported || snapshot_.battery_voltage <= profile::BATTERY_LOW_VOLTAGE);
 
   const bool controller_fault_active =
       controller_fault_.isValid() && controller_fault_.readActive();
@@ -45,4 +56,3 @@ float PowerMonitor::packVoltageFromAdcMillivolts(uint32_t adc_mv) const {
 }
 
 }  // namespace followbox
-

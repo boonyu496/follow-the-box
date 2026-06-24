@@ -19,7 +19,7 @@ HOTRC DS600 接收机 PWM（首版只接 CH1-CH5）
 
 ```text
 GC-P2304-GS-2 UWB  -> UART GPIO17/18，3.3V
-实物拆机激光雷达   -> DATA 接 GPIO3，CTL 接 GPIO43，5V/GND，串口电平需确认
+实物拆机激光雷达   -> 规范线序：DATA/TX 接 GPIO3(RX)，CTL/RX 接 GPIO43(TX)，5V/GND，串口电平需确认；固件诊断会临时轮询反接候选
 JY61P IMU          -> TX 接 GPIO42，5V 供电，串口电平需确认/分压
 VL53L1X ×3         -> TCA9548A -> I2C GPIO10/11，3.3V
 HC-SR04 ×2         -> 共享 TRIG GPIO9，Echo 分别进 GPIO40/41 且必须分压
@@ -70,11 +70,11 @@ ESP32-S3-CAM       -> 独立视频板，5V 供电，首版用 WiFi 视频/状态
 | 控制器软件使能 | GPIO39 | 输出 | 只驱动继电器/MOS，不直连高压电门锁；外部 10k 下拉 |
 | 左超声 ECHO | GPIO40 | 输入 | 左 HC-SR04 ECHO 分压后输入 |
 | 右超声 ECHO | GPIO41 | 输入 | 右 HC-SR04 ECHO 分压后输入 |
-| 激光雷达 DATA/RX | GPIO3 | 输入 | 实物 DATA/TX -> GPIO3；固件 UART2 150000 8N1 |
-| 激光雷达 CTL/TX | GPIO43 | 输出 | ESP32 TX -> 雷达 CTL/RX；固件发送 `A5 60` 后读 `AA55` 帧 |
+| 激光雷达 DATA/TX | GPIO3 | 输入 | 规范线序：实物 DATA/TX -> GPIO3；固件当前默认 UART2 115200 8N1，诊断版会轮询 150000 等候选线序和波特率 |
+| 激光雷达 CTL/RX | GPIO43 | 输出 | 规范线序：ESP32 TX -> 雷达 CTL/RX；固件发送 `A5 60`，未识别帧头时只记录 raw，不生成有效障碍物 |
 | IMU RX | GPIO42 | 输入 | 接 JY61P TX；若 5V 电平必须分压/电平转换 |
 
-保留/禁用：GPIO35、GPIO36、GPIO37、GPIO47、GPIO48 禁止作为电机驱动输出；GPIO0、GPIO19、GPIO20、GPIO44、GPIO45、GPIO46 不占用；GPIO3 仅作雷达 DATA 输入，不作通用输出；GPIO43 仅作雷达 CTL/TX；GPIO33/34 未按具体模组确认前不作 P0 输出；GPIO38 板载 RGB 先保留。
+保留/禁用：GPIO35、GPIO36、GPIO37、GPIO47、GPIO48 禁止作为电机驱动输出；GPIO0、GPIO19、GPIO20、GPIO44、GPIO45、GPIO46 不占用；GPIO3/GPIO43 仅用于雷达 UART，固件诊断可在 `spec(DATA/TX->RX CTL/RX<-TX)` 与 `swap(CTL/TX->RX DATA/RX<-TX)` 间临时切换；GPIO33/34 未按具体模组确认前不作 P0 输出；GPIO38 板载 RGB 先保留。
 
 ---
 
@@ -266,16 +266,16 @@ CHx Signal -> 10k -> ESP32 GPIOx -> 20k -> GND
 
 ### 实物拆机激光雷达
 
-卖家协议图、本机可工作的 EaiLidarTest 配置（`intensity=8`）和官方 YDLidar SDK 共同指向：实物使用 UART 150000 8N1，启动命令 `A5 60`，扫描帧头 `AA 55`。包布局为 `PH(2) + CT(1) + LSN(1) + FSA(2) + LSA(2) + CS(2) + LSN × 3`；每点是 `quality(1) + distance_lsb(1) + distance_msb(1)`，`CS` 对头字段、quality 和 distance 做 16-bit XOR。部分买家 ROS 驱动省略 `CS` 或把 quality 放在末尾，与卖家协议图冲突，不能据此降低校验要求。不得再按 `10 + LSN × 2` 截包，也不要套用 LD06/LD19 的 `54 2C / 230400` 协议。
+EaiLidarTest 配置曾显示目标可按 `S2-YJ`、UART 150000 8N1、`intensity=8`、启动命令 `A5 60` 处理；官方 YDLidar SDK 的常见三角协议扫描帧头是 `AA 55`。但 2026-06-22/24 现场日志显示车端在规范线序 `DATA/TX -> GPIO3, CTL/RX <- GPIO43` 下，`115200` 时出现可解释的重复 `55 AA 03 08 ...` 帧，角度字段与距离优先样本更符合实物输出；150000 下多为角度不可能的 raw 字节。因此固件当前默认 115200，并保留 150000 等自动探测。固件保留 `AA55` 主解析：`PH(2) + CT(1) + LSN(1) + FSA(2) + LSA(2) + CS(2) + LSN × 3`，每点 `quality(1) + distance_lsb + distance_msb`；同时接受现场实测 `55 AA 03 LSN + FSA + LSA + LSN × (distance_lsb + distance_msb + quality)` 的无校验帧，但必须通过 CT/count/角度/距离合理性门槛。不得再按 `10 + LSN × 2` 截包，也不要直接套用 LD06/LD19 的 `54 2C / 230400` 协议。
 
 | 雷达 | ESP32-S3 |
 |---|---|
 | 5V | 5V |
 | GND | GND |
-| DATA | GPIO3 |
-| CTL | GPIO43 |
+| DATA/TX | GPIO3 |
+| CTL/RX | GPIO43 |
 
-GPIO3/GPIO43 电平均按 3.3V 处理；若实测 DATA/CTL 高于 3.3V，必须加电平转换后再接 ESP32。
+GPIO3/GPIO43 电平均按 3.3V 处理；若实测 DATA/CTL 高于 3.3V，必须加电平转换后再接 ESP32。`SensorTask` 在 `rx=0` 或 `rx=1(+0)` 停滞时会自动轮询规范线序、反接线序和候选波特率；以日志里的 `wiring=... rx_pin=... tx_pin=... baud=...` 判断哪组真正有持续数据。
 
 ### JY61P IMU
 

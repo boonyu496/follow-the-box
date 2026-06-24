@@ -2,14 +2,16 @@
 
 #include <Arduino.h>
 
+#include "config/profile_defaults.h"
+
 namespace followbox {
 
 UartBus::UartBus(int uart_num, int rx_pin, int tx_pin, uint32_t baud)
     : uart_num_(uart_num), rx_pin_(rx_pin), tx_pin_(tx_pin), baud_(baud) {}
 
-bool UartBus::begin() {
-  if (!isEnabled() || started_) {
-    return started_;
+bool UartBus::selectSerial() {
+  if (!isEnabled()) {
+    return false;
   }
 
   // Reuse the framework's predefined UART globals. With USB-CDC enabled,
@@ -27,7 +29,44 @@ bool UartBus::begin() {
     default:
       return false;
   }
+  return true;
+}
 
+bool UartBus::begin() {
+  if (!isEnabled() || started_) {
+    return started_;
+  }
+
+  if (!selectSerial()) {
+    return false;
+  }
+
+  serial_->setRxBufferSize(profile::SENSOR_UART_RX_BUFFER_SIZE);
+  serial_->begin(baud_, SERIAL_8N1, rx_pin_, tx_pin_);
+  started_ = true;
+  return true;
+}
+
+bool UartBus::restart(uint32_t baud) {
+  return restart(baud, rx_pin_, tx_pin_);
+}
+
+bool UartBus::restart(uint32_t baud, int rx_pin, int tx_pin) {
+  rx_pin_ = rx_pin;
+  tx_pin_ = tx_pin;
+  if (!isEnabled()) {
+    return false;
+  }
+  if (!selectSerial()) {
+    return false;
+  }
+
+  if (started_) {
+    serial_->end();
+    started_ = false;
+  }
+  baud_ = baud;
+  serial_->setRxBufferSize(profile::SENSOR_UART_RX_BUFFER_SIZE);
   serial_->begin(baud_, SERIAL_8N1, rx_pin_, tx_pin_);
   started_ = true;
   return true;

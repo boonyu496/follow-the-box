@@ -31,8 +31,13 @@ Motor GPIO/PWM output is owned only by `src/drive/drive_adapter_analog_bldc.*`
 after `SafetyManager::applyFinalGate()`.
 
 Sensor UART wiring currently uses UWB on GPIO17/18, EAI S2 lidar DATA/CTL on
-GPIO3/GPIO43, and JY61P TX reserved on GPIO42. The parsers above are byte-stream
-only and must be fed from a sensor task without blocking the control loop.
+GPIO3/GPIO43, and JY61P TX reserved on GPIO42. The lidar task starts at the
+current bench evidence point (115200 8N1 + A5 60 + 55AA0308 frames) and can probe
+the spec wiring, the swapped DATA/CTL candidate, and alternate baud rates until
+a known packet layout decodes. Wrong-baud 55AA/542C-like streams with impossible
+angles are logged as diagnostic candidates only.
+The parsers above are byte-stream only and must be fed from a sensor task without
+blocking the control loop or accepting unknown raw bytes as obstacles.
 
 Quick checks from the project root:
 

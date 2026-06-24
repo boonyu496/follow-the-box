@@ -30,6 +30,188 @@
 ```
 
 ## 最新交接记录
+### 2026-06-24 - Codex - H5 全传感器动态空间地图
+- 改动：参考 `D:\car\UWB outocar` 的极坐标空间地图，在本地 H5 传感器页新增全传感器空间地图，含旋转扫描线、UWB 浏览器端轨迹尾迹、传感器点发光脉冲、摄像头视场、IMU 航向和电池状态。
+- 文件：`firmware/web/{index.html,app.js,style.css}`, `firmware/data/{index.html,app.js,style.css,shared/helpers.js}`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`。
+- 架构影响：低；只改 H5 可视化和版本号，不改 WebSocket JSON 协议、SensorSnapshot、fusion、motion、safety 或 GPIO。
+- 安全影响：低；H5 仍只显示状态/发既有低速请求，不设置 PWM、不清急停、不绕过安装向导；地图中的摄像头/电池只作显示诊断。
+- OTA：版本 `2026.06.24-h5-spatial-map.1`，size `1140256`，MD5 `82d5a5c6bf68648bb307f8dfee9ff05c`，`force=false`；注意 H5 由 LittleFS 提供，已生成 `littlefs.bin`，设备侧仍需要相应 FS 更新/烧录链路。
+- 验证：`node --check firmware/{web,data}/app.js` PASS；`git diff --check` PASS；Playwright/Chrome 静态页面和模拟遥测截图 PASS；`python tools/package_ota.py --notes ...` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS。
+- 当前状态：PASS_NEEDS_DEVICE_FS_INSTALL；本机未对实车 LittleFS 分区执行 `uploadfs`，未做真机浏览器遥测联调。
+- 下一步：若要上车看到新 H5，执行受控 FS 更新/USB `uploadfs` 或补文件系统 OTA；真机打开传感器页确认 UWB/TOF/LiDAR/超声/融合点位随实时遥测运动。
+
+### 2026-06-24 - Codex - 雷达 55AA/115200 现场帧解析
+- 改动：依据用户附件日志和本机 USB 烧录测试，把雷达默认改为规范线序 `DATA/TX->GPIO3, CTL/RX<-GPIO43` 的 115200 8N1，并新增 `55 AA 03 LSN` 距离优先现场帧解析；150000/反接仍保留为自动探测候选。
+- 文件：`firmware/src/sensors/lidar_eai_s2.{h,cpp}`, `firmware/src/sensors/sensor_task.cpp`, `firmware/include/config/{profile_defaults.h,board_pins.h,ota_config.h}`, `firmware/tools/logic_smoke_test.cpp`, `PIN-MAP-V1.md`, `CURRENT-WIRING-AI.md`, `profiles/example_bldc_analog_36v.yaml`, `firmware/README.md`, `cloud/firmware/{firmware.bin,manifest.json}`。
+- 架构影响：低；只改雷达只读 parser/bring-up 默认值和文档，不改 sensor snapshot/fusion/motion/safety 边界，未知角度不可能的 55AA 流仍拒绝。
+- 安全影响：低；不碰 motor/e-stop/PWM/drive_adapter；注意 GPIO43 同时是 CP210/UART0 TX，不能为了 COM18 日志启用 Serial0，否则会污染雷达 CTL/RX。
+- OTA：版本 `2026.06.24-lidar-55aa-115200.1`，size `1140256`，MD5 `9b59b9bc2576de7d527ef46991532547`，`force=false`，notes=`LiDAR accepts bench-captured 55AA0308 frames at 115200 on spec wiring; 150000 remains probe fallback`。
+- 验证：`firmware/tools/logic_smoke_test.exe` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --notes ...` PASS；`pio run -e esp32-s3-devkitc-1 -t upload --upload-port COM18` PASS。
+- 当前状态：NEEDS_FIELD_LOG_FROM_USB_CDC_OR_H5；COM18 是 CP210/UART0，只能看 ROM boot，若强行 Serial0 日志会占用 GPIO43 雷达 TX。
+- 下一步：用 native USB CDC 或 H5 debug 日志抓 `LIDAR begin/diag ok`，期望 `baud=115200 wiring=spec` 且 `packets/scans/55aa_pkt` 增长；TOF 的 `sensor_nack addr=0x29` 另按 TCA 下游供电/通道接线排查。
+
+### 2026-06-24 - Codex - 激光雷达自动探测 OTA v2
+- 改动：继续排查用户附件日志，`tools/analyze_lidar_log.py` 归类为 `RX_STALLED_ONE_BYTE`；附件诊断行缺少当前代码的 `wiring/rx_pin/tx_pin` 字段，判断现场未跑到最新自动线序/波特率探测包或同版本未触发安装；本轮将 OTA 递增到 `.2` 并增强诊断字段。
+- 文件：`firmware/include/config/ota_config.h`, `firmware/src/sensors/sensor_task.cpp`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；仅调整雷达 bring-up 诊断可观测性和 OTA 版本，不改 parser/snapshot/fusion/motion/safety 边界，未知流仍不生成有效障碍物。
+- 安全影响：低；不碰 motor/e-stop/PWM/drive_adapter；雷达 GPIO3/GPIO43 仍只在候选 UART 线序间诊断切换。
+- OTA：版本 `2026.06.24-lidar-wire-autoprobe.2`，size `1139808`，MD5 `274059fb1830527c0307d5a005c0e9a8`，`force=false`，notes=`LiDAR auto-probe v2: logs probe round and candidate index for wire/baud diagnosis`。
+- 验证：`python tools/analyze_lidar_log.py <附件>` 输出 `RX_STALLED_ONE_BYTE`；重新编译后 `firmware/tools/logic_smoke_test.exe` exit 0；`python tools/package_ota.py --notes ...` PASS（含 `pio run -d firmware -e esp32-s3-devkitc-1` PASS）；公网 health 仅确认服务在线且存在 manifest，未用 token 查询/触发安装。
+- 当前状态：NEEDS_H5_INSTALL_AND_FIELD_LOG。
+- 下一步：从 H5/云端安装 `.2` 后抓 60-90 秒 `LIDAR begin/probe/diag/raw/ok`；确认日志出现 `round=... candidate=... wiring=... rx_pin=... tx_pin=... baud=...`，若 10 个候选仍只有 `rx=0/1`，停止改 parser，转硬件测 DATA/CTL 电平、共地、雷达电机/启动线。
+
+### 2026-06-24 - Codex - 激光雷达线序/波特率自动探测
+- 改动：用户新日志被 `tools/analyze_lidar_log.py` 归类为 `RX_STALLED_ONE_BYTE`（`rx=1(+0) raw first=F0`），说明反接测试版只有首字节无连续流；固件恢复规范 `DATA/TX->GPIO3(RX), CTL/RX<-GPIO43(TX)`，并在停滞时自动轮询规范/反接线序与 150000/115200/230400/128000/256000。
+- 文件：`firmware/src/sensors/sensor_task.{h,cpp}`, `firmware/src/hal/uart_bus.{h,cpp}`, `firmware/include/config/{board_pins.h,ota_config.h}`, `CURRENT-WIRING-AI.md`, `PIN-MAP-V1.md`, `firmware/README.md`, `firmware/{web,data}/app.js`, `cloud/firmware/{firmware.bin,manifest.json}`。
+- 架构影响：低；仅雷达 UART bring-up 诊断支持动态 RX/TX pin 重启，不改 parser/snapshot/obstacle fusion/motion/safety 边界，未知流仍不生成有效障碍物。
+- 安全影响：低；不碰 motor/e-stop/PWM/drive_adapter；GPIO3/GPIO43 只在雷达 UART 候选间切换，现场避免外部 USB-TTL TX 与 ESP32 TX 对顶。
+- OTA：版本 `2026.06.24-lidar-wire-autoprobe.1`，size `1139760`，MD5 `0f39c425b3c09a898838c1b8e40ff8e3`，`force=false`，notes=`LiDAR auto-probes spec/swapped DATA-CTL wiring and baud candidates after rx stalls`。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1 -j 4` PASS；`node --check firmware/web/app.js` PASS；`node --check firmware/data/app.js` PASS；`python tools/package_ota.py --skip-build ...` PASS；`git diff --check` PASS。
+- 未验证：Windows `firmware/tools/logic_smoke_test.exe` 仍因运行时依赖退出 `-1073741511`，未做真机安装。
+- 当前状态：NEEDS_H5_INSTALL_AND_FIELD_LOG。
+- 下一步：安装新版后抓 60-90 秒 `LIDAR begin/probe/diag/raw/ok`，重点看哪条 `wiring=... rx_pin=... tx_pin=... baud=...` 后 `rx/aa55/packets/scans` 增长；若所有候选仍只有 `rx=0/1`，转硬件测 DATA/CTL 电平、共地、雷达电机和启动线。
+
+### 2026-06-24 - Codex - 激光雷达 DATA/CTL 反接测试版
+- 改动：依据用户 EaiLidarTest 成功线序 `DATA->USB TX、CTL->USB RX` 与官方工具 `AA55` 日志，生成雷达反接假设测试版；固件改为 `PIN_LIDAR_RX=GPIO43`、`PIN_LIDAR_TX=GPIO3`，即 CTL/TX 进 ESP32 RX，DATA/RX 由 ESP32 TX 发送 `A5 60`。
+- 文件：`firmware/include/config/board_pins.h`, `firmware/src/sensors/sensor_task.cpp`, `firmware/include/config/ota_config.h`, `firmware/{web,data}/app.js`, `CURRENT-WIRING-AI.md`, `PIN-MAP-V1.md`, `ASSEMBLY-WIRING-GUIDE.md`, `complete-wiring-table.md`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：仅雷达 UART 物理方向测试；不改 parser、SensorSnapshot、obstacle fusion、motion/safety 边界，未知雷达流仍不会生成有效障碍物。
+- 安全影响：中低；不触碰 motor/e-stop/PWM/drive_adapter，但 GPIO3 本轮会作为 UART TX 输出，现场必须按反接假设接线，避免 TX 对顶。
+- OTA：版本 `2026.06.24-lidar-swap-test.1`，size `1139184`，MD5 `c4c9fbcfdee13305ff43cae7ebc01151`，`force=false`，notes 写明 `CTL/TX to GPIO43 RX, DATA/RX to GPIO3 TX`。
+- 验证：附件 EaiLidarTest 日志可见稳定 `AA55 0008 ...` 包；`pio run -d firmware -e esp32-s3-devkitc-1 -j 4` PASS；`node --check firmware/web/app.js` PASS；`node --check firmware/data/app.js` PASS；`python tools/package_ota.py --skip-build ...` PASS；`git diff --check` 无空白错误。
+- 未验证：Windows host `logic_smoke_test.exe` 与重编 g++ 均静默返回 1，本轮不把 host smoke 记为通过；未做真机 H5 安装和台架实测。
+- 当前状态：NEEDS_H5_INSTALL_AND_FIELD_LOG。
+- 下一步：安装 `2026.06.24-lidar-swap-test.1` 后按反接测试线序接线，抓 20-30 秒 `LIDAR begin/diag/raw/ok`；若 `aa55/packets/scans` 增长，确认项目正式线序应改为 CTL/TX->GPIO43、DATA/RX<-GPIO3；若仍 `rx=0`，继续查供电/共地/电平/雷达电机启动。
+
+### 2026-06-23 23:25 - Codex - 云端 OTA 与雷达 30 秒实抓
+- 改动：已将 `2026.06.23-lidar-dual-line-evidence.2` 部署到公网云端并触发设备 OTA；设备回报 `installed` 后抓取 post-reboot 约 30 秒遥测日志。
+- 文件：`output/lidar-ota-watch-20260623-231742.sse`, `output/lidar-post-ota-30s-20260623-231924.sse`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：无；本次只做云端发布、OTA 触发和日志分析，不改固件模块边界/GPIO/协议。
+- 安全影响：无；设备全程 `FAULT/LOW_BATT`，`motion_allowed=false`，电机 `enable=false/brake=true`，未下发运动命令。
+- OTA：远端 manifest 版本 `2026.06.23-lidar-dual-line-evidence.2`，size `1139024`，MD5 `ae72d7da8f60612230fdb59c26f76ec4`；设备确认新版本。
+- 验证：SSE 显示 `[ota] ... version=2026.06.23-lidar-dual-line-evidence.2 ok=true reason=ok`，重启后 `LIDAR begin` 正常，但 5/10/15/20/25s 均 `LIDAR diag no_rx rx=0 packets=0 scans=0 rx_line=1 ... tx_line=1`。
+- 当前状态：BLOCKED_NEED_HARDWARE_CHECK；新 parser 已装上但雷达 DATA 线 post-OTA 仍空闲高且无字节流，parser 路径未被实际喂到数据。
+- 下一步：断电复核雷达 DATA/TX->GPIO3、CTL/RX<-GPIO43、5V/GND/共地、雷达电机/启动线；TOF 仍是 TCA 0x70 ACK 但 0x29 三通道 sensor_nack，需单独查接线/供电。
+
+### 2026-06-23 23:05 - Codex - 雷达日志分类与双格式 OTA
+- 改动：继续用 `diagnosing-bugs` 排查附件日志，新增 `tools/analyze_lidar_log.py` 反馈环；当前日志稳定归类为 `RX_UNKNOWN_STREAM`，并将工作区双格式雷达 parser 正式打入 OTA。
+- 文件：`tools/analyze_lidar_log.py`, `firmware/src/sensors/sensor_task.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：无；不改模块边界/GPIO/协议出口，雷达仍只生成只读 `ObstacleSnapshot`，未知 raw 不进入融合。
+- 安全影响：低；未触碰 motor/e-stop/PWM/drive_adapter，新增日志只暴露 `no_cs/no_i` 解析计数。
+- OTA：版本 `2026.06.23-lidar-dual-line-evidence.2`，size `1139024`，MD5 `ae72d7da8f60612230fdb59c26f76ec4`，`force=false`，已生成。
+- 验证：`python tools/analyze_lidar_log.py <附件>` 输出 `RX_UNKNOWN_STREAM`；host `logic_smoke_test.exe` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -j 4` PASS；`python tools/package_ota.py --skip-build ...` PASS。
+- 当前状态：NEEDS_H5_INSTALL_AND_FIELD_LOG；附件最小症状不是 parser 包长问题，仍优先怀疑 DATA/CTL/供电/共地/启动链路。
+- 下一步：H5 安装新 OTA 后抓 30 秒 `LIDAR begin/diag/raw/ok`；若仍 `rx_line=0` 或 `rx=1`，断电查 DATA->GPIO3、CTL<-GPIO43、5V/GND/共地/电机；若出现 `LIDAR diag ok ... no_i>0`，说明 NODE_QUAL0 路径已打通。
+
+### 2026-06-23 22:38 - Codex - 激光雷达无串口流根因复核
+- 改动：无代码改动；用 `diagnosing-bugs` 复核雷达链路，确认当前更像线级/启动链路无持续串口流，而非 parser 首要问题。
+- 文件：只读 `firmware/src/sensors/lidar_eai_s2.{h,cpp}`, `firmware/src/sensors/sensor_task.{h,cpp}`, `firmware/include/config/{board_pins.h,profile_defaults.h,ota_config.h}`, `CURRENT-WIRING-AI.md`, `PIN-MAP-V1.md`。
+- 架构影响：无；雷达仍是 UART2 GPIO3/GPIO43 只读输入，未知数据不进入有效障碍物。
+- 安全影响：无；未触碰 motor/e-stop/PWM/drive_adapter。
+- OTA：不需要设备 OTA；本次只做诊断结论复核，未生成新固件包。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1 -j 4` PASS；只读抓 `COM15/COM16` 在 `150000/115200/230400` 各 2s 均 `bytes=0`；`python tools/check_ai_handoff.py` PASS。
+- 当前状态：BLOCKED_NEED_HARDWARE_EVIDENCE。
+- 下一步：断电按 DATA/TX->GPIO3、CTL/RX<-GPIO43、5V/GND/共地、雷达电机启动逐项查；若装了 `lidar-line-evidence.1`，抓 `LIDAR diag ... rx_line=... h/l/t=... tx_line=...` 给下一轮判断。
+
+### 2026-06-23 22:18 - Codex - 雷达 DATA 线级证据诊断
+- 改动：针对现场 `rx=1(+0) first=E0` 和 USB-TTL 旁听无流，新增雷达诊断打印 `last_rx_age`、GPIO3/GPIO43 的 2ms 高/低采样和跳变数，用于判断 DATA 是否空闲高、被拉低或完全无跳变。
+- 文件：`firmware/src/sensors/lidar_eai_s2.{h,cpp}`, `firmware/src/sensors/sensor_task.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`。
+- 架构影响：无模块边界/GPIO/运动出口变更；雷达仍只读诊断/解析，未知字节不进入有效障碍物。
+- 安全影响：低；不碰 motor/e-stop/PWM/drive_adapter；诊断采样只在无 packet 时每 5s 做短窗口读取。
+- OTA：版本 `2026.06.23-lidar-line-evidence.1`，size `1139104`，MD5 `554af68f8aea311e5d9e15719557fe9d`，`force=false`；已本地生成，可从 H5 手动安装。
+- 验证：PC 被动监听 `COM15/COM16` 在 `150000/115200/230400` 各 2s 均 `0 bytes`；`pio run -d firmware -e esp32-s3-devkitc-1 -j 4` PASS；`python tools/package_ota.py --skip-build ...` PASS；`python tools/check_ai_handoff.py` 与 `git diff --check` PASS。
+- 当前状态：NEEDS_H5_INSTALL_AND_FIELD_LOG。
+- 下一步：安装后抓 `LIDAR diag ... rx_line=... h/l/t=... tx_line=...`；若 RX 线无跳变且空闲非高，断电查 DATA/TX 线序、电平、共地、USB-TTL 是否并线拉低；若 RX 高且无跳变，查雷达供电/电机/启动命令是否真正进 CTL/RX。
+
+### 2026-06-23 22:04 - Codex - 雷达 RX 停滞与电池越界告警
+- 改动：针对现场日志 `rx=1(+0) first=E0`，新增雷达 RX 停滞时每 15s 补发 `A5 60` 启动命令并提示保持 ESP32 TX GPIO43→雷达 CTL/RX；电池超过 60V 支持上限时不再显示绿色 100%。
+- 文件：`firmware/src/sensors/sensor_task.{h,cpp}`, `firmware/src/sensors/power_monitor.cpp`, `firmware/web/{app.js,shared/helpers.js}`, `cloud/public/app.js`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`。
+- 架构影响：无模块边界/GPIO/运动出口变更；雷达仍只读诊断/解析，未知字节不进入有效障碍物。
+- 安全影响：中低；不碰 motor/PWM/drive_adapter；电池 ADC 越界会置 `low_battery=true` 进入既有安全停车分支，避免 72.7V 被当正常电量。
+- OTA：版本 `2026.06.23-lidar-rxstalled-battery.1`，size `1138512`，MD5 `93a40a0389faad57564c11f4d24d8f4f`，`force=false`；已本地生成，可从 H5 手动安装。
+- 验证：`node --check firmware/web/app.js`, `node --check firmware/web/shared/helpers.js`, `node --check cloud/public/app.js` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build --notes ...` PASS；`python tools/check_ai_handoff.py` 与 `git diff --check` PASS。
+- 当前状态：NEEDS_H5_INSTALL_AND_FIELD_LOG。
+- 下一步：安装后抓 30 秒日志；若出现 `LIDAR rx_stalled restart` 但 `rx` 仍不增长，优先确认雷达 CTL/RX 仍接 ESP32 GPIO43（USB-TTL TX 不接不等于 ESP32 TX 可断开）以及 DATA/TX 到 GPIO3 是否被并线拉低。
+
+### 2026-06-23 21:05 - Codex - 激光雷达 AA55 主解析修复
+- 改动：依据现场日志和 YDLIDAR 官方协议复核，修复 `LidarEaiS2` 同步方向：主解析改为官方线序 `AA 55`，`55 AA 03 08` 保持诊断-only；默认雷达波特率恢复 S2-YJ 证据点 `150000`，探测顺序同步以 150000 优先。
+- 文件：`firmware/src/sensors/lidar_eai_s2.{h,cpp}`, `firmware/src/sensors/sensor_task.cpp`, `firmware/include/config/{profile_defaults.h,ota_config.h}`, `firmware/tools/logic_smoke_test.cpp`, `cloud/firmware/{firmware.bin,manifest.json}`。
+- 架构影响：无模块边界/GPIO/运动出口变更；雷达仍只产出只读 `ObstacleSnapshot`/诊断，未知 `55AA` 不进入融合。
+- 安全影响：低；不碰 motor/e-stop/PWM/drive_adapter，错误/未知雷达流继续保持 `lidar.valid=false`。
+- OTA：版本 `2026.06.23-lidar-aa55-primary.1`，size `1138128`，MD5 `ef645ee066b9f8b3a71e6ee95cbc44ae`，`force=false`；已本地生成，可从 H5 手动安装。
+- 验证：host `g++` `logic_smoke_test.exe` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -j 4` PASS；`python tools/package_ota.py --notes "LiDAR AA55 primary parser and 150000 baud restore"` PASS；`python tools/check_ai_handoff.py` PASS。
+- 当前状态：NEEDS_H5_INSTALL_AND_FIELD_LOG。
+- 下一步：H5 安装后抓 20-30 秒 `LIDAR begin/probe/diag`；期望停在 `baud=150000` 且 `aa55/packets/scans` 增长，若仍退到 115200 且只有 `55aa` 增长，再用 USB-TTL 同线对比官方工具输出。
+
+### 2026-06-24 - Copilot - 激光雷达双格式检测（NODE_QUAL0/8 自动）
+- 改动：逆向 EaiSdk.dll 确认 EaiLidarTest 调用 `enterIntensityMode`，固件未调用导致雷达默认以 2字节/样本（NODE_QUAL0，无强度）发送，而固件期望 3字节/样本（NODE_QUAL8）→ 校验和永远不匹配 → `packet_count=0`。新增双格式自动检测：先尝试 2字节/样本校验，通过则解析；失败再扩展缓冲至 3字节/样本重试。同时修复 probe 耗尽后卡在 150000 而非回到 115200 的问题。
+- 文件：`firmware/src/sensors/lidar_eai_s2.h`, `firmware/src/sensors/lidar_eai_s2.cpp`, `firmware/src/sensors/sensor_task.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`。
+- 架构影响：无模块边界/GPIO/运动出口变更；`PacketLayout` 新增 `kChecksumDistanceOnly`；`LidarS2Stats` 新增 `no_intensity_packet_count`；`expected_length_` 初始改为 2字节目标后视情况延伸至 3字节。
+- 安全影响：低；不碰 motor/e-stop/PWM/drive_adapter；checksum 双重验证，单个格式校验失败均不产生点云。
+- OTA：版本 `2026.06.24-lidar-dual-format.1`，size `1138256`，MD5 `3bc966b901f5930fffc61de1b3e0b0b0`，`force=false`；已本地生成，需安装。
+- 验证：IntelliSense 无编译错误；`pio run -e esp32-s3-devkitc-1` BUILD SUCCESS；`python tools/package_ota.py` PASS。
+- 当前状态：NEEDS_H5_INSTALL_AND_FIELD_LOG。
+- 下一步：H5 安装新固件后观察串口日志：若看到 `LIDAR packet` 且 `no_intensity_packet_count>0`，说明雷达在 NODE_QUAL0 模式运行正常；若看到 `checksum_error_count` 持续上升但 `no_intensity_packet_count=0`，可能需要在 `sendLidarStartupSequence` 中添加 `{0xAA,0x55,0xF1,0x0E}` enterIntensityMode 命令。
+
+### 2026-06-23 00:55 - Copilot - 激光雷达持续探测诊断版
+- 改动：依据用户现场日志 `55AA0308` 在 115200 下高速稳定但无 packet，改为 `packet_count==0` 时继续轮询候选波特率，并输出 55AA 候选角度/距离摘要。
+- 文件：`firmware/src/sensors/sensor_task.cpp`, `firmware/tools/logic_smoke_test.cpp`, `firmware/include/config/ota_config.h`, `firmware/README.md`, `cloud/firmware/{firmware.bin,manifest.json}`。
+- 架构影响：无模块边界/GPIO/运动出口变更；雷达仍 UART2 GPIO3/GPIO43，只读输入，未知 55AA 不进入 ObstacleSnapshot。
+- 安全影响：低；不碰 motor/e-stop/PWM/drive_adapter，稳定 55AA 样本继续断言 `packet_count=0` 且 `lidar.valid=false`。
+- OTA：版本 `2026.06.23-lidar-probe-until-packet.1`，size `1137840`，MD5 `4e30d3693ef7f6c2efc65dd6e14aa53e`，`force=false`；已本地生成，未发布、未安装。
+- 验证：g++ `logic_smoke_test.exe` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -j 4` PASS；`python tools/package_ota.py --notes ...` PASS。
+- 当前状态：NEEDS_H5_INSTALL_AND_FIELD_LOG。
+- 下一步：安装后抓 `LIDAR probe baud=...`、`LIDAR raw 55aa cand ...`、最终是否出现 `LIDAR diag ok/packets_no_scan`；若仍只有 55AA 候选无 AA55 packet，优先对比同线 USB-TTL/官方工具输出。
+
+### 2026-06-23 00:25 - Copilot - 激光雷达 55AA 诊断版
+- 改动：线上 SSE 确认 `baudprobe.1` 在 115200 下持续 RX、`55AA0308` 重复而 `AA55` 很少；新增 `55aa` 计数/raw 捕获，暂不把 55AA 当有效障碍物。
+- 文件：`firmware/src/sensors/lidar_eai_s2.{h,cpp}`, `firmware/src/sensors/sensor_task.cpp`, `firmware/tools/logic_smoke_test.cpp`, `firmware/include/config/ota_config.h`, `firmware/README.md`, `CURRENT-WIRING-AI.md`, `cloud/firmware/{firmware.bin,manifest.json}`。
+- 架构影响：无模块边界/GPIO/运动出口变更；雷达仍 UART2 GPIO3/GPIO43，只读输入，未知格式只进诊断。
+- 安全影响：低；不碰 motor/e-stop/PWM/drive_adapter，55AA 样本 smoke test 断言 `packet_count=0` 且 `lidar.valid=false`。
+- OTA：版本 `2026.06.23-lidar-55aa-diag.1`，size `1136992`，MD5 `7c218bb8953fb773c0214d0a19f21668`，`force=false`；已本地生成，未发布、未安装。
+- 验证：g++ `logic_smoke_test.exe` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -j 4` PASS；`python tools/package_ota.py --notes "LiDAR 55AA diagnostic capture"` PASS。
+- 当前状态：NEEDS_H5_INSTALL_AND_FIELD_LOG。
+- 下一步：部署/安装新版后抓 20-30 秒 `LIDAR diag ... aa55=... 55aa=...`、`raw aa55`、`raw 55aa`；若 `55aa` 持续高速增长，再按 S2-YJ protoVersion=2 解包。
+
+### 2026-06-22 23:55 - Copilot - 激光雷达波特率探测诊断版
+- 改动：依据用户日志 `rx` 持续增长但 `aa55/ld54/framing/checksum` 全 0，新增 UART 重启与雷达候选波特率探测；未识别合法帧头前只记录 raw，不生成有效障碍物。
+- 文件：`firmware/src/hal/uart_bus.{h,cpp}`, `firmware/src/sensors/sensor_task.{h,cpp}`, `firmware/include/config/ota_config.h`, 雷达接线/协议文档, `cloud/firmware/{firmware.bin,manifest.json}`。
+- 架构影响：无模块边界/GPIO/运动出口变更；雷达仍走 UART2 GPIO3/GPIO43，只读输入进入 obstacle/fusion。
+- 安全影响：低；不碰 motor/e-stop/PWM/drive_adapter，未知 raw 不会置 `lidar.valid`。
+- OTA：版本 `2026.06.22-lidar-baudprobe.1`，size `1136720`，MD5 `6d7e03eb4fb2f5676d889d9fd98c562d`，`force=false`；已完整重建并本地生成，未发布、未安装。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1 -j 4` PASS；`python tools/package_ota.py ...` PASS；`git diff --check` PASS。
+- 当前状态：NEEDS_H5_INSTALL_AND_FIELD_LOG。
+- 下一步：H5 安装新版后抓 30 秒 `LIDAR probe/diag/raw first` 日志；若所有候选波特率仍无 `AA55/542C`，用 USB-TTL/逻辑分析仪并到 DATA 线确认真实波特率、电平、是否反相。
+
+### 2026-06-22 23:20 - Codex - 激光雷达 A560-only 诊断版
+- 改动：按实际工程证据降级项目既有假设；附件日志 `rx` 增长但 `aa55/ld54/checksum/framing` 全为 0，说明尚未进入 CRC/FSA 判断路径，先把启动命令收窄为 EaiLidarTest 日志中唯一明确可工作的 `A5 60`。
+- 文件：`firmware/src/sensors/sensor_task.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：无模块边界/GPIO/运动链路变更；雷达仍为 UART2 只读输入，parser 不接受无帧头数据。
+- 安全影响：低；不碰 motor/e-stop/PWM/drive_adapter，无效雷达继续保持 invalid。
+- OTA：版本 `2026.06.22-lidar-a560only.1`，size `1136256`，MD5 `d47b21d74fc80e02bc55b908622678a7`，`force=false`；已本地生成，未发布、未安装。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1 -j 4` PASS；`python tools/package_ota.py --skip-build ...` PASS。
+- 当前状态：NEEDS_H5_INSTALL_AND_RAW_CAPTURE。
+- 下一步：H5 安装后抓启动 30 秒日志；若仍 `aa55=0`，优先用 USB-TTL 并到雷达 DATA 对比同线 raw，而不是先改 CRC。
+
+### 2026-06-22 22:38 - Codex - 激光雷达官方 SDK 启动序列对齐
+- 改动：逆向/对照 `EaiLidarTest.exe` 附带 `EaiSdk.dll` 与官方 YDLidar SDK，确认 parser 读法与 `AA55 + CT/LSN/FSA/LSA/CS + intensity8` 一致；固件雷达启动改为清 RX 后发送 `A5 00`、`A5 65`、`A5 60`。
+- 文件：`firmware/src/sensors/sensor_task.{h,cpp}`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：无模块边界/GPIO/运动链路变更；雷达仍为 UART2 只读输入，parser 与 obstacle 融合边界不变。
+- 安全影响：低；不碰 motor/e-stop/PWM/drive_adapter，新增 35ms 左右雷达启动等待只发生在 `SensorTask::begin()`。
+- OTA：版本 `2026.06.22-lidar-startseq.1`，size `1136320`，MD5 `b085615a94471c10a3c41c9ab3a091b6`，`force=false`；已本地生成，未发布、未安装。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1 -j 4` PASS；`python tools/package_ota.py --skip-build ...` PASS；`git diff --check` PASS；host `g++` 烟测未生成 exe 且无诊断输出；`devspace run-pipeline ai-handoff-check` 因本机 kube config 无效失败。
+- 当前状态：NEEDS_H5_INSTALL_AND_HARDWARE_VERIFICATION。
+- 下一步：H5 手动安装 `lidar-startseq.1` 后静止台架观察 30 秒；若仍不显示，抓 `LIDAR begin`、`LIDAR diag`、`raw first/aa55` 日志并优先比较官方工具 COM 口 USB-TTL 线序与车端 GPIO3/GPIO43 线序。
+
+### 2026-06-22 21:34 - Codex - 激光雷达 RX 缓冲与协议兼容修复
+- 改动：依据用户 raw 日志与买家 ROS 源码，修复 150000 8N1 下默认 UART RX 缓冲过小导致 `rx` 增长但 `AA55` 极少的问题，并兼容带 `CS`/无 `CS` 两种 S2 包。
+- 文件：`firmware/include/config/{profile_defaults.h,ota_config.h}`, `firmware/src/hal/uart_bus.cpp`, `firmware/src/sensors/lidar_eai_s2.{h,cpp}`, `firmware/tools/logic_smoke_test.cpp`, `CURRENT-WIRING-AI.md`, `cloud/firmware/manifest.json`。
+- 架构影响：无模块边界/GPIO/运动链路变更；雷达仍由 UART2 只读输入，产出 obstacle/诊断快照。
+- 安全影响：低；不改 motor/e-stop/PWM/drive_adapter，雷达包仍需校验或下一帧头确认，无效数据不会放行运动。
+- OTA：版本 `2026.06.22-lidar-rxbuf.1`，size `1136176`，MD5 `ba7b539d7620f22ca6cc45d48fda51e1`，`force=false`；已本地生成，未发布、未安装。
+- 验证：`g++ ... logic_smoke_test.exe` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py ...` PASS；`git diff --check` PASS。
+- 当前状态：NEEDS_H5_INSTALL_AND_HARDWARE_VERIFICATION。
+- 下一步：H5 手动安装新版后静止台架观察 30 秒；期望 `aa55/packets/scans` 明显增长，若仍 `aa55` 极少，优先查 DATA 电平/共地/实际波特率。
+
 ### 2026-06-22 20:58 - Codex - 激光雷达原始字节诊断版
 - 改动：对照买家 ROS1/ROS2 驱动、B 站作者源码、本地 EaiLidarTest 配置及官方 YDLidar SDK；保留现有 `10+LSN*3` parser，不再猜协议，仅增加原始证据采集。
 - 文件：`firmware/src/sensors/lidar_eai_s2.{h,cpp}`, `firmware/src/sensors/sensor_task.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{manifest.json,firmware.bin}`, `AI-HANDOFF-MEMORY.md`。

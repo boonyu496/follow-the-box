@@ -34,7 +34,7 @@ mindmap
             VOUT 先引出，暂不接控制器
         阶段4：传感器接线
             UWB GC-P2304：TX→GPIO18 RX→GPIO17 3.3V/GND
-            EAI S2 雷达：DATA→GPIO3 CTL→GPIO43 5V/GND
+            EAI S2 雷达反接测试：CTL/TX→GPIO43 DATA/RX←GPIO3 5V/GND
             IMU JY61P：TX→GPIO42 5V/GND，5V 电平需转换
             TOF：TCA9548A SDA→GPIO10 SCL→GPIO11，4.7k 上拉到 3.3V
             超声 HC-SR04×2：TRIG→GPIO9，ECHO→GPIO40/41 分压
@@ -238,8 +238,8 @@ ESP32 复位/下载/看门狗时 GPIO 可能浮空，外部 10k 下拉确保 PWM
 |:---|---|:---|
 | 5V | 5V 母线 | 供电 5V |
 | GND | GND | 共地 |
-| DATA | GPIO3 | 雷达 DATA/TX -> ESP32 RX |
-| CTL | GPIO43 | ESP32 TX -> 雷达 CTL/RX；固件发送 `A5 60` |
+| CTL/TX | GPIO43 | 反接测试：雷达 CTL/TX -> ESP32 RX；默认 150000 8N1，诊断版会轮询候选波特率 |
+| DATA/RX | GPIO3 | 反接测试：ESP32 TX -> 雷达 DATA/RX；固件发送 `A5 60` |
 
 ### 5.2b JY61P IMU
 
@@ -430,7 +430,7 @@ GPIO (待定) → NPN 三极管基极 (1kΩ 限流)
 
 ### Step 5：EAI S2 激光雷达
 
-- [ ] DATA 接 GPIO3，CTL 接 GPIO43，5V/GND 共地
+- [ ] 反接测试：CTL/TX 接 GPIO43，DATA/RX 接 GPIO3，5V/GND 共地
 - [ ] H5 雷达面板 `RX/包/圈` 持续增长
 - [ ] 若 RX=0，断电复核 DATA/CTL/共地和 3.3V 串口电平
 
@@ -503,8 +503,8 @@ GPIO (待定) → NPN 三极管基极 (1kΩ 限流)
 左超声ECHO←│ GPIO40  ← 左HC-SR04 Echo分压后       │
 右超声ECHO←│ GPIO41  ← 右HC-SR04 Echo分压后       │
   IMU RX←│ GPIO42  ← JY61P TX (5V需分压)         │
- 雷达CTL→│ GPIO43  → EAI S2 CTL/RX (发A5 60)    │
- 雷达DATA←│ GPIO3  ← EAI S2 DATA/TX              │
+ 雷达CTL←│ GPIO43  ← EAI S2 CTL/TX              │
+ 雷达DATA→│ GPIO3  → EAI S2 DATA/RX (发A5 60)    │
           │                                       │
           │  5V  ← DC-DC VOUT+                    │
           │  GND ← DC-DC VOUT-                    │
@@ -512,7 +512,7 @@ GPIO (待定) → NPN 三极管基极 (1kΩ 限流)
           └──────────────────────────────────────┘
 
 禁用/保留：GPIO35/36/37/47/48 作废！禁止电机输出！
-不占用：GPIO0/19/20/33/34/38/44/45/46；GPIO3 仅作雷达 DATA 输入，GPIO43 仅作雷达 CTL
+不占用：GPIO0/19/20/33/34/38/44/45/46；本轮反接测试中 GPIO43 仅作雷达 CTL/TX 输入，GPIO3 仅作雷达 DATA/RX 启动输出
 ```
 
 ---

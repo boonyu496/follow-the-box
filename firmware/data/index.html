@@ -72,6 +72,22 @@
           </div>
         </article>
 
+        <article class="fb-panel fb-map-panel">
+          <header class="fb-section-head">
+            <strong>空间地图</strong>
+            <span>UWB + 多传感器融合</span>
+          </header>
+          <div class="fb-map-wrap">
+            <canvas id="spatial-map" width="420" height="420"></canvas>
+            <div class="fb-map-legend">
+              <span><i style="background:#00d5ff"></i>UWB 目标</span>
+              <span><i style="background:#7c5cff"></i>LiDAR/TOF</span>
+              <span><i style="background:#1f8f8a"></i>超声/融合</span>
+              <span><i style="background:#dc2626"></i>危险 &lt;0.5m</span>
+            </div>
+          </div>
+        </article>
+
         <div class="fb-viz-grid">
           <article class="fb-panel">
             <header class="fb-section-head">
@@ -135,6 +151,12 @@
               <div><span id="tof-left-bar" class="fb-bar"></span><strong id="tof-left">--</strong><em>左</em></div>
               <div><span id="tof-center-bar" class="fb-bar"></span><strong id="tof-center">--</strong><em>中</em></div>
               <div><span id="tof-right-bar" class="fb-bar"></span><strong id="tof-right">--</strong><em>右</em></div>
+            </div>
+            <div class="fb-tof-realtime">
+              <div><span>采集</span><strong id="tof-sample-rate">--</strong></div>
+              <div><span>单路</span><strong id="tof-channel-rate">--</strong></div>
+              <div><span>遥测</span><strong id="tof-telemetry-rate">--</strong></div>
+              <div><span>年龄</span><strong id="tof-data-age">--</strong></div>
             </div>
             <small id="tof-detail" class="fb-sensor-detail">等待 TOF 遥测</small>
           </article>

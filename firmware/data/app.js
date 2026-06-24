@@ -63,6 +63,10 @@ const els = {
   tofCenter: $("tof-center"),
   tofRight: $("tof-right"),
   tofDetail: $("tof-detail"),
+  tofSampleRate: $("tof-sample-rate"),
+  tofChannelRate: $("tof-channel-rate"),
+  tofTelemetryRate: $("tof-telemetry-rate"),
+  tofDataAge: $("tof-data-age"),
   tofLeftBar: $("tof-left-bar"),
   tofCenterBar: $("tof-center-bar"),
   tofRightBar: $("tof-right-bar"),
@@ -86,6 +90,7 @@ const els = {
   clearLogs: $("clear-logs"),
   joy: $("joy"),
   stick: $("stick"),
+  spatialMap: $("spatial-map"),
   uwbCanvas: $("uwb-canvas"),
   obstacleCanvas: $("obstacle-canvas"),
 };
@@ -132,6 +137,8 @@ const otaEls = {
 const LOCAL_KEY_STORAGE = "followbox.localApiKey"; // sessionStorage — cleared on tab close
 const CAMERA_URL_STORAGE = "followbox.cameraStreamUrl";
 const MAX_RANGE_MM = 3000;
+const MAP_MAX_MM = 4000;
+const TOF_RATE_WINDOW_MS = 5000;
 
 let ws = null;
 let jogSeq = 1;
@@ -144,6 +151,9 @@ let lastTelemetryCameraUrl = "";
 let userCameraOverride = false;
 let latestState = null;
 let lastStateAt = 0;
+const tofRateWindow = [];
+const spatialTrail = [];
+let lastSpatialTrailKey = "";
 
 // ── Canvas redraw state (RAF throttled) ──
 let canvasDirty = false;
@@ -215,6 +225,93 @@ function validCountLabel(validCount, totalCount) {
   return `${validCount}/${totalCount}`;
 }
 
+function sensorDistanceColor(mm) {
+  if (!positiveNumber(mm)) return "rgba(128,138,148,.3)";
+  if (mm < 500) return "#dc2626";
+  if (mm < 1000) return "#dd5b00";
+  return "#1aae39";
+}
+
+function polarToCanvas(cx, cy, scale, bearingDeg, distanceMm) {
+  const distance = Math.min(Math.max(0, distanceMm || 0), MAP_MAX_MM);
+  const angle = (bearingDeg - 90) * Math.PI / 180;
+  return {
+    x: cx + Math.cos(angle) * distance * scale,
+    y: cy + Math.sin(angle) * distance * scale,
+  };
+}
+
+function updateSpatialTrail(state) {
+  const uwb = state?.uwb || {};
+  if (!uwb.valid || !positiveNumber(uwb.distance_mm)) return;
+  const bearing = Math.max(-120, Math.min(120, Number(uwb.bearing_deg || 0)));
+  const distance = Math.min(MAP_MAX_MM, Number(uwb.distance_mm));
+  const key = `${Math.round(bearing * 2) / 2}:${Math.round(distance / 40)}`;
+  if (key === lastSpatialTrailKey) return;
+  lastSpatialTrailKey = key;
+  spatialTrail.push({ bearing, distance, at: performance.now() });
+  while (spatialTrail.length > 28) spatialTrail.shift();
+}
+
+function bitCount3(value) {
+  let v = Number(value || 0) & 0x7;
+  let count = 0;
+  while (v) {
+    count += v & 1;
+    v >>= 1;
+  }
+  return count;
+}
+
+function fmtHz(value) {
+  if (!Number.isFinite(value) || value < 0) return "--";
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)}Hz`;
+}
+
+function fmtLatency(value) {
+  if (!Number.isFinite(value) || value < 0) return "--";
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}s`;
+  return `${Math.round(value)}ms`;
+}
+
+function updateTofRealtimeStats(state, tof, validCount, initMask) {
+  const deviceMs = Number(state.now_ms);
+  const readCount = Number(tof.read_count);
+  const lastTofMs = Number(tof.last_update_ms || 0);
+  if (!Number.isFinite(deviceMs) || !Number.isFinite(readCount)) {
+    return { sampleHz: NaN, channelHz: NaN, telemetryHz: NaN, ageMs: NaN };
+  }
+
+  const last = tofRateWindow[tofRateWindow.length - 1];
+  if (last && (deviceMs < last.deviceMs || readCount < last.readCount)) {
+    tofRateWindow.length = 0;
+  }
+  tofRateWindow.push({ deviceMs, readCount, browserMs: performance.now() });
+  while (
+    tofRateWindow.length > 2 &&
+    deviceMs - tofRateWindow[0].deviceMs > TOF_RATE_WINDOW_MS
+  ) {
+    tofRateWindow.shift();
+  }
+
+  const first = tofRateWindow[0];
+  const latest = tofRateWindow[tofRateWindow.length - 1];
+  const deviceSpan = latest.deviceMs - first.deviceMs;
+  const browserSpan = latest.browserMs - first.browserMs;
+  const sampleHz =
+    deviceSpan > 0
+      ? (Math.max(0, latest.readCount - first.readCount) * 1000) / deviceSpan
+      : NaN;
+  const telemetryHz =
+    browserSpan > 0
+      ? (Math.max(0, tofRateWindow.length - 1) * 1000) / browserSpan
+      : NaN;
+  const activeChannels = Math.max(1, bitCount3(initMask) || validCount);
+  const channelHz = Number.isFinite(sampleHz) ? sampleHz / activeChannels : NaN;
+  const ageMs = lastTofMs > 0 ? Math.max(0, deviceMs - lastTofMs) : NaN;
+  return { sampleHz, channelHz, telemetryHz, ageMs };
+}
+
 function setConn(online) {
   els.conn.textContent = online ? "已连接" : "未连接";
   els.conn.classList.toggle("fb-pill--ok", online);
@@ -275,8 +372,10 @@ function switchView(name) {
   }
   requestAnimationFrame(() => {
     if (latestState) {
+      setupCanvasDPI(els.spatialMap);
       setupCanvasDPI(els.uwbCanvas);
       setupCanvasDPI(els.obstacleCanvas);
+      drawSpatialMap(latestState, performance.now());
       drawUwb(latestState.uwb || {});
       drawObstacle(latestState.obstacle || {});
     }
@@ -288,6 +387,7 @@ function switchView(name) {
 function renderState(s) {
   latestState = s;
   lastStateAt = Date.now();
+  updateSpatialTrail(s);
   const mode = s.mode ?? "--";
   els.mode.textContent = modeLabels[mode] ?? mode;
   els.sysTime.textContent = s.now_ms != null ? `${Math.round(s.now_ms / 1000)}s` : "--";
@@ -305,12 +405,11 @@ function renderState(s) {
     sf.max_speed_scale != null ? `限速 ${Math.round(sf.max_speed_scale * 100)}%` : "限速 --";
 
   const p = s.power ?? {};
-  const batteryPct = estimateBatteryPercent(p.battery_voltage);
-  els.battery.textContent =
-    p.battery_voltage != null
-      ? `${p.battery_voltage.toFixed(1)}V ${Math.round(batteryPct)}%`
-      : "--";
-  setTextState(els.battery, !p.low_battery, p.low_battery);
+  const batteryVoltageOk = batteryVoltageSupported(p.battery_voltage);
+  const batteryPct = batteryVoltageOk ? estimateBatteryPercent(p.battery_voltage) : 0;
+  els.battery.textContent = batteryDisplayText(p.battery_voltage);
+  setTextState(els.battery, !p.low_battery && batteryVoltageOk,
+               p.low_battery && batteryVoltageOk);
 
   const u = s.uwb ?? {};
   els.uwb.textContent = u.valid ? fmt(u.distance_mm, "mm") : "无效";
@@ -342,7 +441,7 @@ function renderState(s) {
   if (lidar.valid) {
     lidarDiagnosis = "扫描有效";
   } else if (lidarRxBytes === 0) {
-    lidarDiagnosis = "无串口数据：检查供电、雷达 TX→GPIO3 和共地";
+    lidarDiagnosis = "无串口数据：检查供电、DATA/TX→GPIO3、CTL/RX←GPIO43 和共地";
   } else if (lidarPackets === 0) {
     lidarDiagnosis = "有字节但无有效包：检查型号、波特率和协议";
   } else if (lidarScans === 0) {
@@ -414,11 +513,19 @@ function renderState(s) {
   setTextState(els.tof, tofValidCount === 3, tofValidCount > 0);
   setStatus(els.sensorTofStatus, validCountLabel(tofValidCount, 3),
             tofValidCount === 3, tofValidCount > 0);
-  if (els.sensorTofAge) els.sensorTofAge.textContent = ageText(s.now_ms, tof.last_update_ms);
   setBar("left", tof.front_left_mm, channelValid(tof, "front_left_valid", "front_left_mm"));
   setBar("center", tof.front_center_mm, channelValid(tof, "front_center_valid", "front_center_mm"));
   setBar("right", tof.front_right_mm, channelValid(tof, "front_right_valid", "front_right_mm"));
   const initMask = Number(tof.init_ok_mask || 0);
+  const tofRealtime = updateTofRealtimeStats(s, tof, tofValidCount, initMask);
+  if (els.tofSampleRate) els.tofSampleRate.textContent = fmtHz(tofRealtime.sampleHz);
+  if (els.tofChannelRate) els.tofChannelRate.textContent = fmtHz(tofRealtime.channelHz);
+  if (els.tofTelemetryRate) els.tofTelemetryRate.textContent = fmtHz(tofRealtime.telemetryHz);
+  if (els.tofDataAge) els.tofDataAge.textContent = fmtLatency(tofRealtime.ageMs);
+  if (els.sensorTofAge) {
+    els.sensorTofAge.textContent =
+      `${fmtHz(tofRealtime.sampleHz)} / ${fmtLatency(tofRealtime.ageMs)}`;
+  }
   const initAttempts = Number(tof.init_attempt_count || 0);
   const initFailures = Number(tof.init_failure_count || 0);
   const muxNacks = Number(tof.mux_nack_count || 0);
@@ -436,6 +543,7 @@ function renderState(s) {
     `初始化 0b${initMask.toString(2).padStart(3, "0")} / 尝试 ${initAttempts}` +
     ` / 失败 ${initFailures} / 读取 ${tof.read_count || 0}` +
     ` / 超时 ${tof.timeout_count || 0} / NACK ${muxNacks}` +
+    ` / 采集 ${fmtHz(tofRealtime.sampleHz)} / 遥测 ${fmtHz(tofRealtime.telemetryHz)}` +
     ` / BusClear ${tof.bus_clear_count || 0} / 重连 ${tof.reinit_count || 0}` +
     ` / ${tofDiagnosis}`;
 
@@ -480,15 +588,18 @@ function renderState(s) {
   setStatus(els.sensorCameraStatus, cam.online ? "在线" : "离线", !!cam.online, !cam.online);
   if (els.sensorCameraAge) els.sensorCameraAge.textContent = cam.stream_url ? "有地址" : "无地址";
   if (els.sensorCameraDetail) els.sensorCameraDetail.textContent = cam.online ? "在线" : "离线";
-  setStatus(els.sensorPowerStatus, p.low_battery ? "低电压" : (p.battery_voltage != null ? "正常" : "无数据"),
-            !p.low_battery && p.battery_voltage != null, p.battery_voltage != null);
+  setStatus(els.sensorPowerStatus,
+            !batteryVoltageOk && p.battery_voltage != null ? "电压异常" :
+              (p.low_battery ? "低电压" : (p.battery_voltage != null ? "正常" : "无数据")),
+            !p.low_battery && batteryVoltageOk, p.battery_voltage != null);
   if (els.sensorPowerAge) els.sensorPowerAge.textContent = p.battery_voltage != null ? `${p.battery_voltage.toFixed(2)}V` : "未更新";
   if (els.sensorBatteryDetail) {
-    els.sensorBatteryDetail.textContent =
-      p.battery_voltage != null ? `${p.battery_voltage.toFixed(2)}V / ${Math.round(batteryPct)}%` : "--";
+    els.sensorBatteryDetail.textContent = batteryVoltageOk
+      ? `${p.battery_voltage.toFixed(2)}V / ${Math.round(batteryPct)}%`
+      : batteryDisplayText(p.battery_voltage);
   }
   if (els.sensorAuxStatus) {
-    els.sensorAuxStatus.textContent = `${p.low_battery ? "电池告警" : "电池正常"} / ${cam.online ? "视频在线" : "视频离线"}`;
+    els.sensorAuxStatus.textContent = `${p.low_battery || !batteryVoltageOk ? "电池告警" : "电池正常"} / ${cam.online ? "视频在线" : "视频离线"}`;
   }
   if (cam.stream_url) {
     lastTelemetryCameraUrl = cam.stream_url;
@@ -502,7 +613,7 @@ function renderState(s) {
     tofValidCount > 0,
     usValidCount > 0,
     !!cam.online,
-    p.battery_voltage != null && !p.low_battery,
+    batteryVoltageOk && !p.low_battery,
     !!o.valid,
   ].filter(Boolean).length;
   if (els.sensorSummary) {
@@ -558,6 +669,261 @@ function setupCanvasDPI(canvas) {
   canvas.height = h;
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // avoids scale accumulation
+}
+
+// ── Canvas: Full spatial sensor map ──
+
+function drawSpatialMap(state, now = performance.now()) {
+  const canvas = els.spatialMap;
+  if (!canvas) return;
+  setupCanvasDPI(canvas);
+  const ctx = canvas.getContext("2d");
+  const W = canvas.clientWidth || canvas.width;
+  const H = canvas.clientHeight || canvas.height;
+  if (!W || !H) return;
+
+  const cx = W / 2;
+  const cy = H / 2;
+  const maxPx = Math.min(W, H) * 0.39;
+  const scale = maxPx / MAP_MAX_MM;
+  const sweep = ((now / 3200) % 1) * Math.PI * 2 - Math.PI / 2;
+  const pulse = 0.5 + 0.5 * Math.sin(now / 360);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#060a12";
+  ctx.fillRect(0, 0, W, H);
+
+  const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxPx * 1.35);
+  bg.addColorStop(0, "rgba(0,213,255,.10)");
+  bg.addColorStop(0.55, "rgba(0,117,222,.04)");
+  bg.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  ctx.arc(cx, cy, maxPx * 1.35, 0, Math.PI * 2);
+  ctx.fill();
+
+  [500, 1000, 2000, 3000, 4000].forEach((mm) => {
+    const r = mm * scale;
+    ctx.strokeStyle = mm <= 1000 ? "rgba(0,213,255,.24)" : "rgba(255,255,255,.08)";
+    ctx.lineWidth = mm <= 1000 ? 1.2 : 1;
+    ctx.setLineDash(mm > 1000 ? [4, 6] : []);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(255,255,255,.44)";
+    ctx.font = "10px system-ui";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${mm / 1000}m`, cx + r + 5, cy);
+  });
+
+  [-90, -60, -30, 0, 30, 60, 90].forEach((deg) => {
+    const end = polarToCanvas(cx, cy, scale, deg, MAP_MAX_MM);
+    ctx.strokeStyle = deg === 0 ? "rgba(0,213,255,.24)" : "rgba(255,255,255,.07)";
+    ctx.lineWidth = deg === 0 ? 1.5 : 1;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+    if (deg !== 0) {
+      const label = polarToCanvas(cx, cy, scale, deg, MAP_MAX_MM + 180);
+      ctx.fillStyle = "rgba(255,255,255,.34)";
+      ctx.font = "10px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(`${deg}°`, label.x, label.y);
+    }
+  });
+
+  ctx.strokeStyle = `rgba(0,213,255,${0.24 + pulse * 0.16})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + Math.cos(sweep) * maxPx, cy + Math.sin(sweep) * maxPx);
+  ctx.stroke();
+
+  const cam = state?.camera || {};
+  if (cam.online || cam.stream_url) {
+    ctx.fillStyle = cam.online ? "rgba(0,213,255,.10)" : "rgba(128,138,148,.07)";
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    const left = polarToCanvas(cx, cy, scale, -24, 2400);
+    const right = polarToCanvas(cx, cy, scale, 24, 2400);
+    ctx.lineTo(left.x, left.y);
+    ctx.arc(cx, cy, 2400 * scale, (-114 * Math.PI) / 180, (-66 * Math.PI) / 180);
+    ctx.lineTo(right.x, right.y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  const drawTrail = () => {
+    if (spatialTrail.length < 2) return;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    spatialTrail.forEach((pt, index) => {
+      const p = polarToCanvas(cx, cy, scale, pt.bearing, pt.distance);
+      if (index === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.strokeStyle = "rgba(255,140,0,.48)";
+    ctx.stroke();
+    spatialTrail.forEach((pt, index) => {
+      const age = index / Math.max(1, spatialTrail.length - 1);
+      const p = polarToCanvas(cx, cy, scale, pt.bearing, pt.distance);
+      ctx.fillStyle = `rgba(255,140,0,${0.15 + age * 0.35})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 2 + age * 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  };
+
+  const plotSensor = (angleDeg, distanceMm, label, options = {}) => {
+    if (!positiveNumber(distanceMm)) return;
+    const p = polarToCanvas(cx, cy, scale, angleDeg, distanceMm);
+    const color = options.color || sensorDistanceColor(distanceMm);
+    const radius = options.radius || 5;
+    const glowRadius = radius * (3.2 + pulse);
+
+    ctx.strokeStyle = options.ray || "rgba(255,255,255,.12)";
+    ctx.lineWidth = options.rayWidth || 1;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+
+    const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowRadius);
+    glow.addColorStop(0, options.glow || "rgba(0,213,255,.26)");
+    glow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    if (options.shape === "diamond") {
+      ctx.moveTo(p.x, p.y - radius);
+      ctx.lineTo(p.x + radius, p.y);
+      ctx.lineTo(p.x, p.y + radius);
+      ctx.lineTo(p.x - radius, p.y);
+      ctx.closePath();
+    } else {
+      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    }
+    ctx.fill();
+
+    if (options.outline) {
+      ctx.strokeStyle = "rgba(255,255,255,.72)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = "rgba(255,255,255,.86)";
+    ctx.font = options.bold ? "bold 11px system-ui" : "10px system-ui";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(label, p.x, p.y - radius - 5);
+    ctx.fillStyle = "rgba(255,255,255,.52)";
+    ctx.font = "9px system-ui";
+    ctx.textBaseline = "top";
+    ctx.fillText(`${Math.round(distanceMm / 10) / 100}m`, p.x, p.y + radius + 4);
+  };
+
+  drawTrail();
+
+  const lidar = state?.lidar || {};
+  plotSensor(-42, lidar.front_left_mm, "雷达左", { color: "#7c5cff", glow: "rgba(124,92,255,.25)" });
+  plotSensor(0, lidar.front_center_mm, "雷达中", { color: "#7c5cff", glow: "rgba(124,92,255,.25)" });
+  plotSensor(42, lidar.front_right_mm, "雷达右", { color: "#7c5cff", glow: "rgba(124,92,255,.25)" });
+  plotSensor(-100, lidar.side_left_mm, "雷达侧左", { color: "#7c5cff", glow: "rgba(124,92,255,.20)" });
+  plotSensor(100, lidar.side_right_mm, "雷达侧右", { color: "#7c5cff", glow: "rgba(124,92,255,.20)" });
+
+  const tof = state?.tof || {};
+  if (channelValid(tof, "front_left_valid", "front_left_mm")) {
+    plotSensor(-28, tof.front_left_mm, "TOF左", { color: "#5aa9ff", glow: "rgba(90,169,255,.24)" });
+  }
+  if (channelValid(tof, "front_center_valid", "front_center_mm")) {
+    plotSensor(0, tof.front_center_mm, "TOF中", { color: "#5aa9ff", glow: "rgba(90,169,255,.24)" });
+  }
+  if (channelValid(tof, "front_right_valid", "front_right_mm")) {
+    plotSensor(28, tof.front_right_mm, "TOF右", { color: "#5aa9ff", glow: "rgba(90,169,255,.24)" });
+  }
+
+  const ultrasonic = state?.ultrasonic || {};
+  if (channelValid(ultrasonic, "left_valid", "left_mm")) {
+    plotSensor(-90, ultrasonic.left_mm, "超声左", { color: "#1f8f8a", glow: "rgba(31,143,138,.25)" });
+  }
+  if (channelValid(ultrasonic, "right_valid", "right_mm")) {
+    plotSensor(90, ultrasonic.right_mm, "超声右", { color: "#1f8f8a", glow: "rgba(31,143,138,.25)" });
+  }
+
+  const obstacle = state?.obstacle || {};
+  plotSensor(-34, obstacle.front_left_mm, "融合左", { shape: "diamond", radius: 7, ray: "rgba(220,38,38,.18)", glow: "rgba(220,38,38,.22)" });
+  plotSensor(0, obstacle.front_center_mm, "融合前", { shape: "diamond", radius: 7, ray: "rgba(220,38,38,.18)", glow: "rgba(220,38,38,.22)" });
+  plotSensor(34, obstacle.front_right_mm, "融合右", { shape: "diamond", radius: 7, ray: "rgba(220,38,38,.18)", glow: "rgba(220,38,38,.22)" });
+  plotSensor(-90, obstacle.side_left_mm, "融合侧左", { shape: "diamond", radius: 6, ray: "rgba(220,38,38,.12)", glow: "rgba(220,38,38,.18)" });
+  plotSensor(90, obstacle.side_right_mm, "融合侧右", { shape: "diamond", radius: 6, ray: "rgba(220,38,38,.12)", glow: "rgba(220,38,38,.18)" });
+
+  const uwb = state?.uwb || {};
+  if (uwb.valid && positiveNumber(uwb.distance_mm)) {
+    const bearing = Math.max(-120, Math.min(120, Number(uwb.bearing_deg || 0)));
+    plotSensor(bearing, uwb.distance_mm, "UWB目标", {
+      color: "#00d5ff",
+      glow: "rgba(0,213,255,.38)",
+      outline: true,
+      radius: 8,
+      bold: true,
+      ray: "rgba(0,213,255,.28)",
+      rayWidth: 1.5,
+    });
+  }
+
+  const imu = state?.imu || {};
+  const yaw = Number(imu.yaw_deg || 0);
+  const yawRad = ((imu.valid ? yaw : 0) - 90) * Math.PI / 180;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(yawRad);
+  ctx.fillStyle = "#eef2f6";
+  ctx.beginPath();
+  ctx.moveTo(18, 0);
+  ctx.lineTo(-12, -10);
+  ctx.lineTo(-5, 0);
+  ctx.lineTo(-12, 10);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = imu.valid ? "rgba(0,213,255,.7)" : "rgba(255,255,255,.28)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 16 + pulse * 3, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const power = state?.power || {};
+  const batteryOk = batteryVoltageSupported(power.battery_voltage) && !power.low_battery;
+  ctx.fillStyle = "rgba(5,7,10,.72)";
+  ctx.fillRect(8, 8, 128, 42);
+  ctx.strokeStyle = "rgba(255,255,255,.14)";
+  ctx.strokeRect(8, 8, 128, 42);
+  ctx.fillStyle = batteryOk ? "#1aae39" : "#dc2626";
+  ctx.fillRect(18, 23, Math.max(4, Math.min(64, batteryOk ? 64 : 18)), 10);
+  ctx.strokeStyle = "rgba(255,255,255,.5)";
+  ctx.strokeRect(18, 22, 68, 12);
+  ctx.fillRect(88, 25, 3, 6);
+  ctx.fillStyle = "rgba(255,255,255,.8)";
+  ctx.font = "10px system-ui";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(batteryDisplayText(power.battery_voltage), 96, 28);
+
+  ctx.fillStyle = "rgba(255,255,255,.34)";
+  ctx.font = "10px system-ui";
+  ctx.textAlign = "center";
+  ctx.fillText("前", cx, cy - maxPx - 15);
+  ctx.fillText("后", cx, cy + maxPx + 15);
+  ctx.fillText("左", cx - maxPx - 15, cy);
+  ctx.fillText("右", cx + maxPx + 15, cy);
 }
 
 // ── Canvas: UWB Polar ──
@@ -676,6 +1042,13 @@ function drawObstacle(obstacle) {
   ctx.lineTo(w / 2 + 15, h - 36);
   ctx.closePath();
   ctx.fill();
+}
+
+function animateSpatialMap(now) {
+  if (els.spatialMap) {
+    drawSpatialMap(latestState || {}, now);
+  }
+  requestAnimationFrame(animateSpatialMap);
 }
 
 // ── Network ──
@@ -1097,10 +1470,13 @@ refreshLocalKeyUi();
 restoreCameraOverride();
 setCameraStream(els.cameraUrl?.value);
 setupJoystick();
+setupCanvasDPI(els.spatialMap);
 setupCanvasDPI(els.uwbCanvas);
 setupCanvasDPI(els.obstacleCanvas);
+drawSpatialMap({});
 drawUwb({});
 drawObstacle({});
+requestAnimationFrame(animateSpatialMap);
 const initialView = (location.hash || "").slice(1);
 if (["drive", "sensors", "status", "settings"].includes(initialView)) {
   switchView(initialView);

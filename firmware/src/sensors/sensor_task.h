@@ -66,7 +66,11 @@ class SensorTask {
   void drainUwb(uint32_t now_ms);
   void drainLidar(uint32_t now_ms);
   void drainImu(uint32_t now_ms);
-  size_t sendLidarStartCommand();
+  void clearLidarInput();
+  size_t sendLidarStartupSequence();
+  void restartLidarCandidate(uint8_t candidate_index, uint32_t now_ms,
+                             const char* reason);
+  void probeNextLidarCandidate(uint32_t now_ms, const char* reason);
   void logLidarDiagnostics(uint32_t now_ms);
 
   UartBus uwb_uart_;
@@ -90,6 +94,13 @@ class SensorTask {
   uint32_t last_lidar_scans_ = 0;
   uint32_t last_lidar_checksum_errors_ = 0;
   uint32_t last_lidar_framing_errors_ = 0;
+  uint32_t last_lidar_start_retry_ms_ = 0;
+  uint32_t lidar_current_baud_ = 0;
+  int lidar_active_rx_pin_ = -1;
+  int lidar_active_tx_pin_ = -1;
+  const char* lidar_active_wiring_label_ = nullptr;
+  uint8_t lidar_probe_index_ = 0;
+  uint8_t lidar_probe_rounds_ = 0;
   bool lidar_healthy_logged_ = false;
 };
 

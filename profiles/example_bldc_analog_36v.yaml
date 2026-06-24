@@ -131,11 +131,11 @@ sensors:
     require_stillness_label_on_box: true
   lidar:
     model: EAI_S2_YJ_OR_YD
-    uart_baud: 150000
+    uart_baud: 115200
     rx_pin: 3
     tx_pin: 43
     protocol: ydlidar_single_channel_triangle
-    source: zhiliao/EaiLidarTest-V1.12.3-20241220/config/config.json + log/main.log A560/AA55 evidence
+    source: 2026-06-24 bench log A560/55AA0308 at 115200; 150000 kept as probe fallback
 
 alert:
   buzzer_type: passive_5v

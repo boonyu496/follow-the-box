@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace followbox::profile {
@@ -39,11 +40,15 @@ constexpr float BATTERY_LOW_VOLTAGE = 33.0f;
 // Bound bytes drained per parser per update so the control loop never stalls
 // on a flooded UART; leftover bytes are picked up next tick.
 constexpr uint32_t UWB_UART_BAUD = 115200;
-// Seller-linked ROS1/ROS2 drivers for the fitted OEM YDLIDAR module use
-// 150000 baud. Do not infer a different rate from generic S2 model tables;
-// require a raw-byte capture or a driver known to work with this exact unit.
-constexpr uint32_t LIDAR_UART_BAUD = 150000;
-constexpr int SENSOR_TASK_MAX_BYTES_PER_UPDATE = 512;
+// Current bench capture: the fitted lidar produces stable 55 AA 03 LSN frames
+// on the spec wiring at 115200 8N1 after A5 60. 150000 remains in the probe
+// list for canonical YDLIDAR AA 55 firmware variants.
+constexpr uint32_t LIDAR_UART_BAUD = 115200;
+// 115200 8N1 can deliver about 230 bytes per 20 ms sensor tick. The ESP32
+// default HardwareSerial RX buffer is too small for jittery ticks, so reserve
+// enough ring buffer and drain budget to avoid losing 55AA framing bytes.
+constexpr size_t SENSOR_UART_RX_BUFFER_SIZE = 2048;
+constexpr int SENSOR_TASK_MAX_BYTES_PER_UPDATE = 2048;
 
 // --- UWB GC-P2304 parser / filter ---
 // GC-P2304-GS-2: UART 115200 8N1, binary frame F0 06 ... AA (see protocols/UWB-GC-P2304.md).
@@ -83,7 +88,7 @@ constexpr float IMU_ANGLE_FULL_SCALE_DEG = 180.0f;  // 0x53 Euler angles
 // is enabled anyway, FOLLOW_YAW_DAMP_GAIN = 0).
 constexpr float IMU_YAW_SIGN = 1.0f;
 
-// --- Fitted OEM YDLIDAR (UART 150000 8N1, intensity8, 10 + LSN*3 bytes) ---
+// --- Fitted OEM lidar (current 115200 55AA field frames; 150000 AA55 fallback) ---
 constexpr uint32_t LIDAR_PACKET_TIMEOUT_MS = 500;
 constexpr int LIDAR_MIN_VALID_MM = 50;
 constexpr int LIDAR_MAX_VALID_MM = 8000;

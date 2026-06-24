@@ -18,7 +18,12 @@ class UartBus {
   UartBus(int uart_num, int rx_pin, int tx_pin, uint32_t baud);
 
   bool begin();
+  bool restart(uint32_t baud);
+  bool restart(uint32_t baud, int rx_pin, int tx_pin);
   bool isEnabled() const { return rx_pin_ >= 0; }
+  uint32_t baud() const { return baud_; }
+  int rxPin() const { return rx_pin_; }
+  int txPin() const { return tx_pin_; }
 
   // Number of bytes currently buffered (0 when disabled).
   int available();
@@ -28,6 +33,8 @@ class UartBus {
   size_t write(const uint8_t* data, size_t length);
 
  private:
+  bool selectSerial();
+
   HardwareSerial* serial_ = nullptr;
   int uart_num_ = -1;
   int rx_pin_ = -1;

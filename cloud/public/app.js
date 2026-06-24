@@ -307,6 +307,17 @@ function estimateBatteryPercent(voltage) {
   return Math.max(0, Math.min(100, ((voltage - 30) / (42 - 30)) * 100));
 }
 
+function batteryVoltageSupported(voltage) {
+  return typeof voltage === "number" && Number.isFinite(voltage) &&
+    voltage > 0 && voltage <= 62;
+}
+
+function batteryDisplayText(voltage) {
+  if (typeof voltage !== "number" || !Number.isFinite(voltage)) return "--";
+  if (!batteryVoltageSupported(voltage)) return `${voltage.toFixed(1)}V 异常`;
+  return `${voltage.toFixed(1)}V ${Math.round(estimateBatteryPercent(voltage))}%`;
+}
+
 function setTextState(el, ok, warn) {
   if (!el) return;
   el.classList.toggle("ok-text", !!ok);
@@ -506,10 +517,11 @@ function render(payload) {
   setTextState(els.motionAllowed, motionAllowed);
   const stopText = stopLabels[safety.stop_reason] || safety.stop_reason || "--";
   els.stopReason.textContent = stopText;
-  const batteryPct = estimateBatteryPercent(power.battery_voltage);
-  els.battery.textContent = power.battery_voltage != null
-    ? `${power.battery_voltage.toFixed(1)}V ${Math.round(batteryPct)}%` : "--";
-  setTextState(els.battery, !power.low_battery, power.low_battery);
+  const batteryVoltageOk = batteryVoltageSupported(power.battery_voltage);
+  const batteryPct = batteryVoltageOk ? estimateBatteryPercent(power.battery_voltage) : 0;
+  els.battery.textContent = batteryDisplayText(power.battery_voltage);
+  setTextState(els.battery, !power.low_battery && batteryVoltageOk,
+               power.low_battery && batteryVoltageOk);
 
   // Sys time
   els.sysTime.textContent = s.now_ms != null ? `${Math.round(s.now_ms / 1000)}s` : "--";
@@ -688,15 +700,18 @@ function render(payload) {
             !!payload.video?.online, !!payload.video?.lastFrameAt);
   if (els.sensorCameraAge) els.sensorCameraAge.textContent = payload.video?.lastFrameAt ? fmtWallAge(payload.video.lastFrameAt) : "未上报";
   if (els.sensorCameraDetail) els.sensorCameraDetail.textContent = payload.video?.online ? "在线" : "离线";
-  setStatus(els.sensorPowerStatus, power.low_battery ? "低电压" : (power.battery_voltage != null ? "正常" : "无数据"),
-            !power.low_battery && power.battery_voltage != null, power.battery_voltage != null);
+  setStatus(els.sensorPowerStatus,
+            !batteryVoltageOk && power.battery_voltage != null ? "电压异常" :
+              (power.low_battery ? "低电压" : (power.battery_voltage != null ? "正常" : "无数据")),
+            !power.low_battery && batteryVoltageOk, power.battery_voltage != null);
   if (els.sensorPowerAge) els.sensorPowerAge.textContent = power.battery_voltage != null ? `${power.battery_voltage.toFixed(2)}V` : "未更新";
   if (els.sensorBatteryDetail) {
-    els.sensorBatteryDetail.textContent =
-      power.battery_voltage != null ? `${power.battery_voltage.toFixed(2)}V / ${Math.round(batteryPct)}%` : "--";
+    els.sensorBatteryDetail.textContent = batteryVoltageOk
+      ? `${power.battery_voltage.toFixed(2)}V / ${Math.round(batteryPct)}%`
+      : batteryDisplayText(power.battery_voltage);
   }
   if (els.sensorAuxStatus) {
-    els.sensorAuxStatus.textContent = `${power.low_battery ? "电池告警" : "电池正常"} / ${payload.video?.online ? "视频在线" : "视频离线"}`;
+    els.sensorAuxStatus.textContent = `${power.low_battery || !batteryVoltageOk ? "电池告警" : "电池正常"} / ${payload.video?.online ? "视频在线" : "视频离线"}`;
   }
   const sensorOkCount = [
     !!uwb.valid,
@@ -705,7 +720,7 @@ function render(payload) {
     tofValidCount > 0,
     usValidCount > 0,
     !!payload.video?.online,
-    power.battery_voltage != null && !power.low_battery,
+    batteryVoltageOk && !power.low_battery,
     !!obstacle.valid,
   ].filter(Boolean).length;
   if (els.sensorSummary) {

@@ -92,8 +92,11 @@ void testSafetyAndMixer() {
   state.mode = RunMode::AUTO_FOLLOW;
   state.install_wizard_complete = true;
   state.throttle_calibrated = true;
+  state.heartbeat.sensor_task_ms = 2000;
+  state.heartbeat.uwb_task_ms = 2000;
   state.obstacle.valid = true;
   state.obstacle.last_update_ms = 2000;
+  state.obstacle.front_center_mm = 1500;
   state.uwb.valid = false;
   state.safety = auto_safety.evaluate(state);
   assert(!state.safety.motion_allowed);
@@ -230,7 +233,7 @@ void testFollowController() {
   assert(release.forward > 0.0f);  // beyond resume -> moves again
 }
 
-// --- Fitted 150000-baud AA55 LiDAR parser --------------------------------
+// --- Fitted YDLIDAR/55AA LiDAR parser -------------------------------------
 uint8_t lidarCrc(const uint8_t* data, uint8_t length) {
   static const uint8_t table[256] = {
       0x00, 0x4d, 0x9a, 0xd7, 0x79, 0x34, 0xe3, 0xae, 0xf2, 0xbf, 0x68, 0x25,
@@ -295,6 +298,90 @@ std::vector<uint8_t> buildLidarPacket(float start_deg, float end_deg,
   return p;
 }
 
+std::vector<uint8_t> buildLidarNoChecksumPacket(float start_deg, float end_deg,
+                                                uint16_t dist_mm,
+                                                uint8_t ring_start) {
+  constexpr uint8_t count = 8;
+  std::vector<uint8_t> p(8 + count * 3, 0);
+  p[0] = 0xAA;
+  p[1] = 0x55;
+  p[2] = ring_start ? 0x01 : 0x00;
+  p[3] = count;
+  const uint16_t start =
+      (static_cast<uint16_t>(std::lround(start_deg * 64.0f)) << 1) | 1u;
+  const uint16_t end =
+      (static_cast<uint16_t>(std::lround(end_deg * 64.0f)) << 1) | 1u;
+  p[4] = start & 0xFF;
+  p[5] = (start >> 8) & 0xFF;
+  p[6] = end & 0xFF;
+  p[7] = (end >> 8) & 0xFF;
+  const uint16_t raw_distance = static_cast<uint16_t>(dist_mm * 4u);
+  for (uint8_t i = 0; i < count; ++i) {
+    const size_t offset = 8 + i * 3;
+    p[offset] = raw_distance & 0xFF;
+    p[offset + 1] = (raw_distance >> 8) & 0xFF;
+    p[offset + 2] = static_cast<uint8_t>(0x80u + i);
+  }
+  return p;
+}
+
+std::vector<uint8_t> buildLidarNoIntensityPacket(float start_deg, float end_deg,
+                                                 uint16_t dist_mm,
+                                                 uint8_t ring_start) {
+  constexpr uint8_t count = 8;
+  std::vector<uint8_t> p(10 + count * 2, 0);
+  p[0] = 0xAA;
+  p[1] = 0x55;
+  p[2] = ring_start ? 0x01 : 0x00;
+  p[3] = count;
+  const uint16_t start =
+      (static_cast<uint16_t>(std::lround(start_deg * 64.0f)) << 1) | 1u;
+  const uint16_t end =
+      (static_cast<uint16_t>(std::lround(end_deg * 64.0f)) << 1) | 1u;
+  p[4] = start & 0xFF;
+  p[5] = (start >> 8) & 0xFF;
+  p[6] = end & 0xFF;
+  p[7] = (end >> 8) & 0xFF;
+  uint16_t checksum = 0x55AA ^ static_cast<uint16_t>(count << 8 | p[2]) ^
+                      start ^ end;
+  const uint16_t raw_distance = static_cast<uint16_t>(dist_mm * 4u);
+  for (uint8_t i = 0; i < count; ++i) {
+    const size_t offset = 10 + i * 2;
+    p[offset] = raw_distance & 0xFF;
+    p[offset + 1] = (raw_distance >> 8) & 0xFF;
+    checksum ^= raw_distance;
+  }
+  p[8] = checksum & 0xFF;
+  p[9] = (checksum >> 8) & 0xFF;
+  return p;
+}
+
+std::vector<uint8_t> buildLidarHeader55aaPacket(float start_deg, float end_deg,
+                                                uint16_t dist_mm) {
+  constexpr uint8_t count = 8;
+  std::vector<uint8_t> p(8 + count * 3, 0);
+  p[0] = 0x55;
+  p[1] = 0xAA;
+  p[2] = 0x03;
+  p[3] = count;
+  const uint16_t start =
+      static_cast<uint16_t>(std::lround(start_deg * 64.0f)) << 1;
+  const uint16_t end =
+      static_cast<uint16_t>(std::lround(end_deg * 64.0f)) << 1;
+  p[4] = start & 0xFF;
+  p[5] = (start >> 8) & 0xFF;
+  p[6] = end & 0xFF;
+  p[7] = (end >> 8) & 0xFF;
+  const uint16_t raw_distance = static_cast<uint16_t>(dist_mm * 4u);
+  for (uint8_t i = 0; i < count; ++i) {
+    const size_t offset = 8 + i * 3;
+    p[offset] = raw_distance & 0xFF;
+    p[offset + 1] = (raw_distance >> 8) & 0xFF;
+    p[offset + 2] = static_cast<uint8_t>(0xB0u + i);
+  }
+  return p;
+}
+
 void feedLidar(LidarEaiS2& lidar, const std::vector<uint8_t>& packet,
                uint32_t now_ms) {
   for (uint8_t b : packet) {
@@ -307,9 +394,9 @@ void testLidarParser() {
   lidar.reset();
 
   // A ring-start begins scan A; the next ring-start finalises it.
-  feedLidar(lidar, buildLidarPacket(0.0f, 10.0f, 1500, true), 100);
-  feedLidar(lidar, buildLidarPacket(20.0f, 30.0f, 1800, false), 105);
-  feedLidar(lidar, buildLidarPacket(0.0f, 10.0f, 800, true), 110);
+  feedLidar(lidar, buildLidarPacket(10.0f, 20.0f, 1500, true), 100);
+  feedLidar(lidar, buildLidarPacket(30.0f, 40.0f, 1800, false), 105);
+  feedLidar(lidar, buildLidarPacket(100.0f, 110.0f, 800, true), 110);
 
   assert(lidar.stats().packet_count == 3);
   assert(lidar.stats().checksum_error_count == 0);
@@ -327,6 +414,83 @@ void testLidarParser() {
   // Timeout invalidates the snapshot.
   lidar.update(120 + 600);
   assert(!lidar.snapshot().valid);
+
+  // Buyer ROS drivers omit CS and use distance_lsb + distance_msb + quality.
+  // The firmware accepts that layout only after seeing the next AA55 header.
+  LidarEaiS2 no_cs;
+  no_cs.reset();
+  std::vector<uint8_t> a = buildLidarNoChecksumPacket(350.0f, 355.0f, 155, false);
+  std::vector<uint8_t> b = buildLidarNoChecksumPacket(0.0f, 10.0f, 155, false);
+  std::vector<uint8_t> c = buildLidarNoChecksumPacket(20.0f, 30.0f, 200, false);
+  std::vector<uint8_t> stream;
+  stream.insert(stream.end(), a.begin(), a.end());
+  stream.insert(stream.end(), b.begin(), b.end());
+  stream.push_back(c[0]);
+  stream.push_back(c[1]);
+  feedLidar(no_cs, stream, 200);
+  assert(no_cs.stats().packet_count == 2);
+  assert(no_cs.stats().no_checksum_packet_count == 2);
+  assert(no_cs.stats().checksum_error_count == 0);
+  assert(no_cs.stats().scan_count == 1);
+  assert(no_cs.snapshot().valid);
+
+  // NODE_QUAL0 mode carries two bytes per sample plus the normal check code.
+  LidarEaiS2 no_intensity;
+  no_intensity.reset();
+  feedLidar(no_intensity,
+            buildLidarNoIntensityPacket(350.0f, 355.0f, 600, true), 205);
+  feedLidar(no_intensity,
+            buildLidarNoIntensityPacket(0.0f, 10.0f, 700, true), 210);
+  assert(no_intensity.stats().packet_count == 2);
+  assert(no_intensity.stats().no_intensity_packet_count == 2);
+  assert(no_intensity.stats().checksum_error_count == 0);
+  assert(no_intensity.snapshot().valid);
+
+  // 2026-06-24 bench logs show the fitted unit on spec wiring at 115200 8N1
+  // emitting 55 AA 03 08 packets after A5 60. Accept only the plausible
+  // distance-first layout; wrong-baud captures with impossible angles remain
+  // rejected below.
+  LidarEaiS2 header_55aa;
+  header_55aa.reset();
+  feedLidar(header_55aa,
+            buildLidarHeader55aaPacket(350.0f, 355.0f, 620), 215);
+  feedLidar(header_55aa,
+            buildLidarHeader55aaPacket(0.0f, 10.0f, 620), 216);
+  feedLidar(header_55aa,
+            buildLidarHeader55aaPacket(20.0f, 30.0f, 720), 217);
+  assert(header_55aa.stats().packet_count == 3);
+  assert(header_55aa.stats().header_55aa_packet_count == 3);
+  assert(header_55aa.stats().no_checksum_packet_count == 3);
+  assert(header_55aa.snapshot().valid);
+
+  // Wrong-baud field captures can still contain false AA55 syncs before 55AA
+  // bytes. Impossible angle fields must keep those diagnostic-only.
+  LidarEaiS2 captured;
+  captured.reset();
+  const std::vector<uint8_t> raw55aa = {
+      0xAA, 0x55, 0x55, 0xAA, 0x03, 0x08, 0x95, 0xC9, 0x47, 0xBB, 0x3F, 0x00,
+      0xBE, 0x3E, 0x00, 0xDB, 0x35, 0x00, 0xFF, 0x30, 0x00, 0xFF, 0x31, 0x00,
+      0xFF, 0x36, 0x00, 0xFF, 0x3B, 0x00, 0xE9, 0x34, 0x00, 0xFF, 0x3C, 0xBF,
+      0x83, 0x54, 0x55, 0xAA, 0x03, 0x08, 0x95, 0xC9, 0x89, 0xBF, 0x34, 0x00};
+  feedLidar(captured, raw55aa, 210);
+  assert(captured.stats().aa55_header_count == 1);
+  assert(captured.stats().header_55aa_count == 2);
+  assert(captured.stats().packet_count == 0);
+  assert(!captured.snapshot().valid);
+
+  // Stable-looking 55AA records with impossible encoded angles must still be
+  // rejected rather than accepted merely because the byte stream repeats.
+  LidarEaiS2 stable_55aa;
+  stable_55aa.reset();
+  const std::vector<uint8_t> stable55aa = {
+      0x55, 0xAA, 0x03, 0x08, 0x75, 0xCA, 0x1C, 0xDB, 0x1F, 0x06, 0xEA, 0x4B,
+      0x06, 0xE8, 0x7E, 0x06, 0xE9, 0xB8, 0x06, 0xE5, 0xD9, 0x06, 0xE5, 0x1D,
+      0x07, 0xE3, 0x6D, 0x07, 0xE3, 0xE6, 0x07, 0xD8, 0xFE, 0xDE, 0x66, 0x11,
+      0x55, 0xAA, 0x03, 0x08, 0x75, 0xCA, 0x4C, 0xDF, 0x11, 0x08, 0xE6, 0xD3};
+  feedLidar(stable_55aa, stable55aa, 220);
+  assert(stable_55aa.stats().header_55aa_count == 2);
+  assert(stable_55aa.stats().packet_count == 0);
+  assert(!stable_55aa.snapshot().valid);
 }
 
 // --- JY61P IMU parser (WitMotion 0x55 frames) -----------------------------

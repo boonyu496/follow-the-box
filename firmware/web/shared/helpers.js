@@ -51,6 +51,17 @@ function estimateBatteryPercent(voltage) {
   return Math.max(0, Math.min(100, ((voltage - 30) / (42 - 30)) * 100));
 }
 
+function batteryVoltageSupported(voltage) {
+  return typeof voltage === "number" && Number.isFinite(voltage) &&
+    voltage > 0 && voltage <= 62;
+}
+
+function batteryDisplayText(voltage) {
+  if (typeof voltage !== "number" || !Number.isFinite(voltage)) return "--";
+  if (!batteryVoltageSupported(voltage)) return `${voltage.toFixed(1)}V 异常`;
+  return `${voltage.toFixed(1)}V ${Math.round(estimateBatteryPercent(voltage))}%`;
+}
+
 // ── UI state helpers ──
 function setTextState(el, ok, warn = false) {
   if (!el) return;

@@ -31,11 +31,14 @@ constexpr int UART_NUM_LIDAR = 2;
 // bring-up confirms the module TX level, baud rate, and install-wizard yaw sign.
 constexpr int UART_NUM_IMU = -1;
 
-// Fitted OEM YDLIDAR UART (UART2, 150000 baud, 3.3V logic, direct connect).
-// GPIO3  = ESP32 RX <- lidar TX.  GPIO22/23 do NOT exist on ESP32-S3-DevKitC-1.
-// GPIO43 = ESP32 TX -> lidar CTL/RX. Seller-linked ROS1/ROS2 drivers send
-// A5 60 before reading AA55 scan packets. GPIO42 remains reserved for JY61P.
-// GPIO19/20 are USB D-/D+ and MUST NOT be used.
+// Fitted OEM YDLIDAR UART (UART2, current bench default 115200 baud, 3.3V logic).
+// Canonical project wiring follows FIRMWARE-SPEC:
+// GPIO3  = ESP32 RX <- lidar DATA/TX.
+// GPIO43 = ESP32 TX -> lidar CTL/RX, sending A5 60 before reading scan frames.
+// SensorTask bring-up diagnostics can temporarily probe the swapped candidate
+// (GPIO43 as RX, GPIO3 as TX) without changing this authoritative pin map.
+// GPIO22/23 do NOT exist on ESP32-S3-DevKitC-1. GPIO42 remains reserved for
+// JY61P. GPIO19/20 are USB D-/D+ and MUST NOT be used.
 constexpr int PIN_LIDAR_RX = 3;
 constexpr int PIN_LIDAR_TX = 43;
 
