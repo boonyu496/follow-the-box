@@ -1,6 +1,8 @@
 {
-  "version": "2026.06.24-20260624-103635",
-  "md5": "82d5a5c6bf68648bb307f8dfee9ff05c",
-  "size": 1140256,
-  "timestamp": "2026-06-24T02:36:35Z"
+  "version": "2026.06.24-ov5640-h5-video.1",
+  "file": "firmware.bin",
+  "md5": "11d07415c14f565f12cdfdd3cf47177f",
+  "size": 1141232,
+  "force": false,
+  "notes": "OV5640 camera H5 video: cloud MJPEG stream relay plus AP/LAN stream display"
 }

@@ -80,6 +80,12 @@
 #ifndef CAM_XCLK_HZ
 #define CAM_XCLK_HZ 20000000
 #endif
+#ifndef CAM_FRAME_SIZE
+#define CAM_FRAME_SIZE FRAMESIZE_SVGA
+#endif
+#ifndef CAM_JPEG_QUALITY
+#define CAM_JPEG_QUALITY 12
+#endif
 
 namespace {
 
@@ -95,6 +101,7 @@ httpd_handle_t status_server = nullptr;
 bool camera_ready = false;
 uint32_t failed_captures = 0;
 char last_error[96] = "booting";
+char camera_sensor_name[16] = "unknown";
 
 IPAddress parseIp(const char* text, const IPAddress& fallback) {
   IPAddress ip;
@@ -104,6 +111,42 @@ IPAddress parseIp(const char* text, const IPAddress& fallback) {
 String streamUrl() {
   return String("http://") + WiFi.localIP().toString() + ":" +
          String(FOLLOWBOX_CAM_STREAM_PORT) + "/stream";
+}
+
+const char* frameSizeName(framesize_t frame_size) {
+  switch (frame_size) {
+    case FRAMESIZE_QVGA:
+      return "QVGA";
+    case FRAMESIZE_VGA:
+      return "VGA";
+    case FRAMESIZE_SVGA:
+      return "SVGA";
+    case FRAMESIZE_XGA:
+      return "XGA";
+    case FRAMESIZE_UXGA:
+      return "UXGA";
+    default:
+      return "custom";
+  }
+}
+
+const char* sensorPidName(uint16_t pid) {
+  switch (pid) {
+#ifdef OV2640_PID
+    case OV2640_PID:
+      return "OV2640";
+#endif
+#ifdef OV3660_PID
+    case OV3660_PID:
+      return "OV3660";
+#endif
+#ifdef OV5640_PID
+    case OV5640_PID:
+      return "OV5640";
+#endif
+    default:
+      return "unknown";
+  }
 }
 
 void logCameraConfig() {
@@ -119,6 +162,9 @@ void logCameraConfig() {
                 CAM_PIN_D1, CAM_PIN_D2, CAM_PIN_D3, CAM_PIN_D4, CAM_PIN_D5,
                 CAM_PIN_D6, CAM_PIN_D7, CAM_PIN_VSYNC, CAM_PIN_HREF,
                 CAM_PIN_PCLK);
+  Serial.printf("Format: %s JPEG quality=%d xclk=%uHz\n",
+                frameSizeName(static_cast<framesize_t>(CAM_FRAME_SIZE)),
+                CAM_JPEG_QUALITY, CAM_XCLK_HZ);
 }
 
 bool connectWifi() {
@@ -176,8 +222,8 @@ bool startCamera() {
   config.pin_reset = CAM_PIN_RESET;
   config.xclk_freq_hz = CAM_XCLK_HZ;
   config.pixel_format = PIXFORMAT_JPEG;
-  config.frame_size = psramFound() ? FRAMESIZE_SVGA : FRAMESIZE_VGA;
-  config.jpeg_quality = 12;
+  config.frame_size = static_cast<framesize_t>(CAM_FRAME_SIZE);
+  config.jpeg_quality = CAM_JPEG_QUALITY;
   config.fb_count = psramFound() ? 2 : 1;
   config.fb_location = psramFound() ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM;
   config.grab_mode = CAMERA_GRAB_LATEST;
@@ -191,19 +237,24 @@ bool startCamera() {
 
   sensor_t* sensor = esp_camera_sensor_get();
   if (sensor != nullptr) {
+    std::snprintf(camera_sensor_name, sizeof(camera_sensor_name), "%s",
+                  sensorPidName(sensor->id.PID));
     sensor->set_framesize(sensor, config.frame_size);
     sensor->set_quality(sensor, config.jpeg_quality);
   }
 
-  Serial.printf("Camera ready: psram=%s frame=%s\n",
+  Serial.printf("Camera ready: sensor=%s pid=0x%04x psram=%s frame=%s\n",
+                camera_sensor_name,
+                sensor != nullptr ? sensor->id.PID : 0,
                 psramFound() ? "yes" : "no",
-                psramFound() ? "SVGA" : "VGA");
+                frameSizeName(config.frame_size));
   snprintf(last_error, sizeof(last_error), "ok");
   return true;
 }
 
 esp_err_t rootHandler(httpd_req_t* req) {
   const String body = String("FollowBox camera online\n") +
+                      "sensor=" + String(camera_sensor_name) + "\n" +
                       "stream=" + streamUrl() + "\n" +
                       "status=http://" + WiFi.localIP().toString() + "/status\n" +
                       "capture=http://" + WiFi.localIP().toString() + "/capture\n";
@@ -216,6 +267,7 @@ esp_err_t statusHandler(httpd_req_t* req) {
   const String body = String("{\"ok\":true,\"ip\":\"") +
                       WiFi.localIP().toString() + "\",\"stream_url\":\"" +
                       streamUrl() + "\",\"rssi\":" + String(WiFi.RSSI()) +
+                      ",\"sensor\":\"" + String(camera_sensor_name) + "\"" +
                       ",\"psram\":" + (psramFound() ? "true" : "false") +
                       ",\"camera_ready\":" +
                       (camera_ready ? "true" : "false") +

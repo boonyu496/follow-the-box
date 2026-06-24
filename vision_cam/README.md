@@ -32,6 +32,8 @@ build_flags =
   -D CAM_PIN_XCLK=15
   -D CAM_PIN_SIOD=4
   -D CAM_PIN_SIOC=5
+  -D CAM_FRAME_SIZE=FRAMESIZE_SVGA
+  -D CAM_JPEG_QUALITY=12
 ```
 
 The default pin map is:
@@ -46,6 +48,11 @@ The default pin map is:
 | HREF | 7 |
 | PCLK | 13 |
 | PWDN/RESET | -1 / -1 |
+
+OV5640 uses the SCCB control bus (`SIOD`/`SIOC`) plus the parallel DVP signals
+(`D0..D7`, `VSYNC`, `HREF`, `PCLK`) and an external `XCLK`. The default build
+keeps the stream at SVGA JPEG quality 12 so the AP/LAN H5 is responsive and the
+cloud relay frames stay inside the controller upload limit.
 
 Keep the camera on a separate 5 V rail with enough current margin. A weak supply
 often looks like random WiFi disconnects or blank frames.

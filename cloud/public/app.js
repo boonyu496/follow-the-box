@@ -337,11 +337,10 @@ function apiPath(action) {
   return new URL(`api/device/${deviceId()}/${action}`, APP_BASE_URL).toString();
 }
 
-function cloudVideoFrameUrl(frameSeq) {
+function cloudVideoStreamUrl() {
   const token = operatorTokenValue();
-  const url = new URL(apiPath("video/latest.jpg"));
+  const url = new URL(apiPath("video/stream"));
   if (token) url.searchParams.set("token", decodeURIComponent(token));
-  url.searchParams.set("frame", String(frameSeq));
   return url.toString();
 }
 
@@ -395,6 +394,15 @@ function setCameraOnline(online, text) {
   if (els.cameraPlaceholder) els.cameraPlaceholder.classList.toggle("hidden", online);
   if (els.cameraStream) els.cameraStream.classList.toggle("online", online);
   if (els.cameraStatus) els.cameraStatus.textContent = text;
+}
+
+function clearCameraStream(text) {
+  activeCameraUrl = "";
+  if (els.cameraStream) {
+    els.cameraStream.removeAttribute("src");
+    els.cameraStream.classList.remove("online");
+  }
+  setCameraOnline(false, text);
 }
 
 // ── View switching (matches firmware/web: data-view attribute) ──
@@ -728,10 +736,9 @@ function render(payload) {
     setTextState(els.sensorSummary, sensorOkCount >= 7, sensorOkCount >= 4);
   }
   const frameSeq = Number(payload.video?.frameSeq);
-  if (!userCameraOverride && payload.video?.online && Number.isFinite(frameSeq) &&
-      frameSeq !== latestVideoFrameSeq) {
-    latestVideoFrameSeq = frameSeq;
-    updateCamStream(cloudVideoFrameUrl(frameSeq));
+  if (!userCameraOverride && payload.video?.online) {
+    if (Number.isFinite(frameSeq)) latestVideoFrameSeq = frameSeq;
+    updateCamStream(cloudVideoStreamUrl());
   } else if (!userCameraOverride && !payload.video?.online) {
     setCameraOnline(false, "画面离线");
   }
@@ -836,9 +843,8 @@ els.saveCameraUrl.addEventListener("click", () => {
     updateCamStream(url);
   } else {
     userCameraOverride = false;
-    activeCameraUrl = "";
     latestVideoFrameSeq = -1;
-    setCameraOnline(false, "等待云端画面");
+    clearCameraStream("等待云端画面");
   }
   flashStatus(els.cameraUrlState, "✅ 视频地址已保存", true);
 });

@@ -149,6 +149,7 @@ let joyTurn = 0;
 let activeCameraUrl = "";
 let lastTelemetryCameraUrl = "";
 let userCameraOverride = false;
+let cameraImageOnline = false;
 let latestState = null;
 let lastStateAt = 0;
 const tofRateWindow = [];
@@ -354,6 +355,7 @@ function restoreCameraOverride() {
 }
 
 function setCameraOnline(online, text) {
+  cameraImageOnline = !!online;
   if (els.cameraPlaceholder) els.cameraPlaceholder.classList.toggle("hidden", online);
   if (els.cameraStream) els.cameraStream.classList.toggle("online", online);
   if (els.cameraStatus) els.cameraStatus.textContent = text;
@@ -582,12 +584,13 @@ function renderState(s) {
   setTextState(els.cloud, !!cloud.connected, !cloud.connected);
 
   const cam = s.camera ?? {};
-  els.camera.textContent = cam.online ? "摄像头在线" : "摄像头离线";
-  els.cameraLink.textContent = cam.online ? "在线" : "离线";
-  setTextState(els.cameraLink, !!cam.online, !cam.online);
-  setStatus(els.sensorCameraStatus, cam.online ? "在线" : "离线", !!cam.online, !cam.online);
+  const cameraVisible = !!cam.online || cameraImageOnline;
+  els.camera.textContent = cameraVisible ? "摄像头在线" : "摄像头离线";
+  els.cameraLink.textContent = cameraVisible ? "在线" : "离线";
+  setTextState(els.cameraLink, cameraVisible, !cameraVisible);
+  setStatus(els.sensorCameraStatus, cameraVisible ? "在线" : "离线", cameraVisible, !cameraVisible);
   if (els.sensorCameraAge) els.sensorCameraAge.textContent = cam.stream_url ? "有地址" : "无地址";
-  if (els.sensorCameraDetail) els.sensorCameraDetail.textContent = cam.online ? "在线" : "离线";
+  if (els.sensorCameraDetail) els.sensorCameraDetail.textContent = cameraVisible ? "在线" : "离线";
   setStatus(els.sensorPowerStatus,
             !batteryVoltageOk && p.battery_voltage != null ? "电压异常" :
               (p.low_battery ? "低电压" : (p.battery_voltage != null ? "正常" : "无数据")),
@@ -599,7 +602,7 @@ function renderState(s) {
       : batteryDisplayText(p.battery_voltage);
   }
   if (els.sensorAuxStatus) {
-    els.sensorAuxStatus.textContent = `${p.low_battery || !batteryVoltageOk ? "电池告警" : "电池正常"} / ${cam.online ? "视频在线" : "视频离线"}`;
+    els.sensorAuxStatus.textContent = `${p.low_battery || !batteryVoltageOk ? "电池告警" : "电池正常"} / ${cameraVisible ? "视频在线" : "视频离线"}`;
   }
   if (cam.stream_url) {
     lastTelemetryCameraUrl = cam.stream_url;
@@ -612,7 +615,7 @@ function renderState(s) {
     !!lidar.valid,
     tofValidCount > 0,
     usValidCount > 0,
-    !!cam.online,
+    cameraVisible,
     batteryVoltageOk && !p.low_battery,
     !!o.valid,
   ].filter(Boolean).length;

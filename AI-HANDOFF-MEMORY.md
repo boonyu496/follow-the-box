@@ -30,6 +30,26 @@
 ```
 
 ## 最新交接记录
+### 2026-06-24 - Codex - 摄像头型号纠正为 OV5640
+- 改动：用户确认实际产品为 OV5640 摄像头、ESP32-S3-CAM 开发板不变；将上一条误写的 OV2640 文案、默认帧尺寸和 OTA 版本名纠正为 OV5640/SVGA。
+- 文件：`vision_cam/{src/main.cpp,platformio.ini,README.md}`, `H5-VIDEO-WIRING-SOLUTION.md`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；继续沿用独立摄像头板 MJPEG、本地 H5 直连、云端低帧率 relay 的方案，不改主控视频边界。
+- 安全影响：低；不改 motor/e-stop/PWM/drive_adapter/safety gate，视频仍只用于 H5 显示和诊断。
+- OTA：版本 `2026.06.24-ov5640-h5-video.1`，`firmware.bin` size `1141232`，MD5 `11d07415c14f565f12cdfdd3cf47177f`，`force=false`；注意实车 AP/LAN H5 静态资源仍需 LittleFS/FS 更新链路。
+- 验证：`node --check cloud/public/app.js firmware/web/app.js` PASS；`pio run -d vision_cam` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build --notes ...` PASS。
+- 当前状态：PASS_NEEDS_DEVICE_FS_AND_CAMERA_FLASH。
+- 下一步：以 OV5640 串口状态 `sensor=OV5640` 为验收点，真机打开 `192.168.4.2/status`、`:81/stream` 和云端视频区验证。
+
+### 2026-06-24 - Codex - OV2640 摄像头 H5 画面接入
+- 改动：按 `zhiliao/资料/OV2640参考资料` 和既有视频方案，把独立 `vision_cam` 明确为 OV2640/VGA JPEG MJPEG 流；云端 H5 默认接 `/api/device/<id>/video/stream` relay，本地 AP/LAN H5 用 `<img>` 实际加载结果修正视频在线显示。
+- 文件：`vision_cam/{src/main.cpp,platformio.ini,README.md}`, `cloud/public/app.js`, `firmware/web/app.js`, `firmware/include/config/ota_config.h`, `H5-VIDEO-WIRING-SOLUTION.md`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；摄像头仍是独立 WiFi 视频板，主控只抓 `/capture` 做低帧率云端 relay，不解析视频、不进入 `SensorSnapshot`/fusion/motion。
+- 安全影响：低；不改 motor/e-stop/PWM/drive_adapter/safety gate，视频断流仍只影响 H5 显示，不影响运动许可。
+- OTA：版本 `2026.06.24-ov2640-h5-video.1`，`firmware.bin` size `1141232`，MD5 `5286eb7db2f23eca8eec55b0a49f2c5e`，`force=false`；注意 `firmware/web` 仍需 LittleFS/FS 更新链路才能让实车 AP/LAN 页面看到新静态资源。
+- 验证：`node --check cloud/public/app.js firmware/web/app.js` PASS；`pio run -d vision_cam` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -v` PASS；`python tools/package_ota.py --skip-build --notes ...` PASS。
+- 当前状态：PASS_NEEDS_DEVICE_FS_AND_CAMERA_FLASH；未烧录 `vision_cam`，未对真机 OV2640、AP/LAN 浏览器和公网 H5 relay 做实测。
+- 下一步：烧录 `vision_cam` 后先看串口 `sensor=OV2640`、`WiFi connected: 192.168.4.2`、`MJPEG stream`，再离地/静态打开 `http://192.168.4.2/status`、`/stream` 和 H5 云端视频区验证。
+
 ### 2026-06-24 - Codex - H5 全传感器动态空间地图
 - 改动：参考 `D:\car\UWB outocar` 的极坐标空间地图，在本地 H5 传感器页新增全传感器空间地图，含旋转扫描线、UWB 浏览器端轨迹尾迹、传感器点发光脉冲、摄像头视场、IMU 航向和电池状态。
 - 文件：`firmware/web/{index.html,app.js,style.css}`, `firmware/data/{index.html,app.js,style.css,shared/helpers.js}`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`。
