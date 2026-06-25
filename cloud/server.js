@@ -162,7 +162,13 @@ function serveStatic(req, res) {
 
 function readFirmwareManifest(deviceId) {
   if (!fs.existsSync(FIRMWARE_MANIFEST)) return null;
-  const manifest = JSON.parse(fs.readFileSync(FIRMWARE_MANIFEST, "utf8"));
+  let manifest;
+  try {
+    const raw = fs.readFileSync(FIRMWARE_MANIFEST, "utf8").replace(/^\uFEFF/, "");
+    manifest = JSON.parse(raw);
+  } catch {
+    return null;
+  }
   const file = manifest.file || "firmware.bin";
   const full = path.normalize(path.join(FIRMWARE_DIR, file));
   if (!full.startsWith(FIRMWARE_DIR) || !fs.existsSync(full)) return null;

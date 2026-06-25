@@ -30,6 +30,46 @@
 ```
 
 ## 最新交接记录
+### 2026-06-25 - Codex - AP/LAN/云端摄像头显示分流修复
+- 改动：云端 H5 不再默认使用 MJPEG 长连接 `/video/stream`，改为随 `video.frameSeq` 刷新 `/video/latest.jpg`；若浏览器旧会话保存了 `192.168.4.2/192.168.4.10` 这类 AP-only 地址，会自动清掉并回到云端 relay。
+- 改动：车端 `firmware/web` 在 `192.168.4.1` AP 页面仍直连 `http://192.168.4.10/stream`；当同一 H5 从局域网 STA 地址打开且摄像头地址仍是 `192.168.4.x` 时，自动改用 `https://www.boonai.cn/fb/api/device/followbox-001/video/latest.jpg` 低帧率云端转发。
+- 文件：`cloud/public/app.js`, `firmware/web/app.js`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `H5-VIDEO-WIRING-SOLUTION.md`, `AI-HANDOFF-MEMORY.md`。
+- 证据：公网 `https://www.boonai.cn/fb/api/device/followbox-001/video/latest.jpg?token=...` 当前返回 `200 image/jpeg`；SSE 中 `video.online=true`, `frameSeq=111`，说明主控已经在上传云端帧。
+- 架构影响：低；摄像头仍是独立 ESP32-S3-CAM，主控只抓 `/capture` 做低帧率云端 relay，不新增主控实时视频代理，不改模块边界。
+- 安全影响：低；只改 H5 显示路径，不改 motor/e-stop/PWM/drive_adapter/safety gate，视频仍不进入安全输入。
+- OTA：版本 `2026.06.25-camera-relay-h5.1`，`cloud/firmware/firmware.bin` size `1141232`，MD5 `100653403adec956516e138ce3edbf98`，`force=false`；注意车端 LAN H5 静态资源仍需 LittleFS/FS 更新链路才会生效。
+- 验证：`node --check cloud/public/app.js`, `node --check firmware/web/app.js`, `node --check cloud/server.js`, `pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs`, `python tools/package_ota.py --notes ...` PASS。
+- 云端验证：已部署到 `/www/wwwroot/followbox-cloud/` 并重启 PM2 `followbox-cloud`；公网 health 返回 `built_at=2026-06-25T08:38:59+08:00`；远程 manifest/bin 为版本 `2026.06.25-camera-relay-h5.1`、MD5 `100653403adec956516e138ce3edbf98`、size `1141232`；OTA version API 返回 `update_available=true`。
+- 当前状态：PASS_CLOUD_DEPLOYED_NEEDS_DEVICE_FS_UPDATE；云端 H5 已发布，车端 LAN 页面还需用户通过 H5/设备侧安装新版本或刷新 LittleFS/FS 后生效。
+
+### 2026-06-25 - Codex - control-center 云端 OTA 发布检测修复
+- 改动：修复云端 OTA 检测失败链路。`tools_local/followbox-control-center.ps1` 新增读取 `firmware/include/config/ota_config.h` 的 `FOLLOWBOX_FIRMWARE_VERSION`，启动时刷新本机私有 `otaVersion`，发布预检和实际打包时拦截 manifest 版本与源码版本不一致；写 `manifest.json` 和本机配置改为 UTF-8 no BOM。`cloud/server.js` 读取 manifest 时兼容 BOM/JSON 解析失败，避免坏 manifest 让 `/firmware/version` 变成 500。
+- 文件：`tools_local/followbox-control-center.ps1`, `tools_local/followbox-control-center.config.json`, `cloud/server.js`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 根因：本机 control-center 配置残留 `otaVersion=2026.06.17.1623`，覆盖了源码里的 `2026.06.24-camera-port80-diag.1`；同时 PowerShell 5 的 `Set-Content -Encoding UTF8` 会写 BOM，云端旧代码直接 `JSON.parse` manifest，可能导致 H5 OTA 检测报服务器错误。
+- OTA：已 clean build 主控并重新打包，云端发布版本 `2026.06.24-camera-port80-diag.1`，`firmware.bin` size `1141248`，MD5 `5f51d86b9ee2e2d3eedd39b1922e7544`，`force=false`。
+- 云端验证：已上传 `cloud/` 到 `/www/wwwroot/followbox-cloud/` 并重启 PM2 `followbox-cloud`；公网 `https://www.boonai.cn/fb/api/health` 返回新部署时间 `2026-06-25T08:13:30+08:00`；远程 manifest 首字节 `7b 0d 0a`，无 BOM；远程 `firmware.bin` MD5/size 与 manifest 一致；`/api/device/followbox-001/firmware/version?current=2026.06.17.1623` 返回 `update_available=true` 和 `available_version=2026.06.24-camera-port80-diag.1`。
+- 控制台验证：`tools/start-followbox-control-center.cmd` 仍只是转发到 `tools_local/start-followbox-control-center.cmd`；本地 control-center API `/api/state` 返回当前 `otaVersion=2026.06.24-camera-port80-diag.1`，`ota-publish-cloud` 预检 PASS，确认版本与源码一致。
+- 安全影响：低；不改 motor/e-stop/PWM/drive_adapter/safety gate，不触发设备 OTA 安装。实际设备安装仍需用户在 H5/设备侧确认，并按离地轮/稳定供电流程验证。
+
+### 2026-06-24 - Codex - 摄像头 80 端口视频入口与帧诊断
+- 改动：独立 `vision_cam` 新增 80 端口 `/stream`，把主视频地址改为 `http://192.168.4.10/stream`，保留 `http://192.168.4.10:81/stream` 作为 legacy 对照入口；`/status` 增加 `legacy_stream_url`、`sensor_pid`、`frame_size`、`capture_attempts`、`successful_captures`、`stream_clients`、`stream_frames`、`last_frame_bytes`、`last_capture_ms`，串口增加 `CAM diag` 行。
+- 文件：`vision_cam/src/main.cpp`, `vision_cam/README.md`, `firmware/include/config/{camera_config.h,ota_config.h}`, `firmware/{web,data}/index.html`, `firmware/tools/logic_smoke_test.cpp`, `protocols/H5-API.md`, `H5-VIDEO-WIRING-SOLUTION.md`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；仍是独立 ESP32-S3-CAM 直出 MJPEG，主控只发布 URL 和抓 `/capture` 做低帧率云端 relay；视频仍不进入运动安全链路。
+- 安全影响：低；不改 motor/e-stop/PWM/drive_adapter/safety gate。80 端口 `/stream` 是长连接，打开本地视频时可能占用摄像头板 80 端口状态/抓拍响应；关闭视频后再看 `/status` 即可，`:81/stream` 仍可用于对照。
+- OTA：主控版本 `2026.06.24-camera-port80-diag.1`，`firmware.bin` size `1141248`，MD5 `5f51d86b9ee2e2d3eedd39b1922e7544`，`force=false`；这是本地打包结果，未声明已经云端发布或设备安装。
+- 验证：`pio run -d vision_cam` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --notes ...` PASS；`python tools/check_ai_handoff.py` PASS；`git diff --check` PASS。`firmware/tools/logic_smoke_test.cpp` 未运行：本机未找到 `g++`。
+- 当前状态：PASS_NEEDS_CAMERA_FLASH_AND_DEVICE_UPDATE。下一步烧录独立摄像头板后，手机连接 `FollowBox` 热点，先访问 `http://192.168.4.10/status`，再打开 `http://192.168.4.10/stream`；若仍无画面，把新的 `/status` JSON 和 `CAM diag` 行发回来，重点看 `sensor_pid`、`successful_captures`、`stream_frames`、`last_frame_bytes`。
+
+### 2026-06-24 - Codex - 摄像头 IP 冲突与 HTTP 启动诊断
+- 改动：将独立 `vision_cam` 固定 IP 从 `192.168.4.2` 改为 `192.168.4.10`，避开 FollowBox softAP 首批 DHCP 租约；摄像头固件新增 `status_http/stream_http` 启动状态与 `/status` HTTP 诊断字段。
+- 文件：`vision_cam/{src/main.cpp,platformio.ini,README.md}`, `firmware/include/config/{camera_config.h,cloud_config.h,ota_config.h}`, `firmware/{web,data}/index.html`, `protocols/H5-API.md`, `H5-VIDEO-WIRING-SOLUTION.md`, `cloud/firmware/manifest.json`。
+- 架构影响：低；仍是独立 ESP32-S3-CAM 直出 MJPEG，主控只发布 URL 和抓 `/capture` 做低帧率云端 relay。
+- 安全影响：低；不改 motor/e-stop/PWM/drive_adapter/safety gate，视频断流仍不影响运动许可。
+- OTA：版本 `2026.06.24-camera-ip10-httpdiag.1`，`firmware.bin` size `1141248`，MD5 `2bc62f168bf5400eaee44f24d7c4fccd`，`force=false`；本地 H5 默认值仍需 LittleFS/FS 更新链路才能在实车页面生效。
+- 验证：`pio run -d vision_cam` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS；`python tools/package_ota.py --notes ...` PASS；`firmware/tools/logic_smoke_test` PASS；`git diff --check` PASS。
+- 当前状态：PASS_NEEDS_CAMERA_FLASH_AND_DEVICE_UPDATE；未烧录摄像头板，未对真机 `http://192.168.4.10/status` 和 `:81/stream` 做实测。
+- 下一步：烧录 `vision_cam` 后串口必须看到 `WiFi connected: 192.168.4.10`、`HTTP status: ready`、`MJPEG stream: ready`，手机连接 FollowBox 热点后访问 `http://192.168.4.10/status` 与 `http://192.168.4.10:81/stream`。
+
 ### 2026-06-24 - Codex - 摄像头型号纠正为 OV5640
 - 改动：用户确认实际产品为 OV5640 摄像头、ESP32-S3-CAM 开发板不变；将上一条误写的 OV2640 文案、默认帧尺寸和 OTA 版本名纠正为 OV5640/SVGA。
 - 文件：`vision_cam/{src/main.cpp,platformio.ini,README.md}`, `H5-VIDEO-WIRING-SOLUTION.md`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。

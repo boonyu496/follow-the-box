@@ -1,8 +1,8 @@
 {
-  "version": "2026.06.24-ov5640-h5-video.1",
+  "version": "2026.06.25-camera-relay-h5.1",
   "file": "firmware.bin",
-  "md5": "11d07415c14f565f12cdfdd3cf47177f",
+  "md5": "100653403adec956516e138ce3edbf98",
   "size": 1141232,
   "force": false,
-  "notes": "OV5640 camera H5 video: cloud MJPEG stream relay plus AP/LAN stream display"
+  "notes": "Camera H5 uses AP direct stream on 192.168.4.1 and cloud latest.jpg relay for LAN/cloud pages"
 }

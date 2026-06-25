@@ -26,7 +26,7 @@
   "lidar": {"valid": false, "last_update_ms": 0, "front_left_mm": 0, "front_center_mm": 0, "front_right_mm": 0, "side_left_mm": 0, "side_right_mm": 0, "rx_bytes": 0, "packets": 0, "checksum_errors": 0, "framing_errors": 0, "scans": 0},
   "tof": {"valid": false, "last_update_ms": 0, "front_left_mm": 0, "front_center_mm": 0, "front_right_mm": 0, "front_left_valid": false, "front_center_valid": false, "front_right_valid": false, "init_ok_mask": 0, "init_attempt_count": 0, "init_failure_count": 0, "read_count": 0, "timeout_count": 0, "mux_nack_count": 0, "bus_clear_count": 0, "reinit_count": 0, "last_recovery_ms": 0},
   "ultrasonic": {"valid": false, "last_update_ms": 0, "left_mm": 0, "right_mm": 0, "left_valid": false, "right_valid": false},
-  "camera": {"online": false, "stream_url": "http://192.168.4.2:81/stream"},
+  "camera": {"online": false, "stream_url": "http://192.168.4.10/stream"},
   "power": {"battery_voltage": 0.0, "low_battery": false},
   "motor": {"enable": false, "left_target": 0.0, "right_target": 0.0, "brake": true},
   "firmware": {"version": "2026.06.19-ota-h5.2"},
@@ -42,7 +42,7 @@
 - `tof`：前向 TCA9548A + 3×VL53L1X 的原始分路读数，仅用于显示/诊断；每路以 `front_*_valid` 为准，`valid=true` 仅表示至少一路当前有效。
   `init_ok_mask` 的 bit0/1/2 对应前中/左前/右前；`init_attempt_count` 是启动与运行期初始化尝试总数，`init_failure_count` 表示 MUX 已选通但 VL53L1X 未响应。连续 MUX NACK/读取超时达到阈值后固件执行 Bus Clear，并每秒最多重试一路。
 - `ultrasonic`：左右 HC-SR04 的原始侧向读数，仅用于显示/诊断（侧向避障 P0 暂不触发停车）；每路以 `left_valid` / `right_valid` 为准。
-- `camera`：ESP32-S3-CAM 视频链路在线状态和 MJPEG 地址，仅用于显示；**视频断流不影响运动安全门控**。默认地址假定摄像头加入 FollowBox AP 后使用静态 IP `192.168.4.2`，流路径为 `:81/stream`。
+- `camera`：ESP32-S3-CAM 视频链路在线状态和 MJPEG 地址，仅用于显示；**视频断流不影响运动安全门控**。默认地址假定摄像头加入 FollowBox AP 后使用静态 IP `192.168.4.10`，流路径为 `/stream`。`.10` 用于避开手机/电脑在 softAP 上常见的首批 DHCP 租约。
 - `imu`：JY62/JY61P 类 WitMotion IMU 只读姿态遥测；`valid=false` 表示固件未收到有效角度帧或已超时。当前默认 `UART_NUM_IMU=-1` 时该字段会持续无效，只用于 H5/云端诊断，不绕过安全链。
 - `cloud`：云端低速点动链路状态，仅用于显示和诊断；云端命令仍由本地安全链最终裁决。
 - `firmware.version`：当前正在运行的固件版本。云端只能在设备实际重新上报该版本后标记 OTA 完成。

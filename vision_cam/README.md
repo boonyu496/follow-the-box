@@ -8,10 +8,11 @@ the H5 browser.
 
 - SSID: `FollowBox`
 - Password: `followbox123`
-- Static IP: `192.168.4.2`
-- Stream: `http://192.168.4.2:81/stream`
-- Status: `http://192.168.4.2/status`
-- Snapshot: `http://192.168.4.2/capture`
+- Static IP: `192.168.4.10`
+- Stream: `http://192.168.4.10/stream`
+- Legacy stream: `http://192.168.4.10:81/stream`
+- Status: `http://192.168.4.10/status`
+- Snapshot: `http://192.168.4.10/capture`
 
 The main FollowBox controller does not receive or relay video. It only publishes
 the stream URL in telemetry, and video loss must not affect motion safety gates.
@@ -56,3 +57,8 @@ cloud relay frames stay inside the controller upload limit.
 
 Keep the camera on a separate 5 V rail with enough current margin. A weak supply
 often looks like random WiFi disconnects or blank frames.
+
+The fixed `.10` address is intentionally outside the first softAP DHCP leases.
+Do not use `.2` for the camera: phones and laptops commonly receive that address
+when they are the first client on the FollowBox hotspot, causing IP collisions
+and browser `ERR_CONNECTION_REFUSED` symptoms.

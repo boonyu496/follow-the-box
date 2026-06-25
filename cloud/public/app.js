@@ -153,6 +153,7 @@ const APP_BASE_URL = new URL(".", document.currentScript?.src || window.location
 const STORAGE_KEY_TOKEN = "fb_operator_token";
 const STORAGE_KEY_DEVICE = "fb_device_id";
 const STORAGE_KEY_CAMERA = "fb_camera_url";
+const PRIVATE_CAMERA_HOSTS = new Set(["192.168.4.2", "192.168.4.10"]);
 
 function loadSetting(storageKey, defaultValue) {
   try { return sessionStorage.getItem(storageKey) || defaultValue; }
@@ -342,6 +343,27 @@ function cloudVideoStreamUrl() {
   const url = new URL(apiPath("video/stream"));
   if (token) url.searchParams.set("token", decodeURIComponent(token));
   return url.toString();
+}
+
+function cloudVideoLatestUrl(frameSeq = latestVideoFrameSeq) {
+  const token = operatorTokenValue();
+  const url = new URL(apiPath("video/latest.jpg"));
+  if (token) url.searchParams.set("token", decodeURIComponent(token));
+  if (Number.isFinite(frameSeq) && frameSeq >= 0) {
+    url.searchParams.set("frame", String(frameSeq));
+  } else {
+    url.searchParams.set("t", String(Date.now()));
+  }
+  return url.toString();
+}
+
+function isPrivateCameraUrl(value) {
+  try {
+    const url = new URL(value);
+    return PRIVATE_CAMERA_HOSTS.has(url.hostname);
+  } catch (e) {
+    return false;
+  }
 }
 
 function deviceTelemetryOnline(lastIngestAt) {
@@ -738,7 +760,7 @@ function render(payload) {
   const frameSeq = Number(payload.video?.frameSeq);
   if (!userCameraOverride && payload.video?.online) {
     if (Number.isFinite(frameSeq)) latestVideoFrameSeq = frameSeq;
-    updateCamStream(cloudVideoStreamUrl());
+    updateCamStream(cloudVideoLatestUrl(latestVideoFrameSeq));
   } else if (!userCameraOverride && !payload.video?.online) {
     setCameraOnline(false, "画面离线");
   }
@@ -837,6 +859,14 @@ els.saveConnection.addEventListener("click", () => {
 
 els.saveCameraUrl.addEventListener("click", () => {
   const url = els.cameraUrl.value.trim();
+  if (isPrivateCameraUrl(url)) {
+    saveSetting(STORAGE_KEY_CAMERA, "");
+    userCameraOverride = false;
+    latestVideoFrameSeq = -1;
+    clearCameraStream("等待云端画面");
+    flashStatus(els.cameraUrlState, "已切回云端转发", true);
+    return;
+  }
   saveSetting(STORAGE_KEY_CAMERA, url);
   if (url) {
     userCameraOverride = true;
@@ -1269,7 +1299,9 @@ function drawSpatialMap(telemetry) {
 // Restore settings from sessionStorage; fall back to defaults
 const savedToken = loadSetting(STORAGE_KEY_TOKEN, DEFAULT_OPERATOR_TOKEN);
 const savedDevice = loadSetting(STORAGE_KEY_DEVICE, "followbox-001");
-const savedCamera = loadSetting(STORAGE_KEY_CAMERA, "");
+const savedCameraRaw = loadSetting(STORAGE_KEY_CAMERA, "");
+const savedCamera = isPrivateCameraUrl(savedCameraRaw) ? "" : savedCameraRaw;
+if (savedCameraRaw && !savedCamera) saveSetting(STORAGE_KEY_CAMERA, "");
 
 if (els.operatorToken) els.operatorToken.value = savedToken;
 if (els.deviceId) els.deviceId.value = savedDevice;

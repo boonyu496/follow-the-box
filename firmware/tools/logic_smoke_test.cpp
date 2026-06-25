@@ -871,7 +871,7 @@ void testTelemetryJson() {
   assert(jsonContains(buf, "\"init_failure_count\":1"));
   assert(jsonContains(buf, "\"ultrasonic\":{"));
   assert(jsonContains(buf, "\"left_valid\":true"));
-  assert(jsonContains(buf, "\"camera\":{\"online\":false,\"stream_url\":\"http://192.168.4.2:81/stream\"}"));
+  assert(jsonContains(buf, "\"camera\":{\"online\":false,\"stream_url\":\"http://192.168.4.10/stream\"}"));
   assert(jsonContains(buf, "\"battery_voltage\":37.50"));
   assert(jsonContains(buf, "\"brake\":true"));
   assert(jsonContains(buf, "\"install_wizard_complete\":true"));

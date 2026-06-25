@@ -136,6 +136,10 @@ const otaEls = {
 
 const LOCAL_KEY_STORAGE = "followbox.localApiKey"; // sessionStorage — cleared on tab close
 const CAMERA_URL_STORAGE = "followbox.cameraStreamUrl";
+const CLOUD_VIDEO_BASE_URL = "https://www.boonai.cn/fb";
+const CLOUD_VIDEO_DEVICE_ID = "followbox-001";
+const CLOUD_VIDEO_OPERATOR_TOKEN = "0b6cf31c57bc202d002b04f843c9b430";
+const PRIVATE_CAMERA_HOSTS = new Set(["192.168.4.2", "192.168.4.10"]);
 const MAX_RANGE_MM = 3000;
 const MAP_MAX_MM = 4000;
 const TOF_RATE_WINDOW_MS = 5000;
@@ -150,6 +154,7 @@ let activeCameraUrl = "";
 let lastTelemetryCameraUrl = "";
 let userCameraOverride = false;
 let cameraImageOnline = false;
+let cloudVideoTimer = null;
 let latestState = null;
 let lastStateAt = 0;
 const tofRateWindow = [];
@@ -319,10 +324,68 @@ function setConn(online) {
   els.conn.classList.toggle("fb-pill--danger", !online);
 }
 
+function isApPage() {
+  return location.hostname === "192.168.4.1" || location.hostname === "";
+}
+
+function isPrivateCameraUrl(value) {
+  try {
+    const url = new URL(value);
+    return PRIVATE_CAMERA_HOSTS.has(url.hostname);
+  } catch (e) {
+    return false;
+  }
+}
+
+function shouldUseCloudVideoRelay(value) {
+  return !isApPage() && isPrivateCameraUrl(value);
+}
+
+function cloudVideoLatestUrl() {
+  const url = new URL(
+    `api/device/${encodeURIComponent(CLOUD_VIDEO_DEVICE_ID)}/video/latest.jpg`,
+    CLOUD_VIDEO_BASE_URL.endsWith("/") ? CLOUD_VIDEO_BASE_URL : `${CLOUD_VIDEO_BASE_URL}/`,
+  );
+  url.searchParams.set("token", CLOUD_VIDEO_OPERATOR_TOKEN);
+  url.searchParams.set("t", String(Date.now()));
+  return url.toString();
+}
+
+function stopCloudVideoRelay() {
+  if (cloudVideoTimer) {
+    clearInterval(cloudVideoTimer);
+    cloudVideoTimer = null;
+  }
+}
+
+function startCloudVideoRelay(sourceUrl) {
+  if (!els.cameraStream || !els.cameraUrl) return;
+  const relayKey = `cloud-relay:${sourceUrl}`;
+  els.cameraUrl.value = sourceUrl;
+  if (els.cameraUrlState) els.cameraUrlState.textContent = "局域网使用云端低帧率转发";
+  if (activeCameraUrl !== relayKey) {
+    activeCameraUrl = relayKey;
+    els.cameraStatus.textContent = "加载云端画面";
+    els.cameraStream.src = cloudVideoLatestUrl();
+  }
+  if (!cloudVideoTimer) {
+    cloudVideoTimer = setInterval(() => {
+      if (activeCameraUrl === relayKey && els.cameraStream) {
+        els.cameraStream.src = cloudVideoLatestUrl();
+      }
+    }, 2500);
+  }
+}
+
 function setCameraStream(url) {
   if (!els.cameraStream || !els.cameraUrl) return;
   const next = (url || els.cameraUrl.value || "").trim();
   if (!next || next === activeCameraUrl) return;
+  if (shouldUseCloudVideoRelay(next)) {
+    startCloudVideoRelay(next);
+    return;
+  }
+  stopCloudVideoRelay();
   activeCameraUrl = next;
   els.cameraUrl.value = next;
   if (els.cameraUrlState) els.cameraUrlState.textContent = next;

@@ -12,7 +12,7 @@
 #endif
 
 #ifndef FOLLOWBOX_CAM_STATIC_IP
-#define FOLLOWBOX_CAM_STATIC_IP "192.168.4.2"
+#define FOLLOWBOX_CAM_STATIC_IP "192.168.4.10"
 #endif
 
 #ifndef FOLLOWBOX_CAM_GATEWAY
@@ -99,8 +99,18 @@ constexpr char kStreamPart[] = "Content-Type: image/jpeg\r\n"
 httpd_handle_t stream_server = nullptr;
 httpd_handle_t status_server = nullptr;
 bool camera_ready = false;
+bool status_server_ready = false;
+bool stream_server_ready = false;
+uint16_t camera_sensor_pid = 0;
+uint32_t capture_attempts = 0;
 uint32_t failed_captures = 0;
+uint32_t successful_captures = 0;
+uint32_t stream_clients = 0;
+uint32_t stream_frames = 0;
+uint32_t last_frame_bytes = 0;
+uint32_t last_capture_ms = 0;
 char last_error[96] = "booting";
+char http_error[96] = "not started";
 char camera_sensor_name[16] = "unknown";
 
 IPAddress parseIp(const char* text, const IPAddress& fallback) {
@@ -109,6 +119,10 @@ IPAddress parseIp(const char* text, const IPAddress& fallback) {
 }
 
 String streamUrl() {
+  return String("http://") + WiFi.localIP().toString() + "/stream";
+}
+
+String legacyStreamUrl() {
   return String("http://") + WiFi.localIP().toString() + ":" +
          String(FOLLOWBOX_CAM_STREAM_PORT) + "/stream";
 }
@@ -154,8 +168,9 @@ void logCameraConfig() {
   Serial.println("FollowBox ESP32-S3-CAM");
   Serial.printf("WiFi SSID: %s\n", FOLLOWBOX_CAM_WIFI_SSID);
   Serial.printf("Static IP: %s\n", FOLLOWBOX_CAM_STATIC_IP);
-  Serial.printf("Stream: http://%s:%u/stream\n", FOLLOWBOX_CAM_STATIC_IP,
-                FOLLOWBOX_CAM_STREAM_PORT);
+  Serial.printf("Stream: http://%s/stream\n", FOLLOWBOX_CAM_STATIC_IP);
+  Serial.printf("Legacy stream: http://%s:%u/stream\n",
+                FOLLOWBOX_CAM_STATIC_IP, FOLLOWBOX_CAM_STREAM_PORT);
   Serial.printf("Pins: xclk=%d siod=%d sioc=%d d0=%d d1=%d d2=%d d3=%d "
                 "d4=%d d5=%d d6=%d d7=%d vsync=%d href=%d pclk=%d\n",
                 CAM_PIN_XCLK, CAM_PIN_SIOD, CAM_PIN_SIOC, CAM_PIN_D0,
@@ -169,7 +184,7 @@ void logCameraConfig() {
 
 bool connectWifi() {
   const IPAddress local_ip =
-      parseIp(FOLLOWBOX_CAM_STATIC_IP, IPAddress(192, 168, 4, 2));
+      parseIp(FOLLOWBOX_CAM_STATIC_IP, IPAddress(192, 168, 4, 10));
   const IPAddress gateway =
       parseIp(FOLLOWBOX_CAM_GATEWAY, IPAddress(192, 168, 4, 1));
   const IPAddress subnet =
@@ -237,15 +252,16 @@ bool startCamera() {
 
   sensor_t* sensor = esp_camera_sensor_get();
   if (sensor != nullptr) {
+    camera_sensor_pid = sensor->id.PID;
     std::snprintf(camera_sensor_name, sizeof(camera_sensor_name), "%s",
-                  sensorPidName(sensor->id.PID));
+                  sensorPidName(camera_sensor_pid));
     sensor->set_framesize(sensor, config.frame_size);
     sensor->set_quality(sensor, config.jpeg_quality);
   }
 
   Serial.printf("Camera ready: sensor=%s pid=0x%04x psram=%s frame=%s\n",
                 camera_sensor_name,
-                sensor != nullptr ? sensor->id.PID : 0,
+                camera_sensor_pid,
                 psramFound() ? "yes" : "no",
                 frameSizeName(config.frame_size));
   snprintf(last_error, sizeof(last_error), "ok");
@@ -255,7 +271,9 @@ bool startCamera() {
 esp_err_t rootHandler(httpd_req_t* req) {
   const String body = String("FollowBox camera online\n") +
                       "sensor=" + String(camera_sensor_name) + "\n" +
+                      "sensor_pid=0x" + String(camera_sensor_pid, HEX) + "\n" +
                       "stream=" + streamUrl() + "\n" +
+                      "legacy_stream=" + legacyStreamUrl() + "\n" +
                       "status=http://" + WiFi.localIP().toString() + "/status\n" +
                       "capture=http://" + WiFi.localIP().toString() + "/capture\n";
   httpd_resp_set_type(req, "text/plain; charset=utf-8");
@@ -266,13 +284,33 @@ esp_err_t rootHandler(httpd_req_t* req) {
 esp_err_t statusHandler(httpd_req_t* req) {
   const String body = String("{\"ok\":true,\"ip\":\"") +
                       WiFi.localIP().toString() + "\",\"stream_url\":\"" +
-                      streamUrl() + "\",\"rssi\":" + String(WiFi.RSSI()) +
+                      streamUrl() + "\",\"legacy_stream_url\":\"" +
+                      legacyStreamUrl() + "\",\"rssi\":" +
+                      String(WiFi.RSSI()) +
                       ",\"sensor\":\"" + String(camera_sensor_name) + "\"" +
+                      ",\"sensor_pid\":\"0x" +
+                      String(camera_sensor_pid, HEX) + "\"" +
+                      ",\"frame_size\":\"" +
+                      String(frameSizeName(static_cast<framesize_t>(
+                          CAM_FRAME_SIZE))) +
+                      "\"" +
                       ",\"psram\":" + (psramFound() ? "true" : "false") +
                       ",\"camera_ready\":" +
                       (camera_ready ? "true" : "false") +
+                      ",\"status_server_ready\":" +
+                      (status_server_ready ? "true" : "false") +
+                      ",\"stream_server_ready\":" +
+                      (stream_server_ready ? "true" : "false") +
+                      ",\"capture_attempts\":" + String(capture_attempts) +
                       ",\"failed_captures\":" + String(failed_captures) +
-                      ",\"last_error\":\"" + String(last_error) + "\"}";
+                      ",\"successful_captures\":" +
+                      String(successful_captures) +
+                      ",\"stream_clients\":" + String(stream_clients) +
+                      ",\"stream_frames\":" + String(stream_frames) +
+                      ",\"last_frame_bytes\":" + String(last_frame_bytes) +
+                      ",\"last_capture_ms\":" + String(last_capture_ms) +
+                      ",\"last_error\":\"" + String(last_error) + "\"" +
+                      ",\"http_error\":\"" + String(http_error) + "\"}";
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   return httpd_resp_send(req, body.c_str(), body.length());
@@ -285,6 +323,7 @@ esp_err_t captureHandler(httpd_req_t* req) {
     return httpd_resp_sendstr(req, last_error);
   }
 
+  capture_attempts++;
   camera_fb_t* fb = esp_camera_fb_get();
   if (fb == nullptr) {
     failed_captures++;
@@ -295,6 +334,10 @@ esp_err_t captureHandler(httpd_req_t* req) {
 
   httpd_resp_set_type(req, "image/jpeg");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  successful_captures++;
+  last_frame_bytes = static_cast<uint32_t>(fb->len);
+  last_capture_ms = millis();
+  snprintf(last_error, sizeof(last_error), "ok");
   const esp_err_t res =
       httpd_resp_send(req, reinterpret_cast<const char*>(fb->buf), fb->len);
   esp_camera_fb_return(fb);
@@ -316,7 +359,9 @@ esp_err_t streamHandler(httpd_req_t* req) {
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_hdr(req, "X-Framerate", "12");
 
+  stream_clients++;
   while (true) {
+    capture_attempts++;
     camera_fb_t* fb = esp_camera_fb_get();
     if (fb == nullptr) {
       failed_captures++;
@@ -337,6 +382,13 @@ esp_err_t streamHandler(httpd_req_t* req) {
           req, reinterpret_cast<const char*>(fb->buf), fb->len);
     }
 
+    if (res == ESP_OK) {
+      successful_captures++;
+      stream_frames++;
+      last_frame_bytes = static_cast<uint32_t>(fb->len);
+      last_capture_ms = millis();
+      snprintf(last_error, sizeof(last_error), "ok");
+    }
     esp_camera_fb_return(fb);
     if (res != ESP_OK) {
       break;
@@ -347,47 +399,106 @@ esp_err_t streamHandler(httpd_req_t* req) {
   return res;
 }
 
-void startHttpServers() {
+void recordHttpError(const char* label, esp_err_t err) {
+  snprintf(http_error, sizeof(http_error), "%s failed: 0x%x", label, err);
+  Serial.println(http_error);
+}
+
+bool registerGetHandler(httpd_handle_t server, const char* uri,
+                        esp_err_t (*handler)(httpd_req_t*),
+                        const char* label) {
+  httpd_uri_t handler_config = {};
+  handler_config.uri = uri;
+  handler_config.method = HTTP_GET;
+  handler_config.handler = handler;
+  const esp_err_t err = httpd_register_uri_handler(server, &handler_config);
+  if (err != ESP_OK) {
+    recordHttpError(label, err);
+    return false;
+  }
+  return true;
+}
+
+bool startStatusServer() {
+  if (status_server != nullptr) {
+    status_server_ready = true;
+    return true;
+  }
+
+  status_server_ready = false;
   httpd_config_t status_config = HTTPD_DEFAULT_CONFIG();
   status_config.server_port = 80;
   status_config.ctrl_port = 32768;
   status_config.max_uri_handlers = 4;
 
-  if (httpd_start(&status_server, &status_config) == ESP_OK) {
-    httpd_uri_t root_uri = {};
-    root_uri.uri = "/";
-    root_uri.method = HTTP_GET;
-    root_uri.handler = rootHandler;
-    httpd_register_uri_handler(status_server, &root_uri);
-
-    httpd_uri_t status_uri = {};
-    status_uri.uri = "/status";
-    status_uri.method = HTTP_GET;
-    status_uri.handler = statusHandler;
-    httpd_register_uri_handler(status_server, &status_uri);
-
-    httpd_uri_t capture_uri = {};
-    capture_uri.uri = "/capture";
-    capture_uri.method = HTTP_GET;
-    capture_uri.handler = captureHandler;
-    httpd_register_uri_handler(status_server, &capture_uri);
+  esp_err_t err = httpd_start(&status_server, &status_config);
+  if (err != ESP_OK) {
+    recordHttpError("status http start", err);
+    status_server = nullptr;
+    return false;
   }
 
+  if (!registerGetHandler(status_server, "/", rootHandler, "root handler") ||
+      !registerGetHandler(status_server, "/status", statusHandler,
+                          "status handler") ||
+      !registerGetHandler(status_server, "/capture", captureHandler,
+                          "capture handler") ||
+      !registerGetHandler(status_server, "/stream", streamHandler,
+                          "stream handler")) {
+    httpd_stop(status_server);
+    status_server = nullptr;
+    status_server_ready = false;
+    return false;
+  }
+
+  status_server_ready = true;
+  return true;
+}
+
+bool startStreamServer() {
+  if (stream_server != nullptr) {
+    stream_server_ready = true;
+    return true;
+  }
+
+  stream_server_ready = false;
   httpd_config_t stream_config = HTTPD_DEFAULT_CONFIG();
   stream_config.server_port = FOLLOWBOX_CAM_STREAM_PORT;
   stream_config.ctrl_port = 32769;
   stream_config.max_uri_handlers = 1;
 
-  if (httpd_start(&stream_server, &stream_config) == ESP_OK) {
-    httpd_uri_t stream_uri = {};
-    stream_uri.uri = "/stream";
-    stream_uri.method = HTTP_GET;
-    stream_uri.handler = streamHandler;
-    httpd_register_uri_handler(stream_server, &stream_uri);
+  esp_err_t err = httpd_start(&stream_server, &stream_config);
+  if (err != ESP_OK) {
+    recordHttpError("stream http start", err);
+    stream_server = nullptr;
+    return false;
   }
 
-  Serial.printf("HTTP status: http://%s/\n", WiFi.localIP().toString().c_str());
-  Serial.printf("MJPEG stream: %s\n", streamUrl().c_str());
+  if (!registerGetHandler(stream_server, "/stream", streamHandler,
+                          "stream handler")) {
+    httpd_stop(stream_server);
+    stream_server = nullptr;
+    stream_server_ready = false;
+    return false;
+  }
+
+  stream_server_ready = true;
+  return true;
+}
+
+void startHttpServers() {
+  const bool status_ok = startStatusServer();
+  const bool stream_ok = startStreamServer();
+  if (status_ok && stream_ok) {
+    snprintf(http_error, sizeof(http_error), "ok");
+  }
+
+  Serial.printf("HTTP status: %s http://%s/\n", status_ok ? "ready" : "down",
+                WiFi.localIP().toString().c_str());
+  Serial.printf("MJPEG stream: %s %s\n", status_ok ? "ready" : "down",
+                streamUrl().c_str());
+  Serial.printf("Legacy MJPEG stream: %s %s\n",
+                stream_ok ? "ready" : "down", legacyStreamUrl().c_str());
 }
 
 }  // namespace
@@ -406,11 +517,11 @@ void setup() {
     Serial.println("WiFi setup stopped");
     return;
   }
+  startHttpServers();
   camera_ready = startCamera();
   if (!camera_ready) {
     Serial.println("HTTP status server will stay online for diagnostics");
   }
-  startHttpServers();
 }
 
 void loop() {
@@ -425,10 +536,28 @@ void loop() {
   const uint32_t now_ms = millis();
   if (now_ms - last_log_ms >= 10000) {
     last_log_ms = now_ms;
-    Serial.printf("CAM online ip=%s rssi=%d camera=%s stream=%s error=%s\n",
+    if (!status_server_ready || !stream_server_ready) {
+      startHttpServers();
+    }
+    Serial.printf("CAM online ip=%s rssi=%d camera=%s status_http=%s "
+                  "stream_http=%s stream=%s error=%s http=%s\n",
                   WiFi.localIP().toString().c_str(), WiFi.RSSI(),
-                  camera_ready ? "ready" : "not-ready", streamUrl().c_str(),
-                  last_error);
+                  camera_ready ? "ready" : "not-ready",
+                  status_server_ready ? "ready" : "down",
+                  stream_server_ready ? "ready" : "down", streamUrl().c_str(),
+                  last_error, http_error);
+    Serial.printf("CAM diag sensor=%s pid=0x%04x attempts=%lu ok=%lu "
+                  "fail=%lu stream_clients=%lu stream_frames=%lu "
+                  "last_frame=%luB last_capture_ms=%lu legacy=%s\n",
+                  camera_sensor_name, camera_sensor_pid,
+                  static_cast<unsigned long>(capture_attempts),
+                  static_cast<unsigned long>(successful_captures),
+                  static_cast<unsigned long>(failed_captures),
+                  static_cast<unsigned long>(stream_clients),
+                  static_cast<unsigned long>(stream_frames),
+                  static_cast<unsigned long>(last_frame_bytes),
+                  static_cast<unsigned long>(last_capture_ms),
+                  legacyStreamUrl().c_str());
   }
   delay(100);
 }
