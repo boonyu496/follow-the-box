@@ -1,8 +1,8 @@
 {
-  "version": "2026.06.25-camera-relay-h5.1",
-  "file": "firmware.bin",
-  "md5": "100653403adec956516e138ce3edbf98",
-  "size": 1141232,
-  "force": false,
-  "notes": "Camera H5 uses AP direct stream on 192.168.4.1 and cloud latest.jpg relay for LAN/cloud pages"
+    "version":  "2026.06.25-rc-diagnostics.1",
+    "file":  "firmware.bin",
+    "md5":  "1e14ef96945b472c466ee2ed0a1013d7",
+    "size":  1141696,
+    "force":  false,
+    "notes":  "Expose DS600 RC CH1-CH5 PWM diagnostics in /ws/state for local/cloud H5; includes prior RX-only JY62/JY61P UART0 enablement."
 }

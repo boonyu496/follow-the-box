@@ -216,7 +216,17 @@ void SensorTask::begin() {
             pins::UART_NUM_LIDAR, lidar_active_rx_pin_, lidar_active_tx_pin_,
             static_cast<unsigned long>(profile::LIDAR_UART_BAUD));
   }
-  imu_uart_.begin();
+  if (imu_uart_.begin()) {
+    FB_LOGI("IMU begin: uart=%d rx=GPIO%d tx=%s baud=%lu",
+            pins::UART_NUM_IMU, pins::PIN_IMU_RX,
+            pins::PIN_IMU_TX >= 0 ? "enabled" : "disabled",
+            static_cast<unsigned long>(profile::IMU_UART_BAUD));
+  } else if (imu_uart_.isEnabled()) {
+    FB_LOGW("IMU begin failed: uart=%d rx=GPIO%d tx=%s baud=%lu",
+            pins::UART_NUM_IMU, pins::PIN_IMU_RX,
+            pins::PIN_IMU_TX >= 0 ? "enabled" : "disabled",
+            static_cast<unsigned long>(profile::IMU_UART_BAUD));
+  }
   power_monitor_.begin();
   tof_.begin();
   ultrasonic_.begin();

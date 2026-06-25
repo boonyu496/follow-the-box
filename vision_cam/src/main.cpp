@@ -81,13 +81,19 @@
 #define CAM_XCLK_HZ 20000000
 #endif
 #ifndef CAM_FRAME_SIZE
-#define CAM_FRAME_SIZE FRAMESIZE_SVGA
+#define CAM_FRAME_SIZE FRAMESIZE_VGA
 #endif
 #ifndef CAM_JPEG_QUALITY
-#define CAM_JPEG_QUALITY 12
+#define CAM_JPEG_QUALITY 18
+#endif
+#ifndef CAM_STREAM_TARGET_FPS
+#define CAM_STREAM_TARGET_FPS 12
 #endif
 
 namespace {
+
+constexpr uint32_t kStreamFrameIntervalMs =
+    CAM_STREAM_TARGET_FPS > 0 ? (1000U / CAM_STREAM_TARGET_FPS) : 0U;
 
 constexpr char kBoundary[] = "123456789000000000000987654321";
 constexpr char kStreamType[] =
@@ -106,9 +112,13 @@ uint32_t capture_attempts = 0;
 uint32_t failed_captures = 0;
 uint32_t successful_captures = 0;
 uint32_t stream_clients = 0;
+uint32_t active_stream_clients = 0;
 uint32_t stream_frames = 0;
+uint32_t stream_send_failures = 0;
 uint32_t last_frame_bytes = 0;
 uint32_t last_capture_ms = 0;
+uint32_t last_stream_frame_interval_ms = 0;
+uint32_t last_stream_frame_started_ms = 0;
 char last_error[96] = "booting";
 char http_error[96] = "not started";
 char camera_sensor_name[16] = "unknown";
@@ -180,6 +190,9 @@ void logCameraConfig() {
   Serial.printf("Format: %s JPEG quality=%d xclk=%uHz\n",
                 frameSizeName(static_cast<framesize_t>(CAM_FRAME_SIZE)),
                 CAM_JPEG_QUALITY, CAM_XCLK_HZ);
+  Serial.printf("Stream target: %u fps (%lu ms min interval)\n",
+                static_cast<unsigned>(CAM_STREAM_TARGET_FPS),
+                static_cast<unsigned long>(kStreamFrameIntervalMs));
 }
 
 bool connectWifi() {
@@ -306,9 +319,17 @@ esp_err_t statusHandler(httpd_req_t* req) {
                       ",\"successful_captures\":" +
                       String(successful_captures) +
                       ",\"stream_clients\":" + String(stream_clients) +
+                      ",\"active_stream_clients\":" +
+                      String(active_stream_clients) +
                       ",\"stream_frames\":" + String(stream_frames) +
+                      ",\"stream_send_failures\":" +
+                      String(stream_send_failures) +
                       ",\"last_frame_bytes\":" + String(last_frame_bytes) +
                       ",\"last_capture_ms\":" + String(last_capture_ms) +
+                      ",\"last_stream_frame_interval_ms\":" +
+                      String(last_stream_frame_interval_ms) +
+                      ",\"stream_target_fps\":" +
+                      String(CAM_STREAM_TARGET_FPS) +
                       ",\"last_error\":\"" + String(last_error) + "\"" +
                       ",\"http_error\":\"" + String(http_error) + "\"}";
   httpd_resp_set_type(req, "application/json");
@@ -334,6 +355,7 @@ esp_err_t captureHandler(httpd_req_t* req) {
 
   httpd_resp_set_type(req, "image/jpeg");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store");
   successful_captures++;
   last_frame_bytes = static_cast<uint32_t>(fb->len);
   last_capture_ms = millis();
@@ -357,16 +379,26 @@ esp_err_t streamHandler(httpd_req_t* req) {
     return res;
   }
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-  httpd_resp_set_hdr(req, "X-Framerate", "12");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+  httpd_resp_set_hdr(req, "Pragma", "no-cache");
+  char fps_header[8];
+  snprintf(fps_header, sizeof(fps_header), "%u",
+           static_cast<unsigned>(CAM_STREAM_TARGET_FPS));
+  httpd_resp_set_hdr(req, "X-Framerate", fps_header);
 
   stream_clients++;
+  active_stream_clients++;
   while (true) {
+    const uint32_t frame_start_ms = millis();
     capture_attempts++;
     camera_fb_t* fb = esp_camera_fb_get();
     if (fb == nullptr) {
       failed_captures++;
       snprintf(last_error, sizeof(last_error), "camera capture failed");
       Serial.println(last_error);
+      if (active_stream_clients > 0) {
+        active_stream_clients--;
+      }
       return ESP_FAIL;
     }
 
@@ -387,15 +419,28 @@ esp_err_t streamHandler(httpd_req_t* req) {
       stream_frames++;
       last_frame_bytes = static_cast<uint32_t>(fb->len);
       last_capture_ms = millis();
+      if (last_stream_frame_started_ms != 0) {
+        last_stream_frame_interval_ms = frame_start_ms - last_stream_frame_started_ms;
+      }
+      last_stream_frame_started_ms = frame_start_ms;
       snprintf(last_error, sizeof(last_error), "ok");
     }
     esp_camera_fb_return(fb);
     if (res != ESP_OK) {
+      stream_send_failures++;
       break;
     }
-    delay(10);
+    const uint32_t elapsed_ms = millis() - frame_start_ms;
+    if (kStreamFrameIntervalMs > elapsed_ms) {
+      delay(kStreamFrameIntervalMs - elapsed_ms);
+    } else {
+      delay(1);
+    }
   }
 
+  if (active_stream_clients > 0) {
+    active_stream_clients--;
+  }
   return res;
 }
 
@@ -547,15 +592,19 @@ void loop() {
                   stream_server_ready ? "ready" : "down", streamUrl().c_str(),
                   last_error, http_error);
     Serial.printf("CAM diag sensor=%s pid=0x%04x attempts=%lu ok=%lu "
-                  "fail=%lu stream_clients=%lu stream_frames=%lu "
-                  "last_frame=%luB last_capture_ms=%lu legacy=%s\n",
+                  "fail=%lu stream_clients=%lu active=%lu stream_frames=%lu "
+                  "send_fail=%lu last_frame=%luB frame_interval=%lums "
+                  "last_capture_ms=%lu legacy=%s\n",
                   camera_sensor_name, camera_sensor_pid,
                   static_cast<unsigned long>(capture_attempts),
                   static_cast<unsigned long>(successful_captures),
                   static_cast<unsigned long>(failed_captures),
                   static_cast<unsigned long>(stream_clients),
+                  static_cast<unsigned long>(active_stream_clients),
                   static_cast<unsigned long>(stream_frames),
+                  static_cast<unsigned long>(stream_send_failures),
                   static_cast<unsigned long>(last_frame_bytes),
+                  static_cast<unsigned long>(last_stream_frame_interval_ms),
                   static_cast<unsigned long>(last_capture_ms),
                   legacyStreamUrl().c_str());
   }

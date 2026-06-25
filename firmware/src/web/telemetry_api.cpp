@@ -71,7 +71,10 @@ size_t buildStateJson(const SystemState& state, char* out, size_t out_size) {
       "\"mode\":\"%s\","
       "\"safety\":{\"motion_allowed\":%s,\"fault_latched\":%s,"
       "\"stop_reason\":\"%s\",\"max_speed_scale\":%.2f},"
-      "\"rc\":{\"online\":%s,\"last_update_ms\":%u},"
+      "\"rc\":{\"online\":%s,\"last_update_ms\":%u,"
+      "\"ch_us\":[%u,%u,%u,%u,%u],"
+      "\"steering\":%.2f,\"throttle\":%.2f,\"speed_limit\":%.2f,"
+      "\"stop_switch\":%s,\"auto_request\":%s},"
       "\"cloud\":{\"connected\":%s,\"last_update_ms\":%u,\"last_seq\":%u},"
       "\"imu\":{\"valid\":%s,\"last_update_ms\":%u,\"yaw_deg\":%.1f,"
       "\"yaw_rate_dps\":%.1f,\"pitch_deg\":%.1f,\"roll_deg\":%.1f},"
@@ -109,6 +112,16 @@ size_t buildStateJson(const SystemState& state, char* out, size_t out_size) {
       static_cast<double>(state.safety.max_speed_scale),
       state.rc.online ? "true" : "false",
       static_cast<unsigned>(state.rc.last_update_ms),
+      static_cast<unsigned>(state.rc.ch_us[0]),
+      static_cast<unsigned>(state.rc.ch_us[1]),
+      static_cast<unsigned>(state.rc.ch_us[2]),
+      static_cast<unsigned>(state.rc.ch_us[3]),
+      static_cast<unsigned>(state.rc.ch_us[4]),
+      static_cast<double>(state.rc.steering),
+      static_cast<double>(state.rc.throttle),
+      static_cast<double>(state.rc.speed_limit),
+      state.rc.stop_switch ? "true" : "false",
+      state.rc.auto_request ? "true" : "false",
       state.cloud.connected ? "true" : "false",
       static_cast<unsigned>(state.cloud.last_update_ms),
       static_cast<unsigned>(state.cloud.last_seq),

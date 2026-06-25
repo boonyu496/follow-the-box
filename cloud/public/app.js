@@ -175,6 +175,7 @@ let joyPointerId = null;
 let joyForward = 0;
 let joyTurn = 0;
 let isFullscreen = false;
+let fullscreenOrientationLocked = false;
 let activeCameraUrl = "";
 let userCameraOverride = false;
 let latestState = null;
@@ -253,6 +254,16 @@ function fmtLatency(value) {
   if (!Number.isFinite(value) || value < 0) return "--";
   if (value >= 1000) return `${(value / 1000).toFixed(1)}s`;
   return `${Math.round(value)}ms`;
+}
+
+function fmtRcPulse(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? `${Math.round(n)}us` : "--";
+}
+
+function fmtRcPercent(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? `${Math.round(n * 100)}%` : "--";
 }
 
 function updateTofRealtimeStats(state, tof, validCount, initMask) {
@@ -478,17 +489,66 @@ els.cameraUrl.addEventListener("change", () => updateCamStream(els.cameraUrl.val
 
 // ── Fullscreen ──
 
-function toggleFullscreen() {
+function activeFullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+function fullscreenRequestFor(el) {
+  return el?.requestFullscreen || el?.webkitRequestFullscreen || el?.msRequestFullscreen;
+}
+
+function fullscreenExitFor(doc) {
+  return doc.exitFullscreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
+}
+
+async function lockLandscapeForFullscreen() {
+  const orientation = screen?.orientation;
+  if (!orientation?.lock) return;
+  try {
+    await orientation.lock("landscape");
+    fullscreenOrientationLocked = true;
+  } catch (e) {
+    // Some mobile browsers deny orientation lock; CSS keeps the image uncropped.
+  }
+}
+
+function unlockFullscreenOrientation() {
+  if (!fullscreenOrientationLocked) return;
+  try {
+    screen?.orientation?.unlock?.();
+  } catch (e) {
+    // Ignore unsupported unlock paths.
+  }
+  fullscreenOrientationLocked = false;
+}
+
+async function toggleFullscreen() {
   const stage = els.cameraStream?.closest(".fb-drive-stage") || els.cameraStream;
   if (!isFullscreen) {
-    (stage.requestFullscreen || stage.webkitRequestFullscreen || stage.msRequestfullscreen).call(stage);
+    const request = fullscreenRequestFor(stage);
+    if (!request) return;
+    try {
+      await request.call(stage);
+      await lockLandscapeForFullscreen();
+    } catch (e) {
+      document.body.classList.remove("fb-force-landscape");
+    }
   } else {
-    (document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen).call(document);
+    const exit = fullscreenExitFor(document);
+    if (exit) {
+      try {
+        await exit.call(document);
+      } catch (e) {
+        // Fullscreen state is reconciled by handleFullscreenChange.
+      }
+    }
   }
 }
 
 function handleFullscreenChange() {
-  isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  isFullscreen = !!activeFullscreenElement();
+  document.body.classList.toggle("fb-force-landscape", isFullscreen);
+  if (!isFullscreen) unlockFullscreenOrientation();
   els.fullscreenBtn.textContent = isFullscreen ? "退出" : "全屏";
   setupCanvasDPI(els.spatialMap);
   setTimeout(initJoystick, 100);
@@ -595,7 +655,12 @@ function render(payload) {
     setTextState(els.rcStatus, !!rc.online, !rc.online);
   }
   if (els.rcAge) {
-    els.rcAge.textContent = `更新 ${fmtAge(s.now_ms, rc.last_update_ms)}`;
+    const rcChannels = Array.isArray(rc.ch_us) ? rc.ch_us : [];
+    const rcPulseText =
+      `CH1-5 ${[0, 1, 2, 3, 4].map((i) => fmtRcPulse(rcChannels[i])).join("/")}`;
+    els.rcAge.textContent = rc.online
+      ? `${rcPulseText} · 转向 ${fmtRcPercent(rc.steering)} · 油门 ${fmtRcPercent(rc.throttle)} · 限速 ${fmtRcPercent(rc.speed_limit)} · STOP ${rc.stop_switch ? "ON" : "OFF"} · AUTO ${rc.auto_request ? "REQ" : "off"}`
+      : `${rcPulseText} · 更新 ${fmtAge(s.now_ms, rc.last_update_ms)}`;
   }
   if (els.cloudTelemetry) {
     els.cloudTelemetry.textContent = cloudLink.connected

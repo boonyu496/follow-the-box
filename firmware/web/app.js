@@ -85,6 +85,7 @@ const els = {
   cameraStatus: $("camera-status"),
   cameraUrl: $("camera-url"),
   cameraUrlState: $("camera-url-state"),
+  fullscreenBtn: $("fullscreen-btn"),
   btnCameraReload: $("btn-camera-reload"),
   logs: $("logs"),
   clearLogs: $("clear-logs"),
@@ -150,6 +151,8 @@ let jogTimer = null;
 let joyPointerId = null;
 let joyForward = 0;
 let joyTurn = 0;
+let isFullscreen = false;
+let fullscreenOrientationLocked = false;
 let activeCameraUrl = "";
 let lastTelemetryCameraUrl = "";
 let userCameraOverride = false;
@@ -278,6 +281,16 @@ function fmtLatency(value) {
   if (!Number.isFinite(value) || value < 0) return "--";
   if (value >= 1000) return `${(value / 1000).toFixed(1)}s`;
   return `${Math.round(value)}ms`;
+}
+
+function fmtRcPulse(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? `${Math.round(n)}us` : "--";
+}
+
+function fmtRcPercent(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? `${Math.round(n * 100)}%` : "--";
 }
 
 function updateTofRealtimeStats(state, tof, validCount, initMask) {
@@ -422,6 +435,73 @@ function setCameraOnline(online, text) {
   if (els.cameraPlaceholder) els.cameraPlaceholder.classList.toggle("hidden", online);
   if (els.cameraStream) els.cameraStream.classList.toggle("online", online);
   if (els.cameraStatus) els.cameraStatus.textContent = text;
+}
+
+function activeFullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+function fullscreenRequestFor(el) {
+  return el?.requestFullscreen || el?.webkitRequestFullscreen || el?.msRequestFullscreen;
+}
+
+function fullscreenExitFor(doc) {
+  return doc.exitFullscreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
+}
+
+async function lockLandscapeForFullscreen() {
+  const orientation = screen?.orientation;
+  if (!orientation?.lock) return;
+  try {
+    await orientation.lock("landscape");
+    fullscreenOrientationLocked = true;
+  } catch (e) {
+    // Some mobile browsers only allow orientation lock after trusted gestures.
+  }
+}
+
+function unlockFullscreenOrientation() {
+  if (!fullscreenOrientationLocked) return;
+  try {
+    screen?.orientation?.unlock?.();
+  } catch (e) {
+    // Ignore unsupported unlock paths.
+  }
+  fullscreenOrientationLocked = false;
+}
+
+async function toggleFullscreen() {
+  const stage = els.cameraStream?.closest(".fb-drive-stage") || els.cameraStream;
+  if (!stage) return;
+  if (!isFullscreen) {
+    const request = fullscreenRequestFor(stage);
+    if (!request) return;
+    try {
+      await request.call(stage);
+      await lockLandscapeForFullscreen();
+    } catch (e) {
+      document.body.classList.remove("fb-force-landscape");
+    }
+  } else {
+    const exit = fullscreenExitFor(document);
+    if (exit) {
+      try {
+        await exit.call(document);
+      } catch (e) {
+        // Fullscreen state is reconciled by handleFullscreenChange.
+      }
+    }
+  }
+}
+
+function handleFullscreenChange() {
+  isFullscreen = !!activeFullscreenElement();
+  document.body.classList.toggle("fb-force-landscape", isFullscreen);
+  if (!isFullscreen) unlockFullscreenOrientation();
+  if (els.fullscreenBtn) els.fullscreenBtn.textContent = isFullscreen ? "退出" : "全屏";
+  setupCanvasDPI(els.spatialMap);
+  setupCanvasDPI(els.uwbCanvas);
+  setupCanvasDPI(els.obstacleCanvas);
 }
 
 function switchView(name) {
@@ -638,7 +718,12 @@ function renderState(s) {
 
   const rc = s.rc ?? {};
   els.rc.textContent = rc.online ? "在线" : "离线";
-  els.rcAge.textContent = fmtAge(s.now_ms, rc.last_update_ms);
+  const rcChannels = Array.isArray(rc.ch_us) ? rc.ch_us : [];
+  const rcPulseText =
+    `CH1-5 ${[0, 1, 2, 3, 4].map((i) => fmtRcPulse(rcChannels[i])).join("/")}`;
+  els.rcAge.textContent = rc.online
+    ? `${rcPulseText} · 转向 ${fmtRcPercent(rc.steering)} · 油门 ${fmtRcPercent(rc.throttle)} · 限速 ${fmtRcPercent(rc.speed_limit)} · STOP ${rc.stop_switch ? "ON" : "OFF"} · AUTO ${rc.auto_request ? "REQ" : "off"}`
+    : `${rcPulseText} · 更新 ${fmtAge(s.now_ms, rc.last_update_ms)}`;
   setTextState(els.rc, !!rc.online, !rc.online);
 
   const cloud = s.cloud ?? {};
@@ -1282,6 +1367,15 @@ document.querySelectorAll(".fb-nav-btn").forEach((btn) => {
 if (els.cameraStream) {
   els.cameraStream.addEventListener("load", () => setCameraOnline(true, "画面在线"));
   els.cameraStream.addEventListener("error", () => setCameraOnline(false, "画面离线"));
+}
+
+document.addEventListener("fullscreenchange", handleFullscreenChange);
+document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+if (els.fullscreenBtn) {
+  els.fullscreenBtn.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    toggleFullscreen();
+  });
 }
 
 if (els.btnCameraReload) {

@@ -30,6 +30,71 @@
 ```
 
 ## 最新交接记录
+### 2026-06-25 18:05 - Codex - 摄像头 MJPEG 卡顿优化
+- 改动：`vision_cam` 默认从 `SVGA/q12` 调为 `VGA/q18/12fps`，并给 MJPEG 增加帧率节流、no-store header、active client/send failure/frame interval 诊断字段。
+- 文件：`vision_cam/src/main.cpp`, `vision_cam/platformio.ini`, `vision_cam/README.md`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；只改独立 camera-board 视频服务，不改主控 telemetry protocol、cloud relay API、H5 控制或模块边界。
+- 安全影响：无；不触碰 motor/e-stop/PWM/drive_adapter/safety_manager，视频仍只作为显示链路，断流不参与运动决策。
+- OTA：不需要主控应用分区 OTA；但需要重新刷 `vision_cam` 摄像头板固件才会生效，云端发布/主控 LittleFS 刷新是独立动作。
+- 验证：`pio run -d vision_cam` PASS；RAM 48016/327680，Flash 778769/3145728；`git diff --check` PASS；`python tools/check_ai_handoff.py` PASS。
+- 当前状态：PASS_NEEDS_CAMERA_BOARD_FLASH_AND_FIELD_CHECK。
+- 下一步：刷 `vision_cam` 后打开 `http://192.168.4.10/status`，看 `stream_frames` 持续增长、`last_stream_frame_interval_ms` 接近 83ms、`last_frame_bytes` 不再过大；再用 H5 实测画面流畅度。
+
+### 2026-06-25 16:55 - Codex - 摄像头全屏退出与跨浏览器布局修复
+- 改动：云端/本地 H5 全屏时改为统一让 `.fb-drive-stage` 进入 fullscreen，退出按钮保留可见；移除云端竖屏 fallback 中只旋转 `img` 的规则，避免不同浏览器画面方向和摇杆覆盖层坐标分叉。
+- 文件：`cloud/public/style.css`, `firmware/web/index.html`, `firmware/web/app.js`, `firmware/web/style.css`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；只改 H5 显示层和 Fullscreen API 兼容逻辑，不改 camera relay、telemetry protocol、server API、firmware 模块边界。
+- 安全影响：低；不触碰 motor/e-stop/PWM/drive_adapter/safety gate，摇杆仍走既有低速 jog 与固件安全门控。
+- OTA：不需要应用分区 OTA；但 `firmware/web` 静态资源已改，车端 AP/LAN H5 要生效仍需 LittleFS/FS refresh 或对应静态资源更新链路。
+- 验证：`node --check cloud/public/app.js` PASS；`node --check firmware/web/app.js` PASS；`git diff --check` PASS；`python tools/check_ai_handoff.py` PASS。
+- 当前状态：PASS_NEEDS_PHONE_BROWSER_FIELD_CHECK；未做真机手机浏览器全屏实测。
+- 下一步：发布/刷新 H5 后分别用 Chrome/Edge/Safari 类手机浏览器测试全屏、退出、横竖屏切换和摇杆位置，确认画面不再被额外旋转或裁切。
+
+### 2026-06-25 - Codex - cloud H5 camera fullscreen landscape
+- 结论：修复云端 H5 摄像头全屏在手机竖屏下只放大并裁掉左右画面的问题；本次只改 `cloud/public`，未改车端 LittleFS/firmware。
+- 改动：`cloud/public/app.js` 在进入 fullscreen 后请求 `screen.orientation.lock("landscape")`，退出时 unlock；同时修正旧 `msRequestfullscreen` 兼容拼写为 `msRequestFullscreen`。
+- 改动：`cloud/public/style.css` 修正 fullscreen selector 为 `.fb-drive-stage:fullscreen`，全屏时 `img` 改为 `object-fit: contain`，并增加 portrait fallback 的 90deg 旋转布局。
+- 架构影响：低；只改云端 H5 显示层，不改变摄像头 relay、telemetry protocol、server API 或固件模块边界。
+- 安全影响：低；不涉及 motor/e-stop/PWM/drive_adapter/safety gate，视频仍只作为 H5 显示，不进入运动控制链路。
+- OTA：不需要设备 OTA；本次未改 `firmware/web`、`ota_config.h` 或 `cloud/firmware`。若要车端 AP/LAN H5 也增加同类全屏按钮，需要另起本地 H5/LittleFS 版本更新流程。
+- 验证：`node --check cloud/public/app.js` PASS；`git diff --check` PASS；`python tools/check_ai_handoff.py` PASS；Playwright+Edge 竖屏 fullscreen 静态检查确认 `img object-fit=contain`、fallback 90deg transform 生效、全屏按钮隐藏。
+- 当前状态：PASS_NEEDS_PHONE_BROWSER_FIELD_CHECK
+- 下一步：云端部署后用手机打开 `https://www.boonai.cn/fb/`，点摄像头“全屏”，确认横屏/旋转后画面完整且退出全屏后恢复竖屏。
+
+### 2026-06-25 - Codex - control-center 云端/OTA 上传修复与复核
+- 结论：`tools/start-followbox-control-center.cmd` 只负责转发到 `tools_local/`；本机 control-center 后端可启动。云端 OTA 失败的实证原因是远端 `firmware/manifest.json` 与 `firmware.bin` 仍停在旧版 `2026.06.25-imu-uart0.1`，本地已是 `2026.06.25-rc-diagnostics.1`，manifest/bin 不一致会导致 H5/设备侧拿不到正确 OTA。
+- 改动：`tools_local/followbox-control-center.ps1` 为 SSH/SCP 增加 `BatchMode`、连接超时和 keepalive；`ota-publish-cloud` 上传后新增远端 manifest/bin MD5/size 校验，并用公网 `firmware/version` 与 `firmware/download` 再校验一次；生成 manifest 时默认保留已有 `notes`，避免发布元数据被覆盖。
+- 云端：已执行 control-center `/api/ota/publish-cloud` 与 `/api/cloud/deploy`；公网 `https://www.boonai.cn/fb/api/device/followbox-001/firmware/version` 返回 `2026.06.25-rc-diagnostics.1`，size `1141696`，MD5 `1e14ef96945b472c466ee2ed0a1013d7`，download 文件 MD5/size 匹配。
+- 仓库按钮：`git-commit-push` 预检可通过，但当前 `gitAddPathspec=.` 会覆盖整个 repo 的 10 个本地改动；`git-pull-local` 被正确阻止，因为 working tree 不干净。未执行 repo push/pull，避免混入未审查改动。
+- 局域网 OTA：`upload-network` 预检显示目标 `192.168.4.1` 当前不可达；未执行设备 OTA/刷写。云端发布完成不代表设备已安装。
+- 安全影响：无 firmware 运动链路改动；不碰 PWM、drive_adapter、safety_manager、传感器有效性或设备安装授权。
+- 验证：PowerShell parser 检查 `tools_local/followbox-control-center.ps1` PASS；HTML 内嵌脚本 `node --check` PASS；control-center API `/api/state`、`/api/preflight`、`/api/ota/publish-cloud`、`/api/cloud/deploy` PASS；公网 OTA version/download MD5/size PASS。
+- 当前状态：PASS_CLOUD_DEPLOYED_OTA_PUBLISHED_NEEDS_DEVICE_SIDE_OTA_IF_USER_APPROVES。
+- 下一步：如果要把这批 repo 改动推到 GitHub，先审查 10 个本地改动范围，再用 control-center 的 repo push；如果要设备安装 OTA，先让车轮离地、供电稳定、确认 `192.168.4.1` 可达后再由用户手动触发 OTA。
+
+### 2026-06-25 - Codex - DS600 遥控诊断显示
+- 结论：项目里的“遥控器”是 HOTRC DS600 PWM 接收机，非带屏设备；原链路只在 H5 显示 `rc.online/last_update_ms`，硬件排障看不到 CH1-CH5 实际脉宽。
+- 改动：`/ws/state` / `/api/state` / 云端上报的 `rc` 节点新增 `ch_us[CH1-CH5]`, `steering`, `throttle`, `speed_limit`, `stop_switch`, `auto_request`；本地 `firmware/web` 与云端 `cloud/public` 遥控卡片显示这些诊断字段。
+- 文件：`firmware/src/web/{telemetry_api.cpp,telemetry_api.h,h5_web_server.cpp}`, `firmware/web/app.js`, `cloud/public/app.js`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；只扩展只读遥测与 H5 显示，不改 `RcInputDs600` 判定、不改 `SystemState` 结构、不改 `mode_manager/command_pipeline/safety_manager`。
+- 安全影响：低；不碰 motor/e-stop/PWM/drive_adapter/safety gate。显示 CH1-CH5 用于确认供电、S/+/-、分压、绑定和通道接线，不能绕过安全链。
+- OTA：版本 `2026.06.25-rc-diagnostics.1`，`firmware.bin` size `1141696`，MD5 `1e14ef96945b472c466ee2ed0a1013d7`，`force=false`；本地打包完成，未声明云端已发布或设备已安装。车端 H5 静态页仍需 LittleFS/FS 更新链路才会生效。
+- 验证：`node --check firmware/web/app.js` PASS；`node --check cloud/public/app.js` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS；`python tools/package_ota.py --notes ...` PASS。
+- 当前状态：PASS_NEEDS_DEPLOY_OR_DEVICE_UPDATE。
+- 下一步：设备更新后看 H5 状态页 `DS600/遥控链路`：若 CH1-CH5 全 `--`，先查接收机 5V/GND、共地、绑定和 S 线；若只有某一路 `--`，查该通道 S 线/分压/插针；在线但 STOP=ON 时先确认 CH5 开关方向。
+
+### 2026-06-25 - Codex - JY62/JY61P IMU UART0 RX 启用
+- 结论：接线文档要求首版只读 `JY61P/JY62 TX -> GPIO42`，模块 `RX` 配置线不接；JY62 不显示的直接软件原因是 `UART_NUM_IMU=-1`，固件没有打开 IMU 串口。
+- 改动：`UART_NUM_IMU=0`，用 USB-CDC 调试释放出来的 UART0 映射到 `GPIO42` 只读输入；保持 `PIN_IMU_TX=-1`，并在 `SensorTask::begin()` 增加 `IMU begin` 日志。
+- 文件：`firmware/include/config/board_pins.h`, `firmware/src/sensors/sensor_task.cpp`, `firmware/include/config/ota_config.h`, `AI-HANDOFF-MEMORY.md`, `cloud/firmware/{firmware.bin,manifest.json}`。
+- 架构影响：低；不改 `SensorSnapshot/SystemState/H5` 协议边界，不新增业务逻辑到 `main.cpp`，IMU 仍只作为姿态遥测输入。
+- 安全影响：低；不碰 motor/e-stop/PWM/drive_adapter/safety gate，`FOLLOW_YAW_DAMP_GAIN=0`，IMU 数据不会参与运动控制。
+- OTA：版本 `2026.06.25-imu-uart0.1`，`firmware.bin` size `1141376`，MD5 `8919e1d050720e7af821754d293042ea`，`force=false`。
+- 云端：用户控制中心首次部署失败在 SSH/SCP `Connection closed`，不是 manifest 格式错误；同 key 复测 SSH 成功，已按 `package_ota.py --skip-build --notes ...` 重新部署云端并重启 PM2。
+- 验证：`firmware/tools/logic_smoke_test` exit 0；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --notes ...` PASS；`python tools/check_ai_handoff.py` PASS；公网 OTA version/download 返回 size/MD5 匹配。
+- 当前状态：PASS_CLOUD_DEPLOYED_NEEDS_DEVICE_OTA_AND_IMU_FIELD_CHECK。
+- 下一步：断电确认 `JY62/JY61P TX -> GPIO42` 已做 3.3V 电平转换/分压、5V/GND 共地；刷入后静置 3 秒，看 `IMU begin: uart=0 rx=GPIO42 tx=disabled baud=9600` 与 H5 `imu.valid/yaw/pitch/roll`。
+
 ### 2026-06-25 - Codex - AP/LAN/云端摄像头显示分流修复
 - 改动：云端 H5 不再默认使用 MJPEG 长连接 `/video/stream`，改为随 `video.frameSeq` 刷新 `/video/latest.jpg`；若浏览器旧会话保存了 `192.168.4.2/192.168.4.10` 这类 AP-only 地址，会自动清掉并回到云端 relay。
 - 改动：车端 `firmware/web` 在 `192.168.4.1` AP 页面仍直连 `http://192.168.4.10/stream`；当同一 H5 从局域网 STA 地址打开且摄像头地址仍是 `192.168.4.x` 时，自动改用 `https://www.boonai.cn/fb/api/device/followbox-001/video/latest.jpg` 低帧率云端转发。

@@ -33,8 +33,9 @@ build_flags =
   -D CAM_PIN_XCLK=15
   -D CAM_PIN_SIOD=4
   -D CAM_PIN_SIOC=5
-  -D CAM_FRAME_SIZE=FRAMESIZE_SVGA
-  -D CAM_JPEG_QUALITY=12
+  -D CAM_FRAME_SIZE=FRAMESIZE_VGA
+  -D CAM_JPEG_QUALITY=18
+  -D CAM_STREAM_TARGET_FPS=12
 ```
 
 The default pin map is:
@@ -52,8 +53,13 @@ The default pin map is:
 
 OV5640 uses the SCCB control bus (`SIOD`/`SIOC`) plus the parallel DVP signals
 (`D0..D7`, `VSYNC`, `HREF`, `PCLK`) and an external `XCLK`. The default build
-keeps the stream at SVGA JPEG quality 12 so the AP/LAN H5 is responsive and the
-cloud relay frames stay inside the controller upload limit.
+keeps the stream at VGA JPEG quality 18 with a 12 fps target so the AP/LAN H5
+stays responsive and the cloud relay frames stay inside the controller upload
+limit. If the picture still advances only every few seconds, check `/status`
+while the H5 is open: `stream_frames` should keep increasing, `last_frame_bytes`
+should be well below the cloud upload cap, and `last_stream_frame_interval_ms`
+should normally sit near the configured frame interval rather than multi-second
+gaps.
 
 Keep the camera on a separate 5 V rail with enough current margin. A weak supply
 often looks like random WiFi disconnects or blank frames.

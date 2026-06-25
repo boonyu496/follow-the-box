@@ -28,7 +28,7 @@ H5CommandHandler g_handler;
 portMUX_TYPE g_mux = portMUX_INITIALIZER_UNLOCKED;
  
 uint32_t g_last_push_ms = 0;
-char g_state_buf[2560];
+char g_state_buf[3072];
 bool g_state_valid = false;
 portMUX_TYPE g_state_mux = portMUX_INITIALIZER_UNLOCKED;
  

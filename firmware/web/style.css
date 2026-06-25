@@ -1007,17 +1007,47 @@ details summary {
 .fb-dot.ok { background: var(--fb-green); }
 .fb-dot.warn { background: var(--fb-amber); }
 
-:fullscreen .fb-drive-stage,
-:-webkit-full-screen .fb-drive-stage {
+.fb-drive-stage:fullscreen,
+.fb-drive-stage:-webkit-full-screen {
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
+  max-width: none;
+  min-height: 0;
   border: none;
   border-radius: 0;
+  background: #000000;
+  box-shadow: none;
 }
 
-:fullscreen .fb-fs-btn,
-:-webkit-full-screen .fb-fs-btn {
-  display: none;
+.fb-drive-stage:fullscreen img,
+.fb-drive-stage:-webkit-full-screen img {
+  object-fit: contain;
+  background: #000000;
+}
+
+.fb-drive-stage:fullscreen .fb-video-top,
+.fb-drive-stage:-webkit-full-screen .fb-video-top {
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 32px max(12px, env(safe-area-inset-left));
+}
+
+.fb-drive-stage:fullscreen .fb-video-bottom,
+.fb-drive-stage:-webkit-full-screen .fb-video-bottom {
+  align-items: flex-end;
+  padding: 32px max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+}
+
+.fb-drive-stage:fullscreen .fb-fs-btn,
+.fb-drive-stage:-webkit-full-screen .fb-fs-btn {
+  display: inline-flex;
+  pointer-events: auto;
+  z-index: 3;
+}
+
+.fb-drive-stage:fullscreen .fb-joystick,
+.fb-drive-stage:-webkit-full-screen .fb-joystick {
+  --joy-size: clamp(112px, 18vmin, 156px);
+  margin-left: auto;
 }
 
 @keyframes fb-pulse {

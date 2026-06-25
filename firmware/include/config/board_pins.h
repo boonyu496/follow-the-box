@@ -24,12 +24,13 @@ constexpr int PIN_DRIVE_ENABLE_OUT = 39;
 constexpr int PIN_UWB_TX = 17;
 constexpr int PIN_UWB_RX = 18;
 
-// UART resource assignment (ESP32-S3 has UART0 reserved for USB debug).
+// UART resource assignment. USB debug uses native USB-CDC, so UART0 can be
+// remapped to the RX-only IMU input without taking over the debug console.
 constexpr int UART_NUM_UWB = 1;
 constexpr int UART_NUM_LIDAR = 2;
-// JY61P IMU: GPIO42 is reserved for JY61P TX. Keep the UART disabled until
-// bring-up confirms the module TX level, baud rate, and install-wizard yaw sign.
-constexpr int UART_NUM_IMU = -1;
+// JY61P/JY62 IMU: RX-only on GPIO42. The module RX/config line stays unconnected
+// in the P0 wiring; yaw damping remains disabled until install-wizard validation.
+constexpr int UART_NUM_IMU = 0;
 
 // Fitted OEM YDLIDAR UART (UART2, current bench default 115200 baud, 3.3V logic).
 // Canonical project wiring follows FIRMWARE-SPEC:
