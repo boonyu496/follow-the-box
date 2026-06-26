@@ -35,14 +35,20 @@ constexpr char DEVICE_ID[] = FOLLOWBOX_CLOUD_DEVICE_ID;
 constexpr char DEVICE_TOKEN[] = FOLLOWBOX_CLOUD_DEVICE_TOKEN;
 
 // The cloud H5 otherwise shows TOF changes up to one second late. 4 Hz keeps
-// telemetry visibly responsive while the local AP/LAN H5 remains 10 Hz.
+// telemetry visibly responsive while the local AP/LAN H5 remains 10 Hz. Failed
+// telemetry retries back off a little so public-network stalls do not saturate
+// the single comm loop.
 constexpr uint32_t UPLOAD_INTERVAL_MS = 250;
 constexpr uint32_t COMMAND_POLL_INTERVAL_MS = 150;
-constexpr uint32_t HTTP_TIMEOUT_MS = 500;
+constexpr uint32_t HTTP_TIMEOUT_MS = 1000;
+constexpr uint32_t TELEMETRY_RETRY_MIN_MS = 750;
+constexpr uint32_t TELEMETRY_RETRY_MAX_MS = 3000;
 
 // Optional low-FPS public video relay. The controller fetches a JPEG snapshot
 // from the camera on the local FollowBox AP and uploads it to the cloud. This
-// is display-only and never feeds the motion/safety path.
+// is display-only and never feeds the motion/safety path. Video is strictly
+// lower priority than telemetry: failures back off, and video is skipped while
+// telemetry has not recently succeeded.
 #ifndef FOLLOWBOX_CLOUD_VIDEO_ENABLED
 #define FOLLOWBOX_CLOUD_VIDEO_ENABLED 1
 #endif
@@ -56,5 +62,8 @@ constexpr char CAMERA_CAPTURE_URL[] = FOLLOWBOX_CAMERA_CAPTURE_URL;
 constexpr uint32_t VIDEO_UPLOAD_INTERVAL_MS = 2500;
 constexpr uint32_t VIDEO_HTTP_TIMEOUT_MS = 1500;
 constexpr uint32_t VIDEO_MAX_FRAME_BYTES = 220 * 1024;
+constexpr uint32_t VIDEO_RETRY_MIN_MS = 10000;
+constexpr uint32_t VIDEO_RETRY_MAX_MS = 30000;
+constexpr uint32_t VIDEO_TELEMETRY_GRACE_MS = 2000;
 
 }  // namespace followbox::cloud_config

@@ -116,9 +116,12 @@ void buildUrl(char* out, size_t out_size, const char* suffix) {
 void CloudClient::begin() {
   input_ = CloudControlInput{};
   last_upload_ms_ = 0;
+  last_upload_success_ms_ = 0;
   last_video_upload_ms_ = 0;
   last_poll_ms_ = 0;
   upload_seq_ = 0;
+  telemetry_failure_count_ = 0;
+  video_retry_interval_ms_ = cloud_config::VIDEO_UPLOAD_INTERVAL_MS;
   if (cloud_config::ENABLED) {
     FB_LOGI("cloud_client: enabled device=%s", cloud_config::DEVICE_ID);
   }
@@ -127,6 +130,22 @@ void CloudClient::begin() {
 bool CloudClient::configured() const {
   return cloud_config::ENABLED && hasText(cloud_config::API_BASE_URL) &&
          hasText(cloud_config::DEVICE_ID) && hasText(cloud_config::DEVICE_TOKEN);
+}
+
+uint32_t CloudClient::telemetryRetryIntervalMs() const {
+  if (telemetry_failure_count_ == 0) {
+    return cloud_config::UPLOAD_INTERVAL_MS;
+  }
+  const uint32_t scaled =
+      cloud_config::TELEMETRY_RETRY_MIN_MS *
+      static_cast<uint32_t>(std::min<uint8_t>(telemetry_failure_count_, 4));
+  return std::min(scaled, cloud_config::TELEMETRY_RETRY_MAX_MS);
+}
+
+bool CloudClient::videoMayRun(uint32_t now_ms) const {
+  return last_upload_success_ms_ != 0 &&
+         elapsedMs(now_ms, last_upload_success_ms_) <=
+             cloud_config::VIDEO_TELEMETRY_GRACE_MS;
 }
 
 void CloudClient::update(const SystemState& state, uint32_t now_ms) {
@@ -141,15 +160,27 @@ void CloudClient::update(const SystemState& state, uint32_t now_ms) {
     last_poll_ms_ = now_ms;
     pollCommand(now_ms);
   }
-  if (elapsedMs(now_ms, last_upload_ms_) >= cloud_config::UPLOAD_INTERVAL_MS) {
+  if (elapsedMs(now_ms, last_upload_ms_) >= telemetryRetryIntervalMs()) {
     last_upload_ms_ = now_ms;
-    uploadTelemetry(state, now_ms);
+    if (uploadTelemetry(state, now_ms)) {
+      last_upload_success_ms_ = now_ms;
+      telemetry_failure_count_ = 0;
+    } else if (telemetry_failure_count_ < 255) {
+      ++telemetry_failure_count_;
+    }
   }
   if (cloud_config::VIDEO_ENABLED &&
-      elapsedMs(now_ms, last_video_upload_ms_) >=
-          cloud_config::VIDEO_UPLOAD_INTERVAL_MS) {
+      elapsedMs(now_ms, last_video_upload_ms_) >= video_retry_interval_ms_ &&
+      videoMayRun(now_ms)) {
     last_video_upload_ms_ = now_ms;
-    uploadCameraFrame(now_ms);
+    if (uploadCameraFrame(now_ms)) {
+      video_retry_interval_ms_ = cloud_config::VIDEO_UPLOAD_INTERVAL_MS;
+    } else {
+      video_retry_interval_ms_ =
+          std::min(std::max(video_retry_interval_ms_ * 2U,
+                            cloud_config::VIDEO_RETRY_MIN_MS),
+                   cloud_config::VIDEO_RETRY_MAX_MS);
+    }
   }
 }
 
@@ -271,7 +302,7 @@ void CloudClient::pollCommand(uint32_t now_ms) {
   http.end();
 }
 
-void CloudClient::uploadTelemetry(const SystemState& state, uint32_t /*now_ms*/) {
+bool CloudClient::uploadTelemetry(const SystemState& state, uint32_t /*now_ms*/) {
   // Static: ~8 KB combined would overflow the comm task stack. Safe because
   // CloudClient is a singleton and uploadTelemetry runs only in the comm task.
   static char state_json[kStateJsonSize];
@@ -281,7 +312,7 @@ void CloudClient::uploadTelemetry(const SystemState& state, uint32_t /*now_ms*/)
   const size_t state_len =
       buildStateJson(state, state_json, sizeof(state_json));
   if (state_len == 0) {
-    return;
+    return false;
   }
   if (DebugConsole::drainRecentJson(logs_json, sizeof(logs_json)) == 0) {
     std::snprintf(logs_json, sizeof(logs_json), "[]");
@@ -295,7 +326,7 @@ void CloudClient::uploadTelemetry(const SystemState& state, uint32_t /*now_ms*/)
       static_cast<unsigned long>(++upload_seq_), state_json, logs_json);
   if (written < 0 || static_cast<size_t>(written) >= sizeof(payload)) {
     FB_LOGW("cloud_client: telemetry payload too large");
-    return;
+    return false;
   }
 
   char suffix[160];
@@ -307,7 +338,7 @@ void CloudClient::uploadTelemetry(const SystemState& state, uint32_t /*now_ms*/)
   HTTPClient http;
   http.setTimeout(cloud_config::HTTP_TIMEOUT_MS);
   if (!http.begin(url)) {
-    return;
+    return false;
   }
   http.addHeader("Content-Type", "application/json");
   const int code = http.POST(reinterpret_cast<uint8_t*>(payload),
@@ -316,19 +347,20 @@ void CloudClient::uploadTelemetry(const SystemState& state, uint32_t /*now_ms*/)
     FB_LOGW("cloud_client: upload failed code=%d", code);
   }
   http.end();
+  return code >= 200 && code < 300;
 }
 
-void CloudClient::uploadCameraFrame(uint32_t /*now_ms*/) {
+bool CloudClient::uploadCameraFrame(uint32_t /*now_ms*/) {
   HTTPClient capture;
   capture.setTimeout(cloud_config::VIDEO_HTTP_TIMEOUT_MS);
   if (!capture.begin(cloud_config::CAMERA_CAPTURE_URL)) {
-    return;
+    return false;
   }
 
   const int code = capture.GET();
   if (code != HTTP_CODE_OK) {
     capture.end();
-    return;
+    return false;
   }
 
   const int content_len = capture.getSize();
@@ -336,7 +368,7 @@ void CloudClient::uploadCameraFrame(uint32_t /*now_ms*/) {
       static_cast<uint32_t>(content_len) > cloud_config::VIDEO_MAX_FRAME_BYTES) {
     FB_LOGW("cloud_client: camera frame size invalid len=%d", content_len);
     capture.end();
-    return;
+    return false;
   }
 
   uint8_t* frame = static_cast<uint8_t*>(
@@ -347,7 +379,7 @@ void CloudClient::uploadCameraFrame(uint32_t /*now_ms*/) {
   if (frame == nullptr) {
     FB_LOGW("cloud_client: no memory for camera frame len=%d", content_len);
     capture.end();
-    return;
+    return false;
   }
 
   WiFiClient* stream = capture.getStreamPtr();
@@ -374,7 +406,7 @@ void CloudClient::uploadCameraFrame(uint32_t /*now_ms*/) {
     FB_LOGW("cloud_client: incomplete/invalid camera frame read=%u len=%d",
             static_cast<unsigned>(read_len), content_len);
     heap_caps_free(frame);
-    return;
+    return false;
   }
 
   char suffix[192];
@@ -387,7 +419,7 @@ void CloudClient::uploadCameraFrame(uint32_t /*now_ms*/) {
   upload.setTimeout(cloud_config::VIDEO_HTTP_TIMEOUT_MS);
   if (!upload.begin(url)) {
     heap_caps_free(frame);
-    return;
+    return false;
   }
   upload.addHeader("Content-Type", "image/jpeg");
   const int upload_code = upload.POST(frame, read_len);
@@ -396,6 +428,7 @@ void CloudClient::uploadCameraFrame(uint32_t /*now_ms*/) {
   }
   upload.end();
   heap_caps_free(frame);
+  return upload_code >= 200 && upload_code < 300;
 }
 
 }  // namespace followbox

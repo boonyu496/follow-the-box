@@ -30,6 +30,69 @@
 ```
 
 ## 最新交接记录
+### 2026-06-26 20:22 - Codex - 云端 H5 自动填入视频地址
+- 改动：云端 H5 在页面初始化时，如果用户没有手工保存视频地址，会按当前 `deviceId` + `operator token` 自动生成 `/api/device/<id>/video/latest.jpg?token=...` 地址，写入“视频地址”输入框并持久保存到 `fb_camera_last_url`。
+- 改动：点击“保存并重连”后，若当前不是用户手工 override 视频地址，会按新的设备 ID/token 重新生成云端视频地址；视频地址清空后点“保存”也会立即切回并显示云端转发地址，而不是保持空白。
+- 改动：云端 H5 输入框 placeholder 从“留空自动使用云端转发”改为“自动生成云端转发地址”，避免页面显示仍像空值状态。
+- 文件：`cloud/public/app.js`, `cloud/public/index.html`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；只改 cloud H5 前端地址生成/显示逻辑，不改 `cloud/server.js` relay API、firmware telemetry schema、LittleFS 本地 H5 或模块边界。
+- 安全影响：无；不触碰 motor/e-stop/PWM/drive_adapter/safety_manager/GPIO/ADC/I2C，视频仍只作为显示链路，不参与运动控制。
+- OTA：不需要设备 app-partition OTA；本次未改 `firmware/web`，也不需要 LittleFS `uploadfs`。线上云端页面要生效仍需部署 `cloud/public`。
+- 验证：`node --check cloud/public/app.js` PASS；`git diff --check` PASS；`python tools/check_ai_handoff.py` PASS。
+- 当前状态：PASS_NEEDS_CLOUD_DEPLOY_AND_BROWSER_CHECK。
+- 下一步：部署 cloud H5 后刷新 `https://www.boonai.cn/fb/`，预期“视频地址”不再为空，而是显示当前设备的云端 `latest.jpg` relay URL；再刷新/重开浏览器确认仍保留。
+
+### 2026-06-26 20:11 - Codex - 云端 H5 视频地址持久保存
+- 改动：云端 H5 的 operator token/device id/video URL 保存从 `sessionStorage` 升级为 `localStorage` 主存储，并兼容迁移旧 session 值；视频地址输入、保存按钮和云端自动 relay URL 都会持久化。
+- 改动：移除云端 H5 对 `192.168.4.2/192.168.4.10` 私网摄像头地址的自动清除逻辑；用户保存过的视频地址优先，未保存时恢复上次页面实际使用的视频地址，避免刷新/关浏览器后掉回空白。
+- 文件：`cloud/public/app.js`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；只改 cloud H5 前端本地浏览器存储和视频显示地址选择，不改 `cloud/server.js` relay API、firmware telemetry schema、LittleFS 本地 H5 或模块边界。
+- 安全影响：无；不触碰 motor/e-stop/PWM/drive_adapter/safety_manager/GPIO/ADC/I2C，视频仍只作为显示链路，不参与运动控制。
+- OTA：不需要设备 app-partition OTA；本次未改 `firmware/web`，也不需要 LittleFS `uploadfs`。线上云端页面要生效仍需部署 `cloud/public/app.js`。
+- 验证：`node --check cloud/public/app.js` PASS；`git diff --check` PASS；`python tools/check_ai_handoff.py` PASS。
+- 当前状态：PASS_NEEDS_CLOUD_DEPLOY_AND_BROWSER_CHECK。
+- 下一步：部署 cloud H5 后，用手机/浏览器保存一个视频地址，刷新页面、关闭重开浏览器后确认输入框仍保留；若保存私网地址，离开 FollowBox AP 时画面可能离线但地址不应再被清掉。
+
+### 2026-06-26 19:57 - Codex - DS600 遥控在线抖动修复
+- 改动：修复 DS600 `rc.online` 因 sensor task 旧 `now_ms` 与 PWM ISR 新时间戳相差 1-数 ms 被误判 stale 的抖动；RC 读取改用传感器更新后的 fresh `millis()`，`isStale()`/TLM age 对 50ms 内同源时钟未来偏差钳制为刚更新。
+- 文件：`firmware/include/core/time_utils.h`, `firmware/src/control/rc_input_ds600.cpp`, `firmware/src/main.cpp`, `firmware/src/telemetry/telemetry_logger.cpp`, `firmware/tools/logic_smoke_test.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；不改 DS600 GPIO 映射、通道语义、`mode_manager/safety_manager/drive_adapter` 模块边界或 PWM 出口。
+- 安全影响：低但 safety-critical；不放宽 100ms 通道丢失阈值、不绕过 STOP/RC_LOST，超过 50ms 的异常未来时间戳仍会按原 wrap-safe stale 逻辑处理。
+- OTA：版本 `2026.06.26-rc-time-skew.1`，`firmware.bin` size `1142240`，MD5 `8db5352be5fb65f4b5d2ed25752acbb2`，`force=false`；本地打包完成，未发布云端/未安装设备。
+- 验证：贴入日志的 `ch_age=4294967295` 指向小幅未来时间戳下溢；`git diff --check` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build ...` PASS；host smoke test 未跑，因 PowerShell 找不到 `g++`。
+- 当前状态：PASS_NEEDS_DEVICE_OTA_AND_FIELD_CHECK。
+- 下一步：发布/安装该 OTA 后看 TLM，期望 `ch_age` 不再出现 `429496729x`，静止遥控时 `rc=1` 不再 0/1 跳；若仍跳，再按具体 `ch_age>100` 的通道查 S 线/分压/共地/接收机输出质量。
+
+### 2026-06-26 19:42 - Codex - H5 设备日志复制按钮
+- 改动：cloud H5 与本地 LittleFS H5 的“设备日志”标题栏新增 `复制` 按钮，复制当前可见日志；支持 `navigator.clipboard.writeText` 与 `textarea + execCommand("copy")` fallback，并显示 `已复制/复制失败/无日志` 反馈。
+- 文件：`cloud/public/{index.html,app.js,style.css}`, `firmware/web/{index.html,app.js,style.css}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：无；仅 UI 操作增强，不改遥测 schema、云端 API、固件模块边界或控制链路。
+- 安全影响：无；不触碰 motor/e-stop/GPIO/PWM/ADC/I2C/传感器有效性或设备运动。
+- OTA：未生成新的 app-partition OTA；本次本地 H5 变更需要 LittleFS `uploadfs` 才会上车，云端 H5 变更需要 cloud deploy。当前固件/OTA 文件已有其他未提交诊断改动，未把它们混入本次 UI 包。
+- 验证：`node --check cloud/public/app.js` PASS；`node --check firmware/web/app.js` PASS；内置浏览器因安全策略拒绝打开 `file://` 静态页，未做浏览器实测。
+- 当前状态：PASS_NEEDS_DEPLOY_OR_UPLOADFS。
+- 下一步：若要手机/云端立刻可用，部署 `cloud/public`；若要主控 AP/LAN 页面可用，对主控执行 LittleFS `uploadfs` 刷新。
+
+### 2026-06-26 08:38 - Codex - DS600 遥控在线抖动通道 age 诊断
+- 改动：`RcInput` 增加 CH1-CH5 per-channel age，`TLM` 日志新增 `ch_age=a/b/c/d/e`，用于定位 `rc.online` 0/1 抖动时是哪一路 PWM 输入超过 100ms freshness 阈值。
+- 文件：`firmware/include/core/types.h`, `firmware/src/control/rc_input_ds600.{h,cpp}`, `firmware/src/telemetry/telemetry_logger.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；只扩展只读诊断字段和串口日志，不改变 `rc.online` 判定、`mode_manager`、`safety_manager`、`drive_adapter` 或 PWM 出口。
+- 安全影响：低；不放宽失联/STOP 阈值，不触碰 motor/e-stop/drive gate；任一路无效或 stale 仍保持 `online=false`、油门归零、STOP 默认 true。
+- OTA：版本 `2026.06.26-rc-ch-age.1`，`firmware.bin` size `1142080`，MD5 `403fa856bf760026212df417f61a0208`，`force=false`；本地打包完成，未发布云端/未安装设备。
+- 验证：贴入 TLM 统计显示 `rc=1` 42 条、`rc=0` 49 条，所有 `rc=0` 均 `stop=1` 且 CH1-CH5 脉宽仍在有效范围；`git diff --check` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build ...` PASS。
+- 当前状态：PASS_NEEDS_DEVICE_OTA_OR_FLASH_AND_FIELD_CHECK。
+- 下一步：设备安装该版本后抓新 TLM，看 `ch_age` 中哪一路持续或偶发 >100ms；对应检查该 CH 的 S 线、分压/电平转换、接收机插针/共地和 PWM 边沿质量。
+
+### 2026-06-25 19:05 - Codex - DS600 遥控接入排障日志增强
+- 改动：`RcInputDs600` 在任意通道失效/超时时仍刷新 CH1-CH5 raw pulse 到 `state.rc.ch_us`，避免 H5 离线时看不到单路接入证据；`TLM` 周期日志新增 RC online/age/五路脉宽/油门/转向/限速/STOP/AUTO。
+- 文件：`firmware/src/control/rc_input_ds600.cpp`, `firmware/src/telemetry/telemetry_logger.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；只增强只读诊断和日志，不改 `SystemState` schema、不改 `mode_manager/command_pipeline/safety_manager`，不新增控制源或 PWM 出口。
+- 安全影响：低；不触碰 motor/e-stop/PWM/drive_adapter/safety gate；离线判定仍要求 CH1-CH5 全部有效且新鲜，否则 `online=false`、油门归零、STOP 默认 true。
+- OTA：版本 `2026.06.25-rc-diagnostics.2`，`firmware.bin` size `1141872`，MD5 `da58c65d8e02fb763aa6d7139bcb4edb`，`force=false`；本地打包完成，未发布云端/未安装设备。
+- 验证：`git diff --check` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build --notes ...` PASS。
+- 当前状态：PASS_NEEDS_DEVICE_OTA_OR_FLASH_AND_FIELD_CHECK。
+- 下一步：更新设备后看 H5 `遥控链路` 与日志 `TLM ... rc=... ch=...`；CH 全 0 查接收机供电/共地/绑定，单路 0 或越界查该通道 S 线/分压/插针，STOP=1 先确认 CH5 开关方向。
+
 ### 2026-06-25 18:05 - Codex - 摄像头 MJPEG 卡顿优化
 - 改动：`vision_cam` 默认从 `SVGA/q12` 调为 `VGA/q18/12fps`，并给 MJPEG 增加帧率节流、no-store header、active client/send failure/frame interval 诊断字段。
 - 文件：`vision_cam/src/main.cpp`, `vision_cam/platformio.ini`, `vision_cam/README.md`, `AI-HANDOFF-MEMORY.md`。
@@ -1173,6 +1236,48 @@
 - 当前状态：NEXT_TASK_READY
 - 下一步：任何 AI 开发/审查前先读 `skills/README.md` 和本文件，再按路由读对应技能。
 
+### 2026-06-26 08:25 - Codex - control-center local API hang fix
+- Change: fixed `tools_local/followbox-control-center.ps1` command runner to read stdout/stderr concurrently, avoiding local API hangs after noisy ssh/scp/npm commands.
+- Files: `tools_local/followbox-control-center.ps1`, `AI-HANDOFF-MEMORY.md`
+- Architecture impact: local operator tooling only; no firmware module, GPIO, protocol, or cloud API contract change.
+- Safety impact: none; no motor/e-stop/PWM/sensor behavior changed.
+- OTA: device OTA not required for this tooling fix. Cloud OTA artifact `2026.06.25-rc-diagnostics.2` is live and verified.
+- Verification: local `http://127.0.0.1:8787/api/state` responds; OTA/cloud preflight passes; public firmware download matched size `1141872` and MD5 `da58c65d8e02fb763aa6d7139bcb4edb`.
+- Current status: PASS
+- Next step: if RC channel-age diagnostics are not installed on the device, user can trigger H5 OTA install for `2026.06.25-rc-diagnostics.2`.
+
+### 2026-06-26 19:20 - Codex - move control-center back to tools
+- 改动：将完整 control-center 后端、页面和配置迁回 `tools/`，`tools/start-followbox-control-center.cmd` 不再创建或依赖 `tools_local/`；后端启动和每次 API 配置合并都会把 `repoPath`、`cloudPath`、`firmwarePath`、`cloudFirmwarePath` 强制归一到当前仓库；旧 `tools_local` 启动入口改为转发到 `tools/`。
+- 文件：`.gitignore`, `tools/start-followbox-control-center.cmd`, `tools/followbox-control-center.ps1`, `tools/followbox-control-center.html`, `tools/followbox-control-center.config.json`（本机忽略配置）, `tools_local/start-followbox-control-center.cmd`, `tools_local/followbox-control-center.ps1`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：本机工具链归属修复；云端 H5 deploy、cloud OTA publish、repo upload、repo pull 统一由 `tools/` control-center 提供，不再以 `tools_local/` 作为功能目录。
+- 安全影响：无固件、GPIO、PWM、电机、传感器或设备运动链路改动；本次仅影响本机部署/仓库/OTA 发布工具入口。
+- OTA：不需要设备 OTA；没有修改固件或车端 LittleFS H5。云端 OTA 发布功能只做本机工具路径修复，未触发新的云端发布。
+- 验证：PowerShell parser 检查 `tools/followbox-control-center.ps1` 和旧 `tools_local` 转发脚本 PASS；`cmd /c tools\start-followbox-control-center.cmd help` 显示功能由 `tools\followbox-control-center.ps1` 提供；本地独立端口 `/api/state`、`/api/preflight` for `git-pull-local`/`cloud-deploy`/`ota-publish-cloud`、根页面 HTTP 200 PASS；向 `/api/config/save` 注入 `tools_local` 路径后返回配置仍归一到当前 repo；直接运行旧 `tools_local\followbox-control-center.ps1` 返回 `toolRoot=C:\Users\chenb\Desktop\follow the box\tools`；真实 `/api/git/pull` 在当前脏工作区按预期阻止；SSH `true` 连通性 PASS；HTML 内嵌脚本 `node --check` PASS。
+- 当前状态：PASS
+- 下一步：以后从本机统一运行 `tools\start-followbox-control-center.cmd`；若有旧桌面快捷方式指向 `tools_local`，它会被转发到 `tools`。
+
+### 2026-06-26 19:31 - Codex - fix cloud deploy Failed to fetch
+- 改动：修复 control-center 云端部署时 `Failed to fetch`。根因是旧后端被 `ssh mkdir -p /www/wwwroot/followbox-cloud/...` 子进程卡住，单线程 listener 无法返回任何 API 响应；`Invoke-ExternalCommand` 现在带硬超时，云端 deploy/OTA upload 的 SSH/SCP/远端验证步骤分别设置 30s/180s/300s/60s 超时，超时会返回 JSON 结果而不是挂死 UI。
+- 文件：`tools/followbox-control-center.ps1`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：本机 control-center 稳定性修复；不改变云端 API 协议、不改变固件模块边界。
+- 安全影响：无固件、GPIO、PWM、电机、传感器或设备运动链路改动。
+- OTA：不需要设备 OTA；没有修改固件或车端 LittleFS H5。
+- 云端：已清理旧挂起 control-center/ssh 进程，重启 `tools\start-followbox-control-center.cmd`，并通过 `/api/cloud/deploy` 实际完成云端部署；公网 `https://www.boonai.cn/fb/deploy-version.txt` 返回 `built_at=2026-06-26T19:30:09+08:00`，远端 loopback HTTP 200，公网首页 HTTP 200。
+- 验证：`/api/state` 正常返回 `toolRoot=C:\Users\chenb\Desktop\follow the box\tools`；实际 `/api/cloud/deploy` 返回 `ok=true` 且 7 个 SSH/SCP/verify step 全部 exit 0；无残留超时 `ssh mkdir` 进程。
+- 当前状态：PASS
+- 下一步：如 UI 仍显示旧失败，刷新 `http://127.0.0.1:8787/` 页面后再点“仅部署云端”；不要打开本地 HTML 文件。
+
 ## 已过期/归档记录
 
 暂无。
+
+### 2026-06-26 21:10 - Codex - cloud uplink stability fix
+- 改动：修复云端上报偶发离线。固件 `CloudClient` 现在对 telemetry POST 失败做短退避，记录最近成功上报时间；camera relay 只有在 telemetry 最近成功时才运行，camera 上传失败后按 10s/20s/30s 退避，避免视频上传超时挤占遥测上报窗口；cloud server 与 cloud H5 在线 TTL 从 5s 调整为 10s，降低公网短抖动导致的闪离线。
+- 文件：`firmware/src/cloud/cloud_client.cpp`, `firmware/src/cloud/cloud_client.h`, `firmware/include/config/cloud_config.h`, `firmware/include/config/ota_config.h`, `cloud/server.js`, `cloud/public/app.js`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：只调整云端遥测/视频 relay 调度与云端在线判定；不改变 `SystemState` schema、不改变 H5 command API、不改变 OTA 安装授权流程。
+- 安全影响：无电机、PWM、急停、制动、传感器安全门控或 `safety_manager` 改动；云端低速点动仍只通过既有 `CloudControlInput -> safety_manager -> drive_adapter` 链路。
+- OTA：新候选版本 `2026.06.26-cloud-uplink-stability.1` 已本地构建并发布到 cloud firmware，manifest `md5=e1ec0c0f62d7442d679699d9f9b2176a`, `size=1142432`, `force=false`。设备安装仍需用户在 H5/控制中心触发 OTA。
+- 云端：已实际部署 `cloud/server.js` 与 `cloud/public/app.js` 到 `https://www.boonai.cn/fb/`；deploy stamp `built_at=2026-06-26T21:06:16+08:00`。control-center 部署返回中首个 `mkdir` step 超时，但后续 scp、PM2 restart、远端 loopback HTTP 200、公网 HTTP 200 均通过，独立公网校验确认新 H5 TTL 与新 OTA manifest 已生效。
+- 验证：`node --check cloud/server.js` PASS；`node --check cloud/public/app.js` PASS；`git diff --check` PASS；`pio run -d firmware` SUCCESS；`python tools/package_ota.py --skip-build` PASS；公网 `/api/health` OK；公网 `/api/device/followbox-001/firmware/version` 返回新版本；公网 firmware download MD5/size 与 manifest 一致。
+- 当前状态：PASS，需要用户在设备侧 OTA 安装后，观察串口是否还出现连续 `cloud_client: upload failed code=-11`，以及云端 H5 是否仍有超过 10s 的真实上报中断。
+- 下一步：如果 OTA 后仍离线，优先抓取 60s 串口 TLM/cloud_client 日志和 cloud H5 `/events` 时间戳，区分 STA WiFi 断链、HTTP 超时、服务器接收延迟或真实设备重启。

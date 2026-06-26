@@ -11,6 +11,7 @@
 #include "control/motion_mixer.h"
 #include "control/obstacle_manager.h"
 #include "core/system_state.h"
+#include "core/time_utils.h"
 #include "safety/safety_manager.h"
 #include "sensors/jy61p_imu.h"
 #include "sensors/lidar_eai_s2.h"
@@ -23,6 +24,17 @@
 using namespace followbox;
 
 namespace {
+
+void testTimeUtils() {
+  assert(!isStale(1000, 1001, 100));
+  assert(elapsedMsClamped(1000, 1001) == 0);
+
+  assert(isStale(1000, 1100, 100));
+  assert(elapsedMsClamped(1000, 1100) > 1000);
+
+  assert(!isStale(5, 0xFFFFFFFEu, 100));
+  assert(elapsedMsClamped(5, 0xFFFFFFFEu) == 7);
+}
 
 // --- Existing safety / mode / mixer regression checks ---------------------
 void testSafetyAndMixer() {
@@ -943,6 +955,7 @@ void testRequestParser() {
 }  // namespace
 
 int main() {
+  testTimeUtils();
   testSafetyAndMixer();
   testUwbParser();
   testFollowController();

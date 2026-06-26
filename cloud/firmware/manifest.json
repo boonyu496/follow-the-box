@@ -1,8 +1,8 @@
 {
-    "version":  "2026.06.25-rc-diagnostics.1",
-    "file":  "firmware.bin",
-    "md5":  "1e14ef96945b472c466ee2ed0a1013d7",
-    "size":  1141696,
-    "force":  false,
-    "notes":  "Expose DS600 RC CH1-CH5 PWM diagnostics in /ws/state for local/cloud H5; includes prior RX-only JY62/JY61P UART0 enablement."
+  "version": "2026.06.26-cloud-uplink-stability.1",
+  "file": "firmware.bin",
+  "md5": "e1ec0c0f62d7442d679699d9f9b2176a",
+  "size": 1142432,
+  "force": false,
+  "notes": "Improve cloud uplink stability: prioritize telemetry over video relay, add upload retry backoff, and extend cloud/H5 online TTL to tolerate short public-network stalls."
 }

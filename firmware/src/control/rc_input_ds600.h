@@ -16,6 +16,7 @@ class RcInputDs600 {
 
  private:
   bool readChannels(uint32_t now_ms, uint16_t (&channels)[6],
+                    uint32_t (&channel_age_ms)[6],
                     uint32_t& newest_update_ms) const;
   float normalizeCentered(uint16_t pulse_us) const;
   float normalizeSpeedLimit(uint16_t pulse_us) const;

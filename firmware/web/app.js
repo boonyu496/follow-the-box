@@ -88,6 +88,7 @@ const els = {
   fullscreenBtn: $("fullscreen-btn"),
   btnCameraReload: $("btn-camera-reload"),
   logs: $("logs"),
+  copyLogs: $("copy-logs"),
   clearLogs: $("clear-logs"),
   joy: $("joy"),
   stick: $("stick"),
@@ -1605,12 +1606,49 @@ otaEls.later?.addEventListener("click", () => {
 
 refreshOtaStatus();
 
-// ── Online/Offline detection ──
+// ── Log actions ──
+async function copyVisibleLogs() {
+  const text = els.logs?.textContent || "";
+  const trimmed = text.trim();
+  const button = els.copyLogs;
+  if (!button) return;
+  if (!trimmed || trimmed === "-- 等待日志 --") {
+    button.textContent = "无日志";
+    setTimeout(() => { button.textContent = "复制"; }, 1200);
+    return;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      if (!copied) throw new Error("copy command failed");
+    }
+    button.textContent = "已复制";
+  } catch (e) {
+    button.textContent = "复制失败";
+  }
+  setTimeout(() => { button.textContent = "复制"; }, 1200);
+}
+
 if (els.clearLogs) {
   els.clearLogs.addEventListener("click", () => {
     els.logs.textContent = "";
   });
 }
+if (els.copyLogs) {
+  els.copyLogs.addEventListener("click", copyVisibleLogs);
+}
+
+// ── Online/Offline detection ──
 
 window.addEventListener("online", () => {
   if (!ws || ws.readyState > 1) connectWs();

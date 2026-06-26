@@ -85,9 +85,14 @@ void TelemetryLogger::update(const SystemState& state, uint32_t now_ms) {
 
 void TelemetryLogger::emit(const SystemState& state) {
   const MotorCommand& mc = state.motor_command;
+  const RcInput& rc = state.rc;
+  const uint32_t rc_age_ms =
+      elapsedMsClamped(state.now_ms, rc.last_update_ms);
   FB_LOGI(
       "TLM mode=%s stop=%s en=%d brk=%d L=%.2f%c R=%.2f%c scale=%.2f "
       "batt=%.1f estop=%d wiz=%d uwb=%d/%dmm "
+      "rc=%d age=%lu ch=%u/%u/%u/%u/%u ch_age=%lu/%lu/%lu/%lu/%lu "
+      "thr=%.2f str=%.2f spd=%.2f stop=%d auto=%d "
       "lidar=%d rx=%lu pkt=%lu scan=%lu ce=%lu fe=%lu "
       "tof=0x%lx/%lu init=%lu/%lu nack=%lu to=%lu busclr=%lu reinit=%lu",
       modeName(state.mode), stopName(state.safety.stop_reason), mc.enable ? 1 : 0,
@@ -98,6 +103,18 @@ void TelemetryLogger::emit(const SystemState& state) {
       static_cast<double>(state.power.battery_voltage),
       state.estop_active ? 1 : 0, state.install_wizard_complete ? 1 : 0,
       state.uwb.valid ? 1 : 0, state.uwb.distance_mm,
+      rc.online ? 1 : 0, static_cast<unsigned long>(rc_age_ms),
+      static_cast<unsigned>(rc.ch_us[0]), static_cast<unsigned>(rc.ch_us[1]),
+      static_cast<unsigned>(rc.ch_us[2]), static_cast<unsigned>(rc.ch_us[3]),
+      static_cast<unsigned>(rc.ch_us[4]),
+      static_cast<unsigned long>(rc.ch_age_ms[0]),
+      static_cast<unsigned long>(rc.ch_age_ms[1]),
+      static_cast<unsigned long>(rc.ch_age_ms[2]),
+      static_cast<unsigned long>(rc.ch_age_ms[3]),
+      static_cast<unsigned long>(rc.ch_age_ms[4]),
+      static_cast<double>(rc.throttle),
+      static_cast<double>(rc.steering), static_cast<double>(rc.speed_limit),
+      rc.stop_switch ? 1 : 0, rc.auto_request ? 1 : 0,
       state.sensor_diagnostics.lidar_valid ? 1 : 0,
       static_cast<unsigned long>(state.sensor_diagnostics.lidar_rx_bytes),
       static_cast<unsigned long>(state.sensor_diagnostics.lidar_packets),

@@ -1,6 +1,6 @@
 #include "control/rc_input_ds600.h"
 
-#include <algorithm>
+#include <cstdint>
 #include <cmath>
 
 #include "config/board_pins.h"
@@ -19,9 +19,17 @@ constexpr uint16_t kHighUs = 2000;
 constexpr uint16_t kDeadbandUs = 50;
 constexpr uint16_t kSwitchLowUs = 1300;
 constexpr uint16_t kSwitchHighUs = 1700;
+constexpr uint32_t kChannelStaleMs = 100;
 
 bool validPulse(uint16_t pulse_us) {
   return pulse_us >= kMinPulseUs && pulse_us <= kMaxPulseUs;
+}
+
+uint32_t channelAgeMs(uint32_t now_ms, uint32_t last_update_ms) {
+  if (last_update_ms == 0) {
+    return 0;
+  }
+  return elapsedMsClamped(now_ms, last_update_ms);
 }
 
 }  // namespace
@@ -40,9 +48,17 @@ bool RcInputDs600::begin() {
 
 void RcInputDs600::update(uint32_t now_ms) {
   uint16_t channels[6] = {0, 0, 0, 0, 0, 0};
+  uint32_t channel_age_ms[6] = {0, 0, 0, 0, 0, 0};
   uint32_t newest_update_ms = 0;
 
-  if (!readChannels(now_ms, channels, newest_update_ms)) {
+  const bool channels_valid =
+      readChannels(now_ms, channels, channel_age_ms, newest_update_ms);
+  for (uint8_t i = 0; i < 6; ++i) {
+    snapshot_.ch_us[i] = channels[i];
+    snapshot_.ch_age_ms[i] = channel_age_ms[i];
+  }
+
+  if (!channels_valid) {
     snapshot_.online = false;
     snapshot_.last_update_ms = newest_update_ms;
     snapshot_.throttle = 0.0f;
@@ -55,9 +71,6 @@ void RcInputDs600::update(uint32_t now_ms) {
 
   snapshot_.online = true;
   snapshot_.last_update_ms = newest_update_ms;
-  for (uint8_t i = 0; i < 6; ++i) {
-    snapshot_.ch_us[i] = channels[i];
-  }
   snapshot_.steering = normalizeCentered(channels[0]);
   snapshot_.throttle = normalizeCentered(channels[1]);
   snapshot_.speed_limit = normalizeSpeedLimit(channels[2]);
@@ -72,6 +85,7 @@ bool RcInputDs600::isOnline(uint32_t now_ms) const {
 }
 
 bool RcInputDs600::readChannels(uint32_t now_ms, uint16_t (&channels)[6],
+                                uint32_t (&channel_age_ms)[6],
                                 uint32_t& newest_update_ms) const {
   const PwmInputSnapshot pwm[] = {
       ch1_.snapshot(),
@@ -82,16 +96,22 @@ bool RcInputDs600::readChannels(uint32_t now_ms, uint16_t (&channels)[6],
   };
 
   newest_update_ms = 0;
+  uint32_t newest_age_ms = UINT32_MAX;
+  bool all_valid = true;
   for (uint8_t i = 0; i < 5; ++i) {
     channels[i] = pwm[i].pulse_us;
-    newest_update_ms = std::max(newest_update_ms, pwm[i].last_update_ms);
+    channel_age_ms[i] = channelAgeMs(now_ms, pwm[i].last_update_ms);
+    if (pwm[i].last_update_ms > 0 && channel_age_ms[i] <= newest_age_ms) {
+      newest_age_ms = channel_age_ms[i];
+      newest_update_ms = pwm[i].last_update_ms;
+    }
     if (!validPulse(pwm[i].pulse_us) ||
-        isStale(now_ms, pwm[i].last_update_ms, 100)) {
-      return false;
+        isStale(now_ms, pwm[i].last_update_ms, kChannelStaleMs)) {
+      all_valid = false;
     }
   }
   channels[5] = 0;
-  return true;
+  return all_valid;
 }
 
 float RcInputDs600::normalizeCentered(uint16_t pulse_us) const {

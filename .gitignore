@@ -34,5 +34,6 @@ __pycache__/
 
 # Local-only tools and sync worktrees
 tools_local/
+tools/followbox-control-center.config.json
 FollowBox-DevConsole.exe
 output/repo-sync-*/

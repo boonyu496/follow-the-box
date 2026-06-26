@@ -3,11 +3,12 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 set "REPO_ROOT=%~dp0.."
 for %%I in ("%REPO_ROOT%") do set "REPO_ROOT=%%~fI"
-set "LOCAL_TOOLS_DIR=%REPO_ROOT%\tools_local"
-set "CONTROL_PS1=%LOCAL_TOOLS_DIR%\followbox-control-center.ps1"
-set "CONTROL_HTML=%LOCAL_TOOLS_DIR%\followbox-control-center.html"
-set "CONTROL_CONFIG=%LOCAL_TOOLS_DIR%\followbox-control-center.config.json"
-set "LOG_DIR=%LOCAL_TOOLS_DIR%\logs"
+set "TOOLS_DIR=%~dp0"
+for %%I in ("%TOOLS_DIR%") do set "TOOLS_DIR=%%~fI"
+set "CONTROL_PS1=%TOOLS_DIR%\followbox-control-center.ps1"
+set "CONTROL_HTML=%TOOLS_DIR%\followbox-control-center.html"
+set "CONTROL_CONFIG=%TOOLS_DIR%\followbox-control-center.config.json"
+set "LOG_DIR=%TOOLS_DIR%\logs"
 set "PORT=%FOLLOWBOX_CONTROL_PORT%"
 if not defined PORT set "PORT=8787"
 
@@ -18,28 +19,19 @@ if /I "%~1"=="status" goto :status
 
 echo [INFO] FollowBox control center launcher
 echo [INFO] Repo root: "%REPO_ROOT%"
-echo [INFO] Local tools: "%LOCAL_TOOLS_DIR%"
+echo [INFO] Tools dir: "%TOOLS_DIR%"
 echo [INFO] Port: %PORT%
-
-if not exist "%LOCAL_TOOLS_DIR%\" (
-  echo [INFO] Creating local-only tools directory: "%LOCAL_TOOLS_DIR%"
-  mkdir "%LOCAL_TOOLS_DIR%" >nul 2>&1
-  if errorlevel 1 (
-    echo [ERROR] Cannot create local-only tools directory.
-    exit /b 1
-  )
-)
 
 if not exist "%CONTROL_PS1%" (
   echo [ERROR] Missing control center backend: "%CONTROL_PS1%"
-  echo [ERROR] Cloud deploy, cloud OTA publish, repo upload, and repo pull all live in this local backend.
-  echo [HINT] Restore tools_local/followbox-control-center.ps1 on this machine, then start this file again.
+  echo [ERROR] Cloud deploy, cloud OTA publish, repo upload, and repo pull must live in tools\ on this machine.
+  echo [HINT] Restore tools/followbox-control-center.ps1, then start this file again.
   exit /b 1
 )
 
 if not exist "%CONTROL_HTML%" (
   echo [ERROR] Missing control center UI: "%CONTROL_HTML%"
-  echo [HINT] Restore tools_local/followbox-control-center.html on this machine, then start this file again.
+  echo [HINT] Restore tools/followbox-control-center.html on this machine, then start this file again.
   exit /b 1
 )
 
@@ -71,7 +63,7 @@ if /I not "%FOLLOWBOX_KEEP_EXISTING_CONTROL_CENTER%"=="1" (
   echo [INFO] FOLLOWBOX_KEEP_EXISTING_CONTROL_CENTER=1, keeping any running control center process.
 )
 
-echo [INFO] Starting backend directly from tools_local/followbox-control-center.ps1
+echo [INFO] Starting backend directly from tools/followbox-control-center.ps1
 echo [INFO] Browser/UI: http://127.0.0.1:%PORT%/
 echo [INFO] Use this entry point for cloud deploy, cloud OTA publish, repo upload, and repo pull.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%CONTROL_PS1%" -Port %PORT% %*
@@ -92,7 +84,7 @@ echo   FOLLOWBOX_KEEP_EXISTING_CONTROL_CENTER=1
 echo.
 echo Notes:
 echo   This file is the stable repo entry point.
-echo   The cloud deploy, cloud OTA publish, repo upload, and repo pull APIs are served by tools_local\followbox-control-center.ps1.
+echo   The cloud deploy, cloud OTA publish, repo upload, and repo pull APIs are served by tools\followbox-control-center.ps1.
 exit /b 0
 
 :status
@@ -109,7 +101,7 @@ exit /b 0
 
 :stop_existing
 set "FOLLOWBOX_CONTROL_SCRIPT=%CONTROL_PS1%"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$target = $env:FOLLOWBOX_CONTROL_SCRIPT; $relative1 = 'tools_local\followbox-control-center.ps1'; $relative2 = 'tools_local/followbox-control-center.ps1'; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and (($_.CommandLine.IndexOf($target, [StringComparison]::OrdinalIgnoreCase) -ge 0) -or ($_.CommandLine.IndexOf($relative1, [StringComparison]::OrdinalIgnoreCase) -ge 0) -or ($_.CommandLine.IndexOf($relative2, [StringComparison]::OrdinalIgnoreCase) -ge 0)) } | ForEach-Object { Write-Output ('[INFO] Stopping old control center process PID ' + $_.ProcessId); Stop-Process -Id $_.ProcessId -Force }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$target = $env:FOLLOWBOX_CONTROL_SCRIPT; $relative1 = 'tools\followbox-control-center.ps1'; $relative2 = 'tools/followbox-control-center.ps1'; $legacy1 = 'tools_local\followbox-control-center.ps1'; $legacy2 = 'tools_local/followbox-control-center.ps1'; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and (($_.CommandLine.IndexOf($target, [StringComparison]::OrdinalIgnoreCase) -ge 0) -or ($_.CommandLine.IndexOf($relative1, [StringComparison]::OrdinalIgnoreCase) -ge 0) -or ($_.CommandLine.IndexOf($relative2, [StringComparison]::OrdinalIgnoreCase) -ge 0) -or ($_.CommandLine.IndexOf($legacy1, [StringComparison]::OrdinalIgnoreCase) -ge 0) -or ($_.CommandLine.IndexOf($legacy2, [StringComparison]::OrdinalIgnoreCase) -ge 0)) } | ForEach-Object { Write-Output ('[INFO] Stopping old control center process PID ' + $_.ProcessId); Stop-Process -Id $_.ProcessId -Force }"
 if errorlevel 1 (
   echo [WARN] Could not scan/stop old control center processes. Continuing startup.
 )

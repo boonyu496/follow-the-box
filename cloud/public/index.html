@@ -229,7 +229,10 @@
         <article class="fb-panel">
           <header class="fb-section-head">
             <strong>设备日志</strong>
-            <button id="clear-logs" class="secondary outline small">清空</button>
+            <div class="fb-section-actions">
+              <button id="copy-logs" class="secondary outline small">复制</button>
+              <button id="clear-logs" class="secondary outline small">清空</button>
+            </div>
           </header>
           <pre id="logs" class="fb-log-pre">-- 等待日志 --</pre>
         </article>
@@ -260,7 +263,7 @@
             <span id="camera-url-state">--</span>
           </header>
           <div class="fb-url-row">
-            <input id="camera-url" type="url" placeholder="留空自动使用云端转发" />
+            <input id="camera-url" type="url" placeholder="自动生成云端转发地址" />
             <button id="save-camera-url" class="fb-save-btn fb-save-btn--sm">保存</button>
           </div>
         </article>

@@ -84,7 +84,8 @@ void sensorTaskEntry(void*) {
   for (;;) {
     const uint32_t now = millis();
     sensors.update(now);
-    rc_input.update(now);
+    const uint32_t rc_now = millis();
+    rc_input.update(rc_now);
 
     SensorBundle bundle;
     bundle.uwb = sensors.uwbTarget();

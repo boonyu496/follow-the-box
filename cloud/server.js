@@ -13,7 +13,7 @@ const DEPLOY_VERSION_FILE = path.join(PUBLIC_DIR, "deploy-version.txt");
 const FIRMWARE_DIR = path.join(__dirname, "firmware");
 const FIRMWARE_MANIFEST = path.join(FIRMWARE_DIR, "manifest.json");
 const COMMAND_TTL_MS = 750;
-const DEVICE_ONLINE_TTL_MS = 5000;
+const DEVICE_ONLINE_TTL_MS = 10000;
 const SSE_HEARTBEAT_MS = 15000;
 
 const devices = new Map();

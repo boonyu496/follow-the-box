@@ -100,6 +100,7 @@ const els = {
   saveStatus: $("save-status"),
   logs: $("logs"),
   raw: $("raw"),
+  copyLogs: $("copy-logs"),
   clearLogs: $("clear-logs"),
   spatialMap: $("spatial-map"),
   otaVersion: $("ota-version"),
@@ -143,26 +144,38 @@ const stopLabels = {
 const DEFAULT_OPERATOR_TOKEN = "0b6cf31c57bc202d002b04f843c9b430"; // matches server default
 const MAX_RANGE_MM = 3000;
 const MAP_MAX_MM = 4000;
-const DEVICE_ONLINE_TTL_MS = 5000;
+const DEVICE_ONLINE_TTL_MS = 10000;
 const TOF_RATE_WINDOW_MS = 5000;
 // Resolve API URLs relative to app.js, so the cloud console keeps working when
 // deployed under a sub-path such as https://www.boonai.cn/fb/.
 const APP_BASE_URL = new URL(".", document.currentScript?.src || window.location.href);
 
-// ── sessionStorage keys (debug phase: plaintext; will move to box-ID-derived token later) ──
+// ── Browser storage keys (debug phase: plaintext; will move to box-ID-derived token later) ──
 const STORAGE_KEY_TOKEN = "fb_operator_token";
 const STORAGE_KEY_DEVICE = "fb_device_id";
 const STORAGE_KEY_CAMERA = "fb_camera_url";
-const PRIVATE_CAMERA_HOSTS = new Set(["192.168.4.2", "192.168.4.10"]);
+const STORAGE_KEY_CAMERA_LAST = "fb_camera_last_url";
 
 function loadSetting(storageKey, defaultValue) {
-  try { return sessionStorage.getItem(storageKey) || defaultValue; }
-  catch (e) { return defaultValue; }
+  try {
+    const stored = localStorage.getItem(storageKey);
+    if (stored !== null) return stored;
+  } catch (e) { /* localStorage disabled */ }
+  try {
+    const legacy = sessionStorage.getItem(storageKey);
+    if (legacy !== null) {
+      saveSetting(storageKey, legacy);
+      return legacy;
+    }
+  } catch (e) { /* sessionStorage disabled */ }
+  return defaultValue;
 }
 
 function saveSetting(storageKey, value) {
-  try { sessionStorage.setItem(storageKey, value); }
+  try { localStorage.setItem(storageKey, value); }
   catch (e) { /* storage full or disabled */ }
+  try { sessionStorage.setItem(storageKey, value); }
+  catch (e) { /* sessionStorage disabled */ }
 }
 
 let events = null;
@@ -368,15 +381,6 @@ function cloudVideoLatestUrl(frameSeq = latestVideoFrameSeq) {
   return url.toString();
 }
 
-function isPrivateCameraUrl(value) {
-  try {
-    const url = new URL(value);
-    return PRIVATE_CAMERA_HOSTS.has(url.hostname);
-  } catch (e) {
-    return false;
-  }
-}
-
 function deviceTelemetryOnline(lastIngestAt) {
   return typeof lastIngestAt === "number" && lastIngestAt > 0 &&
     Date.now() - lastIngestAt < DEVICE_ONLINE_TTL_MS;
@@ -471,9 +475,30 @@ document.querySelectorAll(".fb-nav-btn").forEach((btn) => {
 
 // ── Camera ──
 
-function updateCamStream(url) {
+function persistCameraUrl(url) {
   const next = (url || "").trim();
-  if (!next || next === activeCameraUrl) return;
+  saveSetting(STORAGE_KEY_CAMERA, next);
+  saveSetting(STORAGE_KEY_CAMERA_LAST, next);
+}
+
+function persistLastCameraUrl(url) {
+  const next = (url || "").trim();
+  if (next) saveSetting(STORAGE_KEY_CAMERA_LAST, next);
+}
+
+function useCloudCameraRelay(options = {}) {
+  const next = cloudVideoLatestUrl();
+  userCameraOverride = false;
+  updateCamStream(next, options);
+  if (els.cameraUrlState) els.cameraUrlState.textContent = "云端转发";
+}
+
+function updateCamStream(url, options = {}) {
+  const { persistLast = true } = options;
+  const next = (url || "").trim();
+  if (!next) return;
+  if (persistLast) persistLastCameraUrl(next);
+  if (next === activeCameraUrl) return;
   activeCameraUrl = next;
   els.cameraStream.src = next;
   els.cameraStatus.textContent = "加载中";
@@ -484,8 +509,24 @@ function updateCamStream(url) {
 els.cameraStream.addEventListener("load", () => setCameraOnline(true, "画面在线"));
 els.cameraStream.addEventListener("error", () => setCameraOnline(false, "画面离线"));
 
-els.cameraUrl.addEventListener("input", () => { userCameraOverride = true; });
-els.cameraUrl.addEventListener("change", () => updateCamStream(els.cameraUrl.value));
+els.cameraUrl.addEventListener("input", () => {
+  const url = els.cameraUrl.value.trim();
+  userCameraOverride = !!url;
+  if (!url || /^https?:\/\//i.test(url) || url.startsWith("/")) {
+    persistCameraUrl(url);
+  }
+});
+els.cameraUrl.addEventListener("change", () => {
+  const url = els.cameraUrl.value.trim();
+  persistCameraUrl(url);
+  if (url) {
+    userCameraOverride = true;
+    updateCamStream(url);
+  } else {
+    latestVideoFrameSeq = -1;
+    useCloudCameraRelay();
+  }
+});
 
 // ── Fullscreen ──
 
@@ -917,6 +958,10 @@ els.saveConnection.addEventListener("click", () => {
   els.deviceId.value = devId;
   saveSetting(STORAGE_KEY_TOKEN, token);
   saveSetting(STORAGE_KEY_DEVICE, devId);
+  if (!userCameraOverride) {
+    latestVideoFrameSeq = -1;
+    useCloudCameraRelay();
+  }
   manualReconnectPending = true;
   setSaveStatus(els.saveStatus, "💾 已保存，正在重连...", "warn");
   connectEvents();
@@ -924,22 +969,14 @@ els.saveConnection.addEventListener("click", () => {
 
 els.saveCameraUrl.addEventListener("click", () => {
   const url = els.cameraUrl.value.trim();
-  if (isPrivateCameraUrl(url)) {
-    saveSetting(STORAGE_KEY_CAMERA, "");
-    userCameraOverride = false;
-    latestVideoFrameSeq = -1;
-    clearCameraStream("等待云端画面");
-    flashStatus(els.cameraUrlState, "已切回云端转发", true);
-    return;
-  }
-  saveSetting(STORAGE_KEY_CAMERA, url);
+  persistCameraUrl(url);
   if (url) {
     userCameraOverride = true;
     updateCamStream(url);
   } else {
-    userCameraOverride = false;
     latestVideoFrameSeq = -1;
-    clearCameraStream("等待云端画面");
+    saveSetting(STORAGE_KEY_CAMERA, "");
+    useCloudCameraRelay();
   }
   flashStatus(els.cameraUrlState, "✅ 视频地址已保存", true);
 });
@@ -1146,8 +1183,40 @@ function initJoystick() {
   });
 }
 
-// ── Clear Logs ──
+// ── Log actions ──
 
+async function copyVisibleLogs() {
+  const text = els.logs.textContent || "";
+  const trimmed = text.trim();
+  const button = els.copyLogs;
+  if (!trimmed || trimmed === "-- 等待日志 --") {
+    button.textContent = "无日志";
+    setTimeout(() => { button.textContent = "复制"; }, 1200);
+    return;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      if (!copied) throw new Error("copy command failed");
+    }
+    button.textContent = "已复制";
+  } catch (e) {
+    button.textContent = "复制失败";
+  }
+  setTimeout(() => { button.textContent = "复制"; }, 1200);
+}
+
+els.copyLogs.addEventListener("click", copyVisibleLogs);
 els.clearLogs.addEventListener("click", () => { els.logs.textContent = ""; });
 
 // ── Online/Offline detection ──
@@ -1361,16 +1430,15 @@ function drawSpatialMap(telemetry) {
 
 // ── Init ──
 
-// Restore settings from sessionStorage; fall back to defaults
+// Restore durable settings; fall back to defaults.
 const savedToken = loadSetting(STORAGE_KEY_TOKEN, DEFAULT_OPERATOR_TOKEN);
 const savedDevice = loadSetting(STORAGE_KEY_DEVICE, "followbox-001");
-const savedCameraRaw = loadSetting(STORAGE_KEY_CAMERA, "");
-const savedCamera = isPrivateCameraUrl(savedCameraRaw) ? "" : savedCameraRaw;
-if (savedCameraRaw && !savedCamera) saveSetting(STORAGE_KEY_CAMERA, "");
+const savedCamera = loadSetting(STORAGE_KEY_CAMERA, "");
 
 if (els.operatorToken) els.operatorToken.value = savedToken;
 if (els.deviceId) els.deviceId.value = savedDevice;
-if (els.cameraUrl && savedCamera) els.cameraUrl.value = savedCamera;
+const initialCloudCameraUrl = cloudVideoLatestUrl();
+if (els.cameraUrl) els.cameraUrl.value = savedCamera || initialCloudCameraUrl;
 
 setupCanvasDPI(els.spatialMap);
 drawSpatialMap({});
@@ -1384,5 +1452,5 @@ if (savedCamera) {
   userCameraOverride = true;
   updateCamStream(savedCamera);
 } else {
-  setCameraOnline(false, "等待云端画面");
+  useCloudCameraRelay({ persistLast: true });
 }

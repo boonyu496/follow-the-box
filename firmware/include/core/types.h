@@ -42,6 +42,7 @@ struct RcInput {
   bool online = false;
   uint32_t last_update_ms = 0;
   uint16_t ch_us[6] = {0, 0, 0, 0, 0, 0};
+  uint32_t ch_age_ms[6] = {0, 0, 0, 0, 0, 0};
   float throttle = 0.0f;
   float steering = 0.0f;
   float speed_limit = 0.0f;
