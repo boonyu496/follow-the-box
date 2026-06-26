@@ -13,7 +13,7 @@ constexpr float kBatteryOverrangeMarginV = 2.0f;
 PowerMonitor::PowerMonitor()
     : battery_adc_(pins::PIN_BATTERY_ADC),
       controller_fault_(pins::PIN_CONTROLLER_FAULT, ActiveLevel::ACTIVE_LOW,
-                        InputPull::FLOATING) {}
+                        InputPull::PULL_UP) {}
 
 bool PowerMonitor::begin() {
   battery_adc_.begin();

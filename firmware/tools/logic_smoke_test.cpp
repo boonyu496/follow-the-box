@@ -7,6 +7,7 @@
 #include "app/app.h"
 #include "app/command_pipeline.h"
 #include "app/mode_manager.h"
+#include "config/profile_defaults.h"
 #include "control/follow_controller_uwb.h"
 #include "control/motion_mixer.h"
 #include "control/obstacle_manager.h"
@@ -729,6 +730,40 @@ void testSensorIngestion() {
   assert(std::fabs(app.state().rc.steering + 0.2f) < 0.0001f);
 }
 
+void testManualRcMotorCommand() {
+  App app;
+  app.begin();
+
+  RcInput rc;
+  rc.online = true;
+  rc.last_update_ms = 1000;
+  rc.throttle = 1.0f;
+  rc.steering = 0.0f;
+  rc.speed_limit = 0.5f;
+  rc.stop_switch = false;
+
+  app.ingestSensorInputs(UwbTarget{}, ObstacleSnapshot{}, PowerStatus{},
+                         ImuSnapshot{}, TofSnapshot{}, SensorDiagnostics{},
+                         UltrasonicSnapshot{}, CameraStatus{}, false, 1000,
+                         1000);
+  app.ingestRcInput(rc);
+  app.tick(1000);
+  app.tick(1020);
+  app.tick(1040);
+
+  assert(app.state().mode == RunMode::MANUAL_RC);
+  assert(app.state().intent.source == ControlSource::DS600_RC);
+  assert(app.state().safety.motion_allowed);
+  assert(app.state().motor_command.enable);
+  assert(!app.state().motor_command.brake);
+  assert(app.state().motor_command.left_target > 0.0f);
+  assert(app.state().motor_command.right_target > 0.0f);
+  assert(app.state().motor_command.left_target <=
+         profile::REMOTE_MAX_SPEED_SCALE * rc.speed_limit);
+  assert(app.state().motor_command.right_target <=
+         profile::REMOTE_MAX_SPEED_SCALE * rc.speed_limit);
+}
+
 // --- H5 command handler (panel events -> H5ControlInput) ------------------
 void testH5CommandHandler() {
   H5CommandHandler h5;
@@ -965,6 +1000,7 @@ int main() {
   testObstacleManager();
   testObstacleFusion();
   testSensorIngestion();
+  testManualRcMotorCommand();
   testH5CommandHandler();
   testTelemetryJson();
   testRequestParser();

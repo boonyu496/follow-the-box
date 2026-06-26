@@ -90,7 +90,7 @@ void TelemetryLogger::emit(const SystemState& state) {
       elapsedMsClamped(state.now_ms, rc.last_update_ms);
   FB_LOGI(
       "TLM mode=%s stop=%s en=%d brk=%d L=%.2f%c R=%.2f%c scale=%.2f "
-      "batt=%.1f estop=%d wiz=%d uwb=%d/%dmm "
+      "batt=%.1f pwr=%d low=%d mf=%d/%d estop=%d wiz=%d uwb=%d/%dmm "
       "rc=%d age=%lu ch=%u/%u/%u/%u/%u ch_age=%lu/%lu/%lu/%lu/%lu "
       "thr=%.2f str=%.2f spd=%.2f stop=%d auto=%d "
       "lidar=%d rx=%lu pkt=%lu scan=%lu ce=%lu fe=%lu "
@@ -101,6 +101,9 @@ void TelemetryLogger::emit(const SystemState& state) {
       mc.right_reverse ? 'R' : 'F',
       static_cast<double>(state.safety.max_speed_scale),
       static_cast<double>(state.power.battery_voltage),
+      state.power.valid ? 1 : 0, state.power.low_battery ? 1 : 0,
+      state.power.motor_fault_left ? 1 : 0,
+      state.power.motor_fault_right ? 1 : 0,
       state.estop_active ? 1 : 0, state.install_wizard_complete ? 1 : 0,
       state.uwb.valid ? 1 : 0, state.uwb.distance_mm,
       rc.online ? 1 : 0, static_cast<unsigned long>(rc_age_ms),

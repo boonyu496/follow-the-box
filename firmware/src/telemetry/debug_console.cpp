@@ -10,8 +10,8 @@ namespace {
 
 // Bounded so a single log line can never allocate or stall the caller. Lines
 // longer than this are truncated rather than wrapped.
-constexpr size_t kLineBufferSize = 192;
-constexpr size_t kRingLines = 12;
+constexpr size_t kLineBufferSize = 384;
+constexpr size_t kRingLines = 6;
 
 const char* levelTag(LogLevel level) {
   switch (level) {

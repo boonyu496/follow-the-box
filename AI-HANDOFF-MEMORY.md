@@ -30,6 +30,40 @@
 ```
 
 ## 最新交接记录
+### 2026-06-26 22:51 - Codex - RC 驱动轮 MOTOR_FLT 上拉修复
+- 结论：附件 TLM 显示 DS600 在线且油门随动，但 `mode=FAULT stop=MOTOR_FLT en=0 brk=1 scale=0.00 mf=1/1`，无响应根因是 GPIO2 控制器故障输入锁存，不是 RC 油门链路丢失。
+- 改动：`PowerMonitor` 将 GPIO2 控制器故障输入从 `FLOATING` 改为 `PULL_UP`，仍保持 `ACTIVE_LOW`；真实外部低电平故障仍会锁车，未接/开漏未拉低不再因悬空误报。
+- 说明：未改 LIDAR parser；当前日志是 `rx` 持续增长但 `pkt=0 scan=0`，55AA 现场帧仍需协议确认后再解析，避免把异常字节直接喂给避障。
+- 文件：`firmware/src/sensors/power_monitor.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；不改 GPIO 分配、`safety_manager.applyFinalGate()`、`drive_adapter_analog_bldc` PWM 出口或运动链路。
+- 安全影响：safety-critical；不绕过故障门控，只给 active-low 可选故障输入提供稳定非故障默认电平，故障线被拉低仍 `MOTOR_FLT` 锁定。
+- OTA：版本 `2026.06.26-rc-drive-fault-pullup.1`，`firmware.bin` size `1141536`，MD5 `f7d724297bfd5af797535933fa16970e`，`force=false`；本地打包完成，未发布云端/未安装设备。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --notes ...` PASS。
+- 当前状态：PASS_NEEDS_DEVICE_OTA_AND架空_FIELD_CHECK。
+- 下一步：安装 OTA 后架空车轮，CH3 置最低，确认 TLM 从 `mf=1/1 stop=MOTOR_FLT` 变为 `mf=0/0 stop=NONE en=1 brk=0`；若仍 `mf=1/1`，测 GPIO2 对 GND 电压并查控制器故障线/极性。
+
+### 2026-06-26 22:27 - Codex - RC 无响应 MOTOR_FLT 日志诊断
+- 结论：用户附件日志显示 DS600 遥控已在线且通道随操作变化（`rc=1 age≈10-13ms`），但整车锁在 `mode=FAULT stop=MOTOR_FLT en=0 brk=1`，所以无响应原因是电机故障输入经安全门控锁存，不是 RC 未进入。
+- 改动：`DebugConsole` 单行日志缓冲从 192 增至 384，并将 ring 从 12 行调为 6 行，避免 TLM 在 `spd=` 附近被截断；TLM 增加 `pwr/low/mf=L/R` 字段。
+- 文件：`firmware/src/telemetry/debug_console.cpp`, `firmware/src/telemetry/telemetry_logger.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；只改诊断输出和 OTA 版本，不改 GPIO 映射、`safety_manager.applyFinalGate()`、`drive_adapter_analog_bldc` PWM 出口或运动链路。
+- 安全影响：低；不放宽 `MOTOR_FLT`、低电压、急停、STOP 或 RC_LOST 门控，故障时仍 `enable=false/brake=true/PWM=0`。
+- OTA：版本 `2026.06.26-rc-drive-log.1`，`firmware.bin` size `1141520`，MD5 `67ad0668ea8639bf07d11ab90dd3d04b`，`force=false`；本地打包完成，未发布云端/未安装设备。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build --notes ...` PASS。
+- 当前状态：PASS_NEEDS_DEVICE_OTA_AND_FIELD_CHECK。
+- 下一步：安装 OTA 后架空车轮再抓 TLM，重点看 `mf=1/1` 是否持续；若持续，优先查 GPIO2 控制器故障输入是否未接/悬空/缺上拉、控制器故障输出极性是否与 active-low 匹配。
+
+### 2026-06-26 22:12 - Codex - DS600 遥控驱动轮低速输出
+- 改动：MANUAL_RC 输出上限接入 DS600 CH3 `speed_limit`，最终进入 `motion_mixer` 前按 `safety.max_speed_scale * rc.speed_limit` 限幅，便于首次架空低速让驱动轮动起来。
+- 改动：补充 host 烟测用例 `testManualRcMotorCommand()`，覆盖 RC 推杆经 `App::tick()` 进入 `MANUAL_RC` 并产生安全门控后的左右轮 `motor_command`。
+- 文件：`firmware/src/app/app.cpp`, `firmware/tools/logic_smoke_test.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；不改 main.cpp、GPIO 映射、模式优先级、`safety_manager.applyFinalGate()` 位置或 `drive_adapter_analog_bldc` 唯一 PWM 出口。
+- 安全影响：safety-critical 但收紧；CH3 只能降低 MANUAL_RC 有效速度，不绕过急停/STOP/RC_LOST/障碍/最终门控，首次调试仍必须架空车轮。
+- OTA：版本 `2026.06.26-rc-drive-ch3.1`，`cloud/firmware/firmware.bin` size `1141472`，MD5 `fd1b2145859d0a977a51ab7f26d1ed64`，`force=false`；本地打包完成，未发布云端/未安装设备。
+- 验证：`pio run -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --notes ...` PASS；`git diff --check` PASS；host smoke test 未跑通，本机 MSYS2 `g++` 连最小 C++ 文件都静默 exit=1，WSL 无 `g++`。
+- 当前状态：PASS_NEEDS_DEVICE_OTA_AND架空_FIELD_CHECK。
+- 下一步：安装 OTA 后架空车轮，CH3 先置最低，确认 TLM `mode=RC stop=NONE en=1 brk=0 spd=...` 且左右轮低速响应；若不动优先查 `estop/stop/rc/ch_age/scale` 与 PWM→0-5V 模块 VOUT。
+
 ### 2026-06-26 20:22 - Codex - 云端 H5 自动填入视频地址
 - 改动：云端 H5 在页面初始化时，如果用户没有手工保存视频地址，会按当前 `deviceId` + `operator token` 自动生成 `/api/device/<id>/video/latest.jpg?token=...` 地址，写入“视频地址”输入框并持久保存到 `fb_camera_last_url`。
 - 改动：点击“保存并重连”后，若当前不是用户手工 override 视频地址，会按新的设备 ID/token 重新生成云端视频地址；视频地址清空后点“保存”也会立即切回并显示云端转发地址，而不是保持空白。

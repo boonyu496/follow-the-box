@@ -1,6 +1,20 @@
 #include "app/app.h"
 
+#include "core/math_utils.h"
+
 namespace followbox {
+
+namespace {
+
+float effectiveSpeedScale(const SystemState& state) {
+  float scale = state.safety.max_speed_scale;
+  if (state.mode == RunMode::MANUAL_RC) {
+    scale *= clampFloat(state.rc.speed_limit, 0.0f, 1.0f);
+  }
+  return scale;
+}
+
+}  // namespace
 
 void App::begin() {
   state_ = SystemState{};
@@ -51,7 +65,7 @@ void App::tick(uint32_t now_ms) {
   const ObstacleDecision obstacle = obstacle_manager_.apply(state_.intent, state_.obstacle);
   state_.intent = obstacle.intent;
   MotorCommand proposed =
-      motion_mixer_.mix(state_.intent, state_.safety.max_speed_scale, now_ms);
+      motion_mixer_.mix(state_.intent, effectiveSpeedScale(state_), now_ms);
   state_.motor_command = safety_manager_.applyFinalGate(proposed, state_);
   // Only clear reset_fault_request if the fault was actually cleared
   // (CODE-REVIEW-H5-2026-06-15 P0-3). Otherwise the request persists

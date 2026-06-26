@@ -5,7 +5,7 @@
 namespace followbox::ota_config {
 
 #ifndef FOLLOWBOX_FIRMWARE_VERSION
-#define FOLLOWBOX_FIRMWARE_VERSION "2026.06.26-cloud-uplink-stability.1"
+#define FOLLOWBOX_FIRMWARE_VERSION "2026.06.26-rc-drive-fault-pullup.1"
 #endif
 
 #ifndef FOLLOWBOX_CLOUD_OTA_ENABLED
