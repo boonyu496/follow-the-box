@@ -1,8 +1,8 @@
 {
-  "version": "2026.06.26-cloud-uplink-stability.1",
-  "file": "firmware.bin",
-  "md5": "e1ec0c0f62d7442d679699d9f9b2176a",
-  "size": 1142432,
-  "force": false,
-  "notes": "Improve cloud uplink stability: prioritize telemetry over video relay, add upload retry backoff, and extend cloud/H5 online TTL to tolerate short public-network stalls."
+    "version":  "2026.06.26-cloud-uplink-stability.1",
+    "file":  "firmware.bin",
+    "md5":  "e1ec0c0f62d7442d679699d9f9b2176a",
+    "size":  1142432,
+    "force":  false,
+    "notes":  "Improve cloud uplink stability: prioritize telemetry over video relay, add upload retry backoff, and extend cloud/H5 online TTL to tolerate short public-network stalls."
 }
