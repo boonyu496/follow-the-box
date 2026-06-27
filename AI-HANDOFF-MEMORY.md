@@ -42,12 +42,12 @@
 - 下一步：对车端 AP/LAN 执行 LittleFS `uploadfs` 后，用手机分别连接 FollowBox AP 和局域网打开页面；云端 H5 等设备重新上传帧后确认 relay 显示。
 
 ### 2026-06-27 23:45 - Codex - Control center VM-safe LAN OTA button
-- Change: Switched only the control-center "upload-network" action from PlatformIO espota reverse-connect upload to board HTTP multipart upload at `/api/ota/local-upload` after a local PlatformIO build.
+- Change: Switched only the control-center "upload-network" action from PlatformIO espota reverse-connect upload to board HTTP multipart upload at `/api/ota/local-upload` after a local PlatformIO build; preflight now reports VM-visible IPv4 subnet mismatch.
 - Files: `tools/followbox-control-center.ps1`, `AI-HANDOFF-MEMORY.md`.
 - Architecture impact: No firmware/cloud/H5 protocol schema change; only the local operator console backend route and preflight for one button changed.
 - Safety impact: No motor/e-stop/PWM/GPIO/ADC/I2C/power gate change; OTA still relies on firmware `CloudOtaManager` local upload safety behavior and app-partition reboot.
 - OTA: No new device OTA package was published by this task; button builds the selected `otaEnv` locally and uploads its `.pio/build/<otaEnv>/firmware.bin` directly to the board.
-- Verification: PowerShell parser PASS; `git diff --check -- tools/followbox-control-center.ps1 AI-HANDOFF-MEMORY.md` PASS; `/api/preflight` now uses `http-local-upload` and `curl --noproxy`; `pio run -d firmware -e ota` timed out before `firmware.bin`.
+- Verification: PowerShell parser PASS; `git diff --check -- tools/followbox-control-center.ps1 AI-HANDOFF-MEMORY.md` PASS; `/api/preflight` reports `192.168.4.1 not in 192.168.171.128/24`; `pio run -d firmware -e ota` timed out before `firmware.bin`.
 - Current state: PASS_STATIC_NEEDS_BOARD_HTTP_OTA_AND_BUILD_TEST.
 - Next step: Start `tools/start-followbox-control-center.cmd`, set the LAN board IP in the OTA address field, use preflight to confirm `/api/ota/status`, then click the LAN OTA button with wheels lifted.
 

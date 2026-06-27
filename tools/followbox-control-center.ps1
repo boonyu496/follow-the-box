@@ -369,6 +369,99 @@ function Get-OtaEndpointUrl {
   return (Join-UrlPath -BaseUrl $baseUrl -RelativePath "api/ota/local-upload")
 }
 
+function Get-OtaTargetHost {
+  param([string]$Target)
+
+  $trimmed = ([string]$Target).Trim().TrimEnd("/")
+  if ([string]::IsNullOrWhiteSpace($trimmed)) { return "" }
+  if ($trimmed -match "^https?://") {
+    try { return ([uri]$trimmed).Host } catch { return $trimmed }
+  }
+  $withoutPath = ($trimmed -split "/")[0]
+  return ($withoutPath -split ":")[0]
+}
+
+function Convert-Ipv4ToUInt32 {
+  param([string]$Address)
+
+  $bytes = [System.Net.IPAddress]::Parse($Address).GetAddressBytes()
+  [Array]::Reverse($bytes)
+  return [BitConverter]::ToUInt32($bytes, 0)
+}
+
+function Get-Ipv4MaskUInt32 {
+  param([int]$PrefixLength)
+
+  if ($PrefixLength -le 0) { return [uint32]0 }
+  $mask = [uint32]0
+  for ($i = 0; $i -lt $PrefixLength; $i++) {
+    $mask = $mask -bor ([uint32]1 -shl (31 - $i))
+  }
+  return $mask
+}
+
+function Get-LocalIpv4Networks {
+  $networks = @()
+  try {
+    foreach ($nic in [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
+      if ($nic.OperationalStatus -ne [System.Net.NetworkInformation.OperationalStatus]::Up) { continue }
+      $props = $nic.GetIPProperties()
+      foreach ($addr in $props.UnicastAddresses) {
+        if ($addr.Address.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) { continue }
+        $ip = $addr.Address.ToString()
+        if ($ip.StartsWith("127.")) { continue }
+        $prefix = [int]$addr.PrefixLength
+        $networks += [ordered]@{
+          interface = $nic.Name
+          address   = $ip
+          prefix    = $prefix
+          cidr      = "$ip/$prefix"
+          network   = ((Convert-Ipv4ToUInt32 -Address $ip) -band (Get-Ipv4MaskUInt32 -PrefixLength $prefix))
+          mask      = (Get-Ipv4MaskUInt32 -PrefixLength $prefix)
+        }
+      }
+    }
+  } catch {
+  }
+  return @($networks)
+}
+
+function Get-OtaNetworkDiagnostic {
+  param([string]$Target)
+
+  $hostName = Get-OtaTargetHost -Target $Target
+  $targetInt = $null
+  $isIp = $false
+  try {
+    $parsed = [System.Net.IPAddress]::Parse($hostName)
+    if ($parsed.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork) {
+      $targetInt = Convert-Ipv4ToUInt32 -Address $parsed.ToString()
+      $isIp = $true
+    }
+  } catch {
+  }
+
+  $networks = Get-LocalIpv4Networks
+  $matched = $null
+  if ($isIp) {
+    foreach ($network in $networks) {
+      if (($targetInt -band $network.mask) -eq $network.network) {
+        $matched = $network
+        break
+      }
+    }
+  }
+
+  return [ordered]@{
+    targetHost       = $hostName
+    targetIsIpv4     = $isIp
+    vmIpv4Networks   = @($networks | ForEach-Object { $_.cidr })
+    sameVisibleLan   = (-not $isIp -or $null -ne $matched)
+    matchedNetwork   = if ($null -ne $matched) { $matched.cidr } else { "" }
+    note             = if ($isIp -and $null -eq $matched) { "Target IPv4 is not in any VM-visible local subnet." } else { "" }
+  }
+}
+
 function Test-OtaHttpEndpoint {
   param([string]$Target)
 
@@ -895,6 +988,7 @@ function Get-PreflightData {
     }
     "upload-network" {
       $endpoint = Test-OtaHttpEndpoint -Target ([string]$Config.otaUploadPort)
+      $networkDiagnostic = Get-OtaNetworkDiagnostic -Target ([string]$Config.otaUploadPort)
       $pio = Resolve-PlatformIoCommand -Command ([string]$Config.pioCommand)
       $details.network = [ordered]@{
         target       = $Config.otaUploadPort
@@ -903,13 +997,18 @@ function Get-PreflightData {
         uploadUrl    = $endpoint.uploadUrl
       }
       $details.endpoint = $endpoint
+      $details.vmNetwork = $networkDiagnostic
       $details.pio = $pio
       $summary = "Will build firmware and upload it directly to the board HTTP OTA endpoint."
       $checks += [ordered]@{ label = "OTA target configured"; ok = (-not [string]::IsNullOrWhiteSpace([string]$Config.otaUploadPort)); value = [string]$Config.otaUploadPort }
+      $checks += [ordered]@{ label = "Target is on a VM-visible LAN"; ok = [bool]$networkDiagnostic.sameVisibleLan; value = if ($networkDiagnostic.sameVisibleLan) { $networkDiagnostic.matchedNetwork } else { "$($networkDiagnostic.targetHost) not in $($networkDiagnostic.vmIpv4Networks -join ', ')" } }
       $checks += [ordered]@{ label = "Board HTTP OTA endpoint reachable"; ok = [bool]$endpoint.ok; value = if ($endpoint.ok) { $endpoint.url } else { $endpoint.reason } }
       $checks += [ordered]@{ label = "PlatformIO available"; ok = [bool]$pio.ok; value = if ($pio.ok) { $pio.resolvedPath } else { $pio.reason } }
       $checks += [ordered]@{ label = "curl.exe available"; ok = (Test-CommandExists -Name "curl.exe") }
       $warnings += "Confirm the target IP belongs to the intended board before OTA."
+      if (-not $networkDiagnostic.sameVisibleLan) {
+        $warnings += "The configured OTA target is outside the VM-visible LAN. Use the board's STA IP on the VM subnet, or switch the VM network adapter to bridged mode."
+      }
       $warnings += "This VM-safe path uses board HTTP upload; it requires firmware that exposes /api/ota/local-upload."
       $warnings += "This updates the app partition only; LittleFS web assets still require uploadfs when they change."
     }
@@ -1262,12 +1361,14 @@ function Invoke-LanHttpOtaUpload {
   }
 
   $endpoint = Test-OtaHttpEndpoint -Target ([string]$Config.otaUploadPort)
+  $networkDiagnostic = Get-OtaNetworkDiagnostic -Target ([string]$Config.otaUploadPort)
   if (-not $endpoint.ok) {
     return [ordered]@{
       ok       = $false
       step     = "ota-http-endpoint"
       reason   = "The board HTTP OTA endpoint is not reachable. Install a firmware build that exposes /api/ota/local-upload, or put the VM and board on the same reachable LAN."
       endpoint = $endpoint
+      vmNetwork = $networkDiagnostic
     }
   }
 
@@ -1280,6 +1381,7 @@ function Invoke-LanHttpOtaUpload {
       step     = "build"
       reason   = "PlatformIO build failed."
       endpoint = $endpoint
+      vmNetwork = $networkDiagnostic
       result   = $build
     }
   }
@@ -1311,6 +1413,7 @@ function Invoke-LanHttpOtaUpload {
     reason       = if ($upload.exitCode -eq 0) { "Board accepted the HTTP OTA upload and should reboot." } else { "HTTP OTA upload failed." }
     target       = [string]$Config.otaUploadPort
     endpoint     = $endpoint
+    vmNetwork    = $networkDiagnostic
     firmwareBin  = $binPath
     uploadMethod = "http-local-upload"
     build        = $build
