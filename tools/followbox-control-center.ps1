@@ -877,18 +877,25 @@ function Get-PreflightData {
       $identity = Get-GitIdentity -Config $Config
       $branch = Get-GitBranchInfo -Config $Config
       $unpushed = if ($branch.ok) { Get-GitUnpushedCommitCount -Config $Config -Branch $branch.branch } else { [ordered]@{ ok = $false; count = 0; range = ""; steps = $branch.steps } }
+      $hasPushWork = ($git.ok -and ($git.files.Count -gt 0 -or ($unpushed.ok -and $unpushed.count -gt 0)))
       $details.git = $git
       $details.identity = $identity
       $details.unpushed = $unpushed
-      $summary = "Will run git add / commit / push."
+      $details.noop = ($git.ok -and $unpushed.ok -and -not $hasPushWork)
+      $summary = if ($hasPushWork) { "Will run git add / commit / push." } else { "No local changes or unpushed commits found; will verify the remote is already up to date." }
       $checks += [ordered]@{ label = "Repo path exists"; ok = (Test-ExistingPath -Path $Config.repoPath) }
-      $checks += [ordered]@{ label = "Changes or unpushed commits found"; ok = ($git.ok -and ($git.files.Count -gt 0 -or ($unpushed.ok -and $unpushed.count -gt 0))); value = "$($git.files.Count) files, $($unpushed.count) commits" }
+      $checks += [ordered]@{ label = "Git status readable"; ok = [bool]$git.ok; value = "$($git.files.Count) files" }
+      $checks += [ordered]@{ label = "Current branch detected"; ok = [bool]$branch.ok; value = if ($branch.ok) { $branch.branch } else { $branch.reason } }
+      $checks += [ordered]@{ label = "Unpushed commit count readable"; ok = ($branch.ok -and [bool]$unpushed.ok); value = if ($unpushed.ok) { "$($unpushed.count) commits" } else { $unpushed.range } }
       $checks += [ordered]@{ label = "Git identity ready"; ok = [bool]$identity.ok; value = if ($identity.ok) { "$($identity.effectiveName) <$($identity.effectiveEmail)>" } else { $identity.reason } }
       if ($git.pathspec -eq "." -or $git.pathspec -eq "*") {
         $warnings += "Current gitAddPathspec covers the whole repo."
       }
       if ($git.files.Count -gt 20) {
         $warnings += "Many files are included. Check that unrelated changes are not being pushed."
+      }
+      if ($git.files.Count -eq 0 -and $unpushed.ok -and $unpushed.count -eq 0) {
+        $warnings += "Nothing needs committing or pushing; this action will return success after remote verification."
       }
       if ($git.files.Count -eq 0 -and $unpushed.count -gt 0) {
         $warnings += "No new files need committing; existing unpushed commits will be pushed."
@@ -1661,6 +1668,33 @@ function Invoke-GitCommitPush {
   }
 
   $hasCandidates = ($candidateFiles.files.Count -gt 0)
+  $unpushed = Get-GitUnpushedCommitCount -Config $Config -Branch $branch.branch
+  if (-not $hasCandidates -and $unpushed.ok -and $unpushed.count -eq 0) {
+    $verify = Get-GitRemoteHead -Config $Config
+    $status = Get-GitStatusData -Config $Config
+    $steps = @()
+    $steps += $identity.steps
+    $steps += $branch.steps
+    $steps += $candidateFiles
+    $steps += $unpushed.steps
+    if ($verify.steps) {
+      $steps += $verify.steps
+    }
+    $reason = if ($verify.ok) { "" } else { "No local changes or unpushed commits were found, but remote verification failed. Pull or check the remote before retrying." }
+    return [ordered]@{
+      ok            = [bool]$verify.ok
+      step          = if ($verify.ok) { "git-noop" } else { "git-verify" }
+      reason        = $reason
+      summary       = if ($verify.ok) { "No local changes or unpushed commits; repository is already up to date." } else { $reason }
+      branch        = $branch.branch
+      commitMessage = $commitMessage
+      noop          = $true
+      steps         = $steps
+      verify        = $verify
+      git           = $status
+    }
+  }
+
   $add = $null
   $commit = $null
   if ($hasCandidates) {

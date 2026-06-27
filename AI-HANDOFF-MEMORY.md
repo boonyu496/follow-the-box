@@ -30,6 +30,16 @@
 ```
 
 ## 最新交接记录
+### 2026-06-28 00:14 - Codex - Control center repo push no-op fix
+- 改动：修复控制中心“一键推送到仓库”在 0 个本地改动、0 个未推送 commit 时被 preflight 判成“已阻止/失败”的问题；clean 且 ahead=0 时执行接口返回 `git-noop` 成功，并通过远端 HEAD 校验确认仓库已同步。
+- 文件：`tools/followbox-control-center.ps1`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：仅本机 control-center Git push/preflight 语义；不改固件、云端 API、车端 H5 或模块边界。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C/电源/安全门控改动。
+- OTA：不需要设备 OTA；本次只修改本机工具脚本，没有改 firmware 或 LittleFS/H5 车端资源。
+- 验证：PowerShell parser PASS；`git diff --check -- tools/followbox-control-center.ps1` PASS（仅 CRLF 提示）；临时端口 API 验证 no-op 场景 `preflightOk=True`, `pushStep=git-noop`, `pushOk=True`, `verifyOk=True`；有改动 pathspec 预检 `preflightOk=True`, `noop=False`, `gitFiles=1`。
+- 当前状态：PASS_NEEDS_RESTART_CONTROL_CENTER。
+- 下一步：重启 `tools\start-followbox-control-center.cmd` 或刷新正在运行的控制中心后再点“一键推送到仓库”；若有真实未提交文件，仍会走正常 `git add/commit/fetch/rebase/push/verify`。
+
 ### 2026-06-27 22:54 - Codex - H5 video visibility/retry fix
 - 改动：修复 AP/LAN/Cloud H5 视频层被 MJPEG `load` 事件依赖卡住的问题；`<img>` 设置视频源时先允许画面可见，错误再回退；本地直连 stream 增加 3s 起步、最高 15s 的自动重试；云端 SSE `video.online` 作为已有帧证据，主动显示云端 relay 画面。
 - 文件：`firmware/web/app.js`, `cloud/public/app.js`, `cloud/public/deploy-version.txt`, `AI-HANDOFF-MEMORY.md`
