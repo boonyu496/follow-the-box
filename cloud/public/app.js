@@ -196,6 +196,7 @@ let activeCameraUrl = "";
 let userCameraOverride = false;
 let cameraRetryTimer = null;
 let cameraRetryDelay = 3000;
+let cameraImageOnline = false;
 let latestState = null;
 let latestLastIngestAt = 0;
 let latestTelemetryFreshAt = 0;
@@ -432,10 +433,15 @@ function setConnecting(hint = "正在连接云端 SSE...") {
   setConnectionHint(hint, "warn");
 }
 
+function setCameraVisible(visible, text) {
+  if (els.cameraPlaceholder) els.cameraPlaceholder.classList.toggle("hidden", visible);
+  if (els.cameraStream) els.cameraStream.classList.toggle("online", visible);
+  if (els.cameraStatus && text) els.cameraStatus.textContent = text;
+}
+
 function setCameraOnline(online, text) {
-  if (els.cameraPlaceholder) els.cameraPlaceholder.classList.toggle("hidden", online);
-  if (els.cameraStream) els.cameraStream.classList.toggle("online", online);
-  if (els.cameraStatus) els.cameraStatus.textContent = text;
+  cameraImageOnline = !!online;
+  setCameraVisible(online, text);
 }
 
 function clearCameraStream(text) {
@@ -506,6 +512,7 @@ function updateCamStream(url, options = {}) {
   if (persistLast) persistLastCameraUrl(next);
   if (next === activeCameraUrl) return;
   activeCameraUrl = next;
+  setCameraVisible(true, "加载中");
   els.cameraStream.src = next;
   els.cameraStatus.textContent = "加载中";
   if (els.cameraUrl) els.cameraUrl.value = next;
@@ -892,6 +899,7 @@ function render(payload) {
   if (!userCameraOverride) {
     if (payload.video?.online) {
       if (Number.isFinite(frameSeq)) latestVideoFrameSeq = frameSeq;
+      setCameraOnline(true, "画面在线");
       // MJPEG stream: reconnect only if not already streaming this URL
       const streamUrl = cloudVideoStreamUrl();
       if (activeCameraUrl !== streamUrl) {

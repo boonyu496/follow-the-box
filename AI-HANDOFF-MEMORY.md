@@ -30,6 +30,17 @@
 ```
 
 ## 最新交接记录
+### 2026-06-27 22:54 - Codex - H5 video visibility/retry fix
+- 改动：修复 AP/LAN/Cloud H5 视频层被 MJPEG `load` 事件依赖卡住的问题；`<img>` 设置视频源时先允许画面可见，错误再回退；本地直连 stream 增加 3s 起步、最高 15s 的自动重试；云端 SSE `video.online` 作为已有帧证据，主动显示云端 relay 画面。
+- 文件：`firmware/web/app.js`, `cloud/public/app.js`, `cloud/public/deploy-version.txt`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：仅 H5 前端显示/恢复逻辑；不改 cloud API contract、不改相机协议、不改 `SystemState` schema、不改 firmware motion/safety 模块边界。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C/电源/安全门控改动；视频仍只读显示，不参与 `safety_manager` 或运动许可。
+- OTA：不生成新的设备 OTA；AP/LAN 页面要在车端生效仍需单独执行 `pio run -d firmware -e esp32-s3-devkitc-1 -t uploadfs`，普通 app OTA 不会更新 LittleFS。
+- 云端：已通过 SSH/SCP 部署到 `/www/wwwroot/followbox-cloud` 并重启 PM2；公网 `/fb/deploy-version.txt` 和 `/api/health` 返回 `built_at=2026-06-27T22:59:42+08:00`。
+- 验证：`node --check firmware/web/app.js cloud/public/app.js cloud/server.js` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS；`git diff --check` PASS；本地 cloud `/video/upload` mock 返回 `frameSeq=1`；Playwright 浏览器验证未完成，因运行时缺 `playwright-core`。
+- 当前状态：PASS_CLOUD_DEPLOYED_NEEDS_DEVICE_FS_REFRESH；PM2 restart 后云端内存帧清空，公网 `latest.jpg` 暂时 404，需设备侧重新上传 camera frame 后云端画面才会有真实帧。
+- 下一步：对车端 AP/LAN 执行 LittleFS `uploadfs` 后，用手机分别连接 FollowBox AP 和局域网打开页面；云端 H5 等设备重新上传帧后确认 relay 显示。
+
 ### 2026-06-27 21:05 - Codex - LAN direct browser OTA
 - 改动：新增本地浏览器直传 app 固件 OTA；固件内置 `/ota-upload` 简易页和 `/api/ota/local-upload` multipart 上传接口，H5 设置页新增“测试直传 OTA”按钮；`/ota-upload` 注册在静态文件服务前，避免被 `serveStatic("/")` 抢占。
 - 文件：`firmware/src/ota/cloud_ota_manager.{h,cpp}`, `firmware/src/web/h5_web_server.cpp`, `firmware/web/{index.html,app.js}`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`

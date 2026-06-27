@@ -164,6 +164,8 @@ let lastTelemetryCameraUrl = "";
 let userCameraOverride = false;
 let cameraImageOnline = false;
 let cloudVideoTimer = null;
+let cameraRetryTimer = null;
+let cameraRetryDelay = 3000;
 let localAuthStatus = null;
 let latestState = null;
 let lastStateAt = 0;
@@ -434,6 +436,7 @@ function setCameraStream(url) {
   els.cameraUrl.value = next;
   if (els.cameraUrlState) els.cameraUrlState.textContent = next;
   els.cameraStatus.textContent = "加载中";
+  setCameraVisible(true, "加载中");
   els.cameraStream.src = next;
 }
 
@@ -461,11 +464,31 @@ function restoreCameraOverride() {
   }
 }
 
+function setCameraVisible(visible, text) {
+  if (els.cameraPlaceholder) els.cameraPlaceholder.classList.toggle("hidden", visible);
+  if (els.cameraStream) els.cameraStream.classList.toggle("online", visible);
+  if (els.cameraStatus && text) els.cameraStatus.textContent = text;
+}
+
 function setCameraOnline(online, text) {
   cameraImageOnline = !!online;
-  if (els.cameraPlaceholder) els.cameraPlaceholder.classList.toggle("hidden", online);
-  if (els.cameraStream) els.cameraStream.classList.toggle("online", online);
-  if (els.cameraStatus) els.cameraStatus.textContent = text;
+  setCameraVisible(online, text);
+}
+
+function scheduleCameraRetry() {
+  if (cameraRetryTimer || !activeCameraUrl || activeCameraUrl.startsWith("cloud-relay:")) {
+    return;
+  }
+  const retryUrl = activeCameraUrl;
+  const delay = cameraRetryDelay;
+  cameraRetryDelay = Math.min(Math.round(cameraRetryDelay * 1.5), 15000);
+  cameraRetryTimer = setTimeout(() => {
+    cameraRetryTimer = null;
+    if (activeCameraUrl === retryUrl) {
+      activeCameraUrl = "";
+      setCameraStream(retryUrl);
+    }
+  }, delay);
 }
 
 function activeFullscreenElement() {
@@ -1413,8 +1436,18 @@ document.querySelectorAll(".fb-nav-btn").forEach((btn) => {
 });
 
 if (els.cameraStream) {
-  els.cameraStream.addEventListener("load", () => setCameraOnline(true, "画面在线"));
-  els.cameraStream.addEventListener("error", () => setCameraOnline(false, "画面离线"));
+  els.cameraStream.addEventListener("load", () => {
+    setCameraOnline(true, "画面在线");
+    cameraRetryDelay = 3000;
+    if (cameraRetryTimer) {
+      clearTimeout(cameraRetryTimer);
+      cameraRetryTimer = null;
+    }
+  });
+  els.cameraStream.addEventListener("error", () => {
+    setCameraOnline(false, "画面离线");
+    scheduleCameraRetry();
+  });
 }
 
 document.addEventListener("fullscreenchange", handleFullscreenChange);
