@@ -11,7 +11,7 @@ namespace {
 // Bounded so a single log line can never allocate or stall the caller. Lines
 // longer than this are truncated rather than wrapped.
 constexpr size_t kLineBufferSize = 384;
-constexpr size_t kRingLines = 6;
+constexpr size_t kRingLines = 32;
 
 const char* levelTag(LogLevel level) {
   switch (level) {
@@ -128,29 +128,33 @@ size_t recentJson(char* out, size_t out_size, bool drain) {
   }
   portEXIT_CRITICAL(&g_log_mux);
 
-  size_t pos = 0;
-  out[pos++] = '[';
-  for (size_t i = 0; i < count; ++i) {
-    if (i > 0) {
-      if (pos + 1 >= out_size) {
-        out[0] = '\0';
-        return 0;
+  for (size_t first = 0; first <= count; ++first) {
+    size_t pos = 0;
+    bool fits = true;
+    out[pos++] = '[';
+    for (size_t i = first; i < count; ++i) {
+      if (i > first) {
+        if (pos + 1 >= out_size) {
+          fits = false;
+          break;
+        }
+        out[pos++] = ',';
       }
-      out[pos++] = ',';
+      pos = appendEscapedJsonString(out, out_size, pos, copy[i]);
+      if (pos >= out_size) {
+        fits = false;
+        break;
+      }
     }
-    pos = appendEscapedJsonString(out, out_size, pos, copy[i]);
-    if (pos >= out_size) {
-      out[0] = '\0';
-      return 0;
+    if (fits && pos + 1 < out_size) {
+      out[pos++] = ']';
+      out[pos] = '\0';
+      return pos;
     }
   }
-  if (pos + 1 >= out_size) {
-    out[0] = '\0';
-    return 0;
-  }
-  out[pos++] = ']';
-  out[pos] = '\0';
-  return pos;
+
+  std::snprintf(out, out_size, "[]");
+  return 2;
 }
 
 }  // namespace

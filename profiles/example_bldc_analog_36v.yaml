@@ -83,7 +83,7 @@ safety:
 remote:
   physical_remote: HOTRC_DS600_PWM
   physical_lost_stop_ms: 500
-  h5_lost_stop_ms: 1000
+  h5_lost_stop_ms: 500
   h5_local_enabled: true
 
 battery_adc:

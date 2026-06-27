@@ -13,6 +13,8 @@ float clampUnit(float value) {
   return std::max(-1.0f, std::min(1.0f, value));
 }
 
+constexpr float kForwardObstacleDeadband = 0.04f;
+
 MotorCommand stoppedCommand(bool brake) {
   MotorCommand command;
   command.enable = false;
@@ -44,67 +46,14 @@ bool hasFrontObstacleReading(const ObstacleSnapshot& obstacle) {
 
 SafetyDecision SafetyManager::evaluate(const SystemState& state) {
   SafetyDecision decision;
+  decision.profile = safetyProfileForMode(state.mode);
   decision.max_speed_scale = speedScaleForMode(state.mode);
 
-  StopReason active_latched_reason = StopReason::NONE;
-  if (hasActiveLatchedFault(state, active_latched_reason)) {
-    fault_latched_ = true;
-    latched_reason_ = active_latched_reason;
-  } else if (fault_latched_ && reset_requested_ && canClearLatchedFault(state)) {
-    fault_latched_ = false;
-    latched_reason_ = StopReason::NONE;
-  }
-  reset_requested_ = false;
-
-  if (fault_latched_) {
-    decision.fault_latched = true;
-    decision.stop_reason = latched_reason_;
+  if (applyHardGate(state, decision)) {
     return decision;
   }
 
-  if (state.mode == RunMode::AUTO_FOLLOW &&
-      (!state.install_wizard_complete || !state.throttle_calibrated)) {
-    decision.stop_reason = StopReason::INSTALL_WIZARD_NOT_DONE;
-    return decision;
-  }
-
-  if (hasAutoObstacleTimeout(state)) {
-    decision.stop_reason = StopReason::SENSOR_TIMEOUT;
-    return decision;
-  }
-
-  if (hasStopObstacle(state.obstacle) && currentModeRequiresMotionSource(state.mode)) {
-    decision.stop_reason = StopReason::OBSTACLE_STOP;
-    return decision;
-  }
-
-  if (state.mode == RunMode::MANUAL_RC &&
-      (!state.rc.online ||
-       isStale(state.now_ms, state.rc.last_update_ms, profile::PHYSICAL_REMOTE_LOST_STOP_MS) ||
-       state.rc.stop_switch)) {
-    decision.stop_reason = StopReason::RC_LOST;
-    return decision;
-  }
-
-  if (state.mode == RunMode::MANUAL_H5_LOW_SPEED &&
-      (!state.h5.connected ||
-       isStale(state.now_ms, state.h5.last_update_ms, profile::H5_LOST_STOP_MS))) {
-    decision.stop_reason = StopReason::H5_LOST;
-    return decision;
-  }
-
-  if (state.mode == RunMode::MANUAL_CLOUD_LOW_SPEED &&
-      (!state.cloud.connected ||
-       isStale(state.now_ms, state.cloud.last_update_ms,
-               profile::CLOUD_LOST_STOP_MS))) {
-    decision.stop_reason = StopReason::CLOUD_LOST;
-    return decision;
-  }
-
-  if (state.mode == RunMode::AUTO_FOLLOW &&
-      (!state.uwb.valid ||
-       isStale(state.now_ms, state.uwb.last_update_ms, profile::UWB_STALE_STOP_MS))) {
-    decision.stop_reason = StopReason::UWB_LOST;
+  if (applyModeGate(state, decision)) {
     return decision;
   }
 
@@ -137,6 +86,76 @@ MotorCommand SafetyManager::applyFinalGate(const MotorCommand& proposed,
   return gated;
 }
 
+bool SafetyManager::applyHardGate(const SystemState& state,
+                                  SafetyDecision& decision) {
+  StopReason active_latched_reason = StopReason::NONE;
+  if (hasActiveLatchedFault(state, active_latched_reason)) {
+    fault_latched_ = true;
+    latched_reason_ = active_latched_reason;
+  } else if (fault_latched_ && reset_requested_ && canClearLatchedFault(state)) {
+    fault_latched_ = false;
+    latched_reason_ = StopReason::NONE;
+  }
+  reset_requested_ = false;
+
+  if (fault_latched_) {
+    decision.fault_latched = true;
+    decision.stop_reason = latched_reason_;
+    return true;
+  }
+  return false;
+}
+
+bool SafetyManager::applyModeGate(const SystemState& state,
+                                  SafetyDecision& decision) const {
+  if (state.mode == RunMode::AUTO_FOLLOW &&
+      (!state.install_wizard_complete || !state.throttle_calibrated)) {
+    decision.stop_reason = StopReason::INSTALL_WIZARD_NOT_DONE;
+    return true;
+  }
+
+  if (hasAutoObstacleTimeout(state)) {
+    decision.stop_reason = StopReason::SENSOR_TIMEOUT;
+    return true;
+  }
+
+  if (frontObstacleBlocksCurrentCommand(state)) {
+    decision.stop_reason = StopReason::OBSTACLE_STOP;
+    return true;
+  }
+
+  if (state.mode == RunMode::MANUAL_RC &&
+      (!state.rc.online ||
+       isStale(state.now_ms, state.rc.last_update_ms, profile::PHYSICAL_REMOTE_LOST_STOP_MS) ||
+       state.rc.stop_switch)) {
+    decision.stop_reason = StopReason::RC_LOST;
+    return true;
+  }
+
+  if (state.mode == RunMode::MANUAL_H5_LOW_SPEED &&
+      (!state.h5.connected ||
+       isStale(state.now_ms, state.h5.last_update_ms, profile::H5_LOST_STOP_MS))) {
+    decision.stop_reason = StopReason::H5_LOST;
+    return true;
+  }
+
+  if (state.mode == RunMode::MANUAL_CLOUD_LOW_SPEED &&
+      (!state.cloud.connected ||
+       isStale(state.now_ms, state.cloud.last_update_ms,
+               profile::CLOUD_LOST_STOP_MS))) {
+    decision.stop_reason = StopReason::CLOUD_LOST;
+    return true;
+  }
+
+  if (state.mode == RunMode::AUTO_FOLLOW &&
+      (!state.uwb.valid ||
+       isStale(state.now_ms, state.uwb.last_update_ms, profile::UWB_STALE_STOP_MS))) {
+    decision.stop_reason = StopReason::UWB_LOST;
+    return true;
+  }
+  return false;
+}
+
 bool SafetyManager::hasStopObstacle(const ObstacleSnapshot& obstacle) const {
   if (!obstacle.valid) {
     return false;
@@ -154,6 +173,25 @@ bool SafetyManager::hasStopObstacle(const ObstacleSnapshot& obstacle) const {
     }
   }
   return false;
+}
+
+bool SafetyManager::frontObstacleBlocksCurrentCommand(const SystemState& state) const {
+  if (!hasStopObstacle(state.obstacle)) {
+    return false;
+  }
+
+  switch (state.mode) {
+    case RunMode::MANUAL_RC:
+      return state.rc.throttle > kForwardObstacleDeadband;
+    case RunMode::MANUAL_H5_LOW_SPEED:
+      return state.h5.throttle > kForwardObstacleDeadband;
+    case RunMode::MANUAL_CLOUD_LOW_SPEED:
+      return state.cloud.throttle > kForwardObstacleDeadband;
+    case RunMode::AUTO_FOLLOW:
+      return true;
+    default:
+      return false;
+  }
 }
 
 bool SafetyManager::hasActiveLatchedFault(const SystemState& state,
@@ -206,6 +244,20 @@ bool SafetyManager::hasCriticalHeartbeatTimeout(const SystemState& state) const 
       : (state.now_ms > grace_period);
 
   return sensor_timeout || uwb_timeout;
+}
+
+SafetyProfile SafetyManager::safetyProfileForMode(RunMode mode) const {
+  switch (mode) {
+    case RunMode::MANUAL_RC:
+      return SafetyProfile::LocalManual;
+    case RunMode::MANUAL_H5_LOW_SPEED:
+    case RunMode::MANUAL_CLOUD_LOW_SPEED:
+      return SafetyProfile::RemoteManual;
+    case RunMode::AUTO_FOLLOW:
+      return SafetyProfile::Autonomous;
+    default:
+      return SafetyProfile::RemoteManual;
+  }
 }
 
 float SafetyManager::speedScaleForMode(RunMode mode) const {

@@ -38,6 +38,12 @@ enum class ControlSource {
   UWB_FOLLOW
 };
 
+enum class SafetyProfile {
+  LocalManual,
+  RemoteManual,
+  Autonomous
+};
+
 struct RcInput {
   bool online = false;
   uint32_t last_update_ms = 0;
@@ -184,6 +190,7 @@ struct SafetyDecision {
   bool fault_latched = false;
   float max_speed_scale = 0.0f;
   StopReason stop_reason = StopReason::NONE;
+  SafetyProfile profile = SafetyProfile::RemoteManual;
 };
 
 struct MotionIntent {

@@ -17,6 +17,7 @@ constexpr uint8_t kLidarStartCommand[] = {0xA5, 0x60};
 constexpr size_t kLidarStartupSequenceBytes = sizeof(kLidarStartCommand);
 constexpr uint32_t kLidarStartupGraceMs = 3000;
 constexpr uint32_t kLidarDiagPeriodMs = 5000;
+constexpr uint32_t kLidarRawDiagPeriodMs = 30000;
 constexpr uint32_t kLidarRestartRetryMs = 15000;
 constexpr uint32_t kLidarLineSampleUs = 2000;
 constexpr uint8_t kLidarMaxProbeRounds = 2;
@@ -233,6 +234,7 @@ void SensorTask::begin() {
 }
 
 void SensorTask::update(uint32_t now_ms) {
+  const uint32_t update_start_ms = millis();
   drainUwb(now_ms);
   drainLidar(now_ms);
   drainImu(now_ms);
@@ -257,6 +259,18 @@ void SensorTask::update(uint32_t now_ms) {
   // Heartbeats: the loop completed, so the safety watchdog stays satisfied.
   uwb_heartbeat_ms_ = now_ms;
   sensor_heartbeat_ms_ = now_ms;
+
+  const uint32_t update_elapsed_ms = elapsedMs(millis(), update_start_ms);
+  if (update_elapsed_ms > profile::TASK_HEARTBEAT_TIMEOUT_MS / 2 &&
+      (last_slow_update_log_ms_ == 0 ||
+       elapsedMs(now_ms, last_slow_update_log_ms_) >= kLidarDiagPeriodMs)) {
+    last_slow_update_log_ms_ = now_ms;
+    FB_LOGW("sensor_task slow update dt=%lums lidar_rx=%lu pkt=%lu tof_read=%lu",
+            static_cast<unsigned long>(update_elapsed_ms),
+            static_cast<unsigned long>(lidar_.stats().rx_byte_count),
+            static_cast<unsigned long>(lidar_.stats().packet_count),
+            static_cast<unsigned long>(tof_.stats().read_count));
+  }
 }
 
 void SensorTask::drainUwb(uint32_t now_ms) {
@@ -442,6 +456,9 @@ void SensorTask::logLidarDiagnostics(uint32_t now_ms) {
         probeNextLidarCandidate(now_ms, "no_rx_try_next_wire_or_baud");
       }
     } else if (stats.packet_count == 0) {
+      const bool emit_raw_diag =
+          last_lidar_raw_diag_ms_ == 0 ||
+          elapsedMs(now_ms, last_lidar_raw_diag_ms_) >= kLidarRawDiagPeriodMs;
       const bool should_probe_stalled =
           lidar_stalled_without_packet &&
           (last_lidar_start_retry_ms_ == 0 ||
@@ -482,30 +499,33 @@ void SensorTask::logLidarDiagnostics(uint32_t now_ms) {
           static_cast<unsigned long>(tx_line.high_count),
           static_cast<unsigned long>(tx_line.low_count),
           static_cast<unsigned long>(tx_line.transitions));
-      char raw_hex[97];
-      bytesToHex(lidar_.rawPreview(), lidar_.rawPreviewSize(), raw_hex,
-                 sizeof(raw_hex));
-      FB_LOGW(
-          "LIDAR raw first=%s rejects=count:%lu/fsa:%lu/lsa:%lu/ovf:%lu",
-          raw_hex,
-          static_cast<unsigned long>(stats.invalid_count_reject_count),
-          static_cast<unsigned long>(stats.first_angle_reject_count),
-          static_cast<unsigned long>(stats.last_angle_reject_count),
-          static_cast<unsigned long>(stats.overflow_reject_count));
-      if (lidar_.aa55PreviewSize() > 0) {
-        char aa55_hex[97];
-        bytesToHex(lidar_.aa55Preview(), lidar_.aa55PreviewSize(), aa55_hex,
-                   sizeof(aa55_hex));
-        FB_LOGW("LIDAR raw aa55=%s", aa55_hex);
-      }
-      if (lidar_.header55aaPreviewSize() > 0) {
-        char header55aa_hex[97];
-        bytesToHex(lidar_.header55aaPreview(),
-                   lidar_.header55aaPreviewSize(), header55aa_hex,
-                   sizeof(header55aa_hex));
-        FB_LOGW("LIDAR raw 55aa=%s", header55aa_hex);
-        logHeader55aaCandidate(lidar_.header55aaPreview(),
-                               lidar_.header55aaPreviewSize());
+      if (emit_raw_diag) {
+        last_lidar_raw_diag_ms_ = now_ms;
+        char raw_hex[97];
+        bytesToHex(lidar_.rawPreview(), lidar_.rawPreviewSize(), raw_hex,
+                   sizeof(raw_hex));
+        FB_LOGW(
+            "LIDAR raw first=%s rejects=count:%lu/fsa:%lu/lsa:%lu/ovf:%lu",
+            raw_hex,
+            static_cast<unsigned long>(stats.invalid_count_reject_count),
+            static_cast<unsigned long>(stats.first_angle_reject_count),
+            static_cast<unsigned long>(stats.last_angle_reject_count),
+            static_cast<unsigned long>(stats.overflow_reject_count));
+        if (lidar_.aa55PreviewSize() > 0) {
+          char aa55_hex[97];
+          bytesToHex(lidar_.aa55Preview(), lidar_.aa55PreviewSize(), aa55_hex,
+                     sizeof(aa55_hex));
+          FB_LOGW("LIDAR raw aa55=%s", aa55_hex);
+        }
+        if (lidar_.header55aaPreviewSize() > 0) {
+          char header55aa_hex[97];
+          bytesToHex(lidar_.header55aaPreview(),
+                     lidar_.header55aaPreviewSize(), header55aa_hex,
+                     sizeof(header55aa_hex));
+          FB_LOGW("LIDAR raw 55aa=%s", header55aa_hex);
+          logHeader55aaCandidate(lidar_.header55aaPreview(),
+                                 lidar_.header55aaPreviewSize());
+        }
       }
       if (delta_rx > 0 && stats.packet_count == 0) {
         probeNextLidarCandidate(now_ms, "rx_without_known_header");

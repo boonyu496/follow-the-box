@@ -759,7 +759,7 @@ throttle:
 
 remote:
   physical_lost_stop_ms: 500
-  h5_lost_stop_ms: 1000
+  h5_lost_stop_ms: 500
 
 alert:
   buzzer_type: passive_5v
@@ -780,7 +780,7 @@ Profile 字段名、单位和权限必须稳定，H5 只能修改标记为可调
 | `throttle.throttle_max_mv` | mV | 3600 | <= 实测安全上限 | 安装向导内 | 最大油门电压限幅 |
 | `throttle.throttle_rc_delay_ms` | ms | 150 | 50-300 | 否 | PWM 转模拟 RC 延迟冗余 |
 | `sensors.stop_distance_mm` | mm | 500 | >= 500 | 否 | 安全停车距离红线 |
-| `remote.h5_lost_stop_ms` | ms | 1000 | 300-2000 | 否 | H5 点动断线停车 |
+| `remote.h5_lost_stop_ms` | ms | 500 | 300-500 | 否 | H5 点动断线停车 |
 | `pins.left_throttle_pwm` | GPIO | 12 | 固定 | 否 | 左油门 PWM |
 | `pins.right_throttle_pwm` | GPIO | 13 | 固定 | 否 | 右油门 PWM |
 | `pins.brake_out` | GPIO | 14 | 固定 | 否 | MOS/光耦输入，不直连控制器线 |

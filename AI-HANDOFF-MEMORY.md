@@ -30,6 +30,74 @@
 ```
 
 ## 最新交接记录
+### 2026-06-27 21:05 - Codex - LAN direct browser OTA
+- 改动：新增本地浏览器直传 app 固件 OTA；固件内置 `/ota-upload` 简易页和 `/api/ota/local-upload` multipart 上传接口，H5 设置页新增“测试直传 OTA”按钮；`/ota-upload` 注册在静态文件服务前，避免被 `serveStatic("/")` 抢占。
+- 文件：`firmware/src/ota/cloud_ota_manager.{h,cpp}`, `firmware/src/web/h5_web_server.cpp`, `firmware/web/{index.html,app.js}`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：低；复用 `CloudOtaManager` 和现有 H5 WebServer，不改 `main.cpp`、GPIO、协议 schema、模式优先级或 `drive_adapter_analog_bldc` PWM 出口。
+- 安全影响：OTA 上传开始会触发既有 OTA safety callback，使控制循环进入 `g_ota_in_progress` 并停止电机；失败后按 fail-closed 保持 OTA/运动抑制直到受控重启或 USB 恢复。
+- OTA：版本 `2026.06.27-local-web-ota.1`，`firmware.bin` size `1147632`，MD5 `87a3a4a99c97b6861a686235ffd2dac2`，`force=false`，已生成 manifest；LittleFS `littlefs.bin` 已 build。
+- 验证：`node --check firmware/web/app.js` PASS；`pio run -d firmware` PASS；`python tools/package_ota.py --notes ...` PASS；`pio run -d firmware -t buildfs` PASS。
+- 当前状态：PASS_NEEDS_DEVICE_INSTALL；首次获得 `/ota-upload` 仍需用现有云端 OTA/PlatformIO OTA/USB 安装本版本一次。
+- 下一步：设备安装本版本后，后续测试固件可打开 `http://192.168.134.132/ota-upload` 上传 `.pio/build/esp32-s3-devkitc-1/firmware.bin`；主 H5 按钮要显示则还需上传 LittleFS。
+
+### 2026-06-27 20:23 - Codex - LAN H5 diagnostics and video/tof debug
+- 改动：本地 H5 日志不再被云端上传抢先清空，日志环扩到 32 行；新增 `/api/local-auth/status` 给页面显示本地 `X-FollowBox-Key` 鉴权状态；H5 补充 LAN 视频转发状态和 TOF 异常近距诊断提示。
+- 文件：`firmware/src/telemetry/debug_console.cpp`, `firmware/src/cloud/cloud_client.cpp`, `firmware/src/web/h5_web_server.cpp`, `firmware/web/app.js`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：低；只改通信/诊断层和 H5 展示，不改 `main.cpp`、协议 schema、GPIO、模式优先级或 `drive_adapter_analog_bldc` PWM 出口。
+- 安全影响：无运动链路放宽；H5 仍只能带 Key 调写接口，TOF 近距读数仍作为安全障碍显示/融合，不做不安全过滤。
+- OTA：版本 `2026.06.27-lan-h5-diagnostics.1`，`firmware.bin` size `1142240`，MD5 `64f7e2c0fb7914d60e9c853fd155cddc`，`force=false`，已生成 manifest；LittleFS `littlefs.bin` 已 build，H5 页面仍需上传 FS 才会更新到车端。
+- 验证：`node --check firmware/web/app.js` PASS；`pio run -d firmware` PASS；`python tools/package_ota.py --notes ...` PASS；`pio run -d firmware -t buildfs` PASS；`git diff --check` PASS（仅 CRLF 提示）。
+- 当前状态：PASS，本地源码与 OTA 包准备好；未自动发布云端 OTA，未自动上传车端 LittleFS。
+- 下一步：给设备安装固件后，还需执行 `pio run -d firmware -t uploadfs` 或等效 LittleFS 上传；再访问 `http://192.168.134.132/#status` 看日志、Key 状态、视频转发和 TOF 诊断。
+
+### 2026-06-27 19:37 - Codex - 前障碍手动脱困门控修复
+- 结论：云端 `https://www.boonai.cn/fb/#status` SSE 实测设备在线，`mode=SAFE_IDLE stop=NONE fault_latched=false`；`motion_allowed=false` 在安全停是预期，真正阻止手动动作的是前向融合障碍约 109-176mm，RC 倒车日志仍被 `OBSTACLE_STOP` 刹死。
+- 改动：`SafetyManager` 将前方 `<500mm` 障碍门控收窄为“阻止当前命令继续向前”，MANUAL_RC/H5/CLOUD 的倒车或原地转向可低速脱困，AUTO 仍遇前障碍停车。
+- 文件：`firmware/src/safety/safety_manager.{h,cpp}`, `firmware/src/control/obstacle_manager.h`, `firmware/tools/logic_smoke_test.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`。
+- 架构影响：低；不改 `main.cpp`、GPIO、模式优先级、`applyFinalGate()` 位置或 `drive_adapter_analog_bldc` 唯一 PWM 出口。
+- 安全影响：safety-critical；未放宽急停、WDT、低电压、电机故障、RC/H5/Cloud lost-link；只允许操作者在前障碍存在时倒车/转向脱困，前进仍 `OBSTACLE_STOP`。
+- OTA：本地版本 `2026.06.27-obstacle-escape.1`，`firmware.bin` size `1141856`，MD5 `544ea1af7fa20ca5a04a6ebda08b7f0a`，`force=false`，已生成 `manifest.json`；**2026-06-27 19:54 已发布云端**。
+- 验证：云端 SSE 抓包 PASS；MSYS2 g++ `logic_smoke_test.exe` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --notes ...` PASS；`git diff --check` PASS；公网 HTTPS 验证 PASS。
+- 当前状态：PASS_CLOUD_DEPLOYED_NEEDS_DEVICE_OTA。
+- 下一步：设备端 H5 面板点击安装 OTA；架空车轮保持前向障碍近距离，验证 RC/H5/云端前进仍停车、倒车/原地转向可低速输出。
+
+### 2026-06-27 19:54 - Codex - 云端部署 OTA 固件 obstacle-escape.1
+- 改动：将 `cloud/firmware/firmware.bin` + `manifest.json` 上传至 `www.boonai.cn:51400` `/www/wwwroot/followbox-cloud/firmware/`，重启 pm2 followbox-cloud。
+- 文件：`cloud/firmware/firmware.bin`, `cloud/firmware/manifest.json`, 服务器 `deploy-version.txt`。
+- 部署路径：`/www/wwwroot/followbox-cloud/`（未触碰 expense-tracker、tamagotchi 等其他项目）。
+- SSH：key `~/.ssh/followbox_codex.pem`，端口 51400，主机 `www.boonai.cn`。H5 前端 public/ 文件已是最新无需更新。
+- 验证：`/api/health` PASS；`/firmware/version` 返回 `update_available:true`；`/firmware/download` HTTP 200 返回正确 1141856 字节；公网 `https://www.boonai.cn/fb/` HTTP 200。
+- 当前状态：PASS_CLOUD_DEPLOYED。
+- 下一步：设备 H5 面板安装 OTA；后续部署参照 `repo-memory: deploy-sop.md`。
+
+### 2026-06-27 00:15 - Codex - 安全分层与 H5 超时收紧
+- 改动：新增 `SafetyProfile::{LocalManual,RemoteManual,Autonomous}`，将 `SafetyManager::evaluate()` 拆成 `applyHardGate()` 与 `applyModeGate()`；本地 DS600 手动可不依赖安装向导/UWB/障碍 freshness，但仍受急停、低压、WDT、最终门控约束。
+- 文件：`firmware/include/core/types.h`, `firmware/src/safety/safety_manager.{h,cpp}`, `firmware/include/config/profile_defaults.h`, `profiles/example_bldc_analog_36v.yaml`, `protocols/H5-API.md`, `FIRMWARE-SPEC.md`, `firmware/tools/logic_smoke_test.cpp`。
+- 架构影响：中；只重组安全层内部边界，不改 `main.cpp`、GPIO、模式优先级、`applyFinalGate()` 位置或 `drive_adapter_analog_bldc` 唯一 PWM 出口。
+- 安全影响：safety-critical；H5 点动超时从 1000ms 收紧到 500ms，AUTO 仍要求安装向导/油门标定/UWB/前向障碍 freshness，本地遥控不绕过硬安全。
+- OTA：版本 `2026.06.27-safety-profiles.1`，`cloud/firmware/firmware.bin` size `1141680`，MD5 `9efa9db269d61adf308938614c14afaa`，`force=false`，已生成 `manifest.json`。
+- 验证：MSYS2 g++ host smoke test PASS；`pio run -d firmware` PASS；`python tools/package_ota.py --notes ...` PASS。
+- 当前状态：PASS_NEEDS_DEVICE_OTA_AND架空_FIELD_CHECK。
+- 下一步：安装 OTA 后架空车轮验证 DS600 无 H5/无 UWB/未完成安装向导时可低速受控移动；H5 断连或页面失焦需在约 500ms 内停车；AUTO 目标丢失/障碍 stale 必须停车。
+
+### 2026-06-26 23:52 - Codex - 云端状态页实测 WDT 锁存复位条件
+- 结论：已实际打开 `https://www.boonai.cn/fb/#status`，设备在线且当前固件版本为 `2026.06.26-wdt-lidar-diag.1`；页面显示 `mode=FAULT_LOCKOUT`、`stop=WATCHDOG_TIMEOUT`、`fault_latched=true`、`motion_allowed=false`。最新日志持续为 `hb=21/21 rc=1 mf=0/0 estop=0 low=0`，说明当前传感器/UWB 心跳、遥控、电机故障、急停、低电压均不是活动故障，运动禁止来自历史 WDT 锁存。
+- 新发现：当前 RC 未完全回中，云端 raw JSON 显示 `steering=-0.17`、`throttle=-0.10`（约 CH1=1415us、CH2=1448us），不满足 `SafetyManager::canClearLatchedFault()` 的“无运动请求”条件；同时融合前向障碍有近距离读数（约 `front_left=125mm`、`front_center=111mm`、`front_right=454mm`），即使 WDT 锁存清掉，MANUAL_RC 下也会继续被 `OBSTACLE_STOP` 拦住。
+- 云端页面测试：在驾驶页仅点击“安全停”，未下发点动油门；命令 seq 从 `1782488672` 增至 `1782488673`，车端 raw JSON `cloud.last_seq=1782488673` 且轮询 0s 前，证明 boonai 云端命令下发/车端轮询链路可用。
+- 代码改动：无。未放宽 WDT、障碍、急停、电机故障或 `applyFinalGate()`；未新增云端远程复位能力。
+- 下一步：架空车轮；把 DS600 CH1/CH2 回到 1500us±50us（若物理回中仍在 1415/1448，先调遥控器 trim/subtrim 或后续做 RC 中位标定）；移开/抬高前向障碍，确保前向融合距离 >500mm；再从本地 H5 `/api/reset-fault` 按“复位软件故障”或重启设备清 WDT 锁存。复位后预期先看到 `stop=NONE en=1 brk=0`；若仍不动，再查 PWM→0-5V 模块 VOUT。
+
+### 2026-06-26 23:27 - Codex - WDT/遥控延时诊断降噪
+- 结论：新附件 TLM 显示 DS600 在线且通道随动（`rc=1 age≈10-21ms`，`thr=0.89/-1.00`），但 `mode=FAULT stop=WDT en=0 brk=1 scale=0.00`；轮子不动是 WATCHDOG_TIMEOUT 锁存门控，不是 RC 未进入。
+- 改动：雷达未成包时保留 5s 短诊断，但重复的大段 raw hex 限频到 30s；`sensor_task` 超过半个 WDT 阈值时打印 `sensor_task slow update`；TLM 增加 `hb=sensor/uwb` 心跳年龄。
+- 文件：`firmware/src/sensors/sensor_task.{h,cpp}`, `firmware/src/telemetry/telemetry_logger.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`。
+- 架构影响：低；不改 GPIO、模式优先级、`safety_manager.applyFinalGate()`、`drive_adapter_analog_bldc` 唯一 PWM 出口或 WDT 判定阈值。
+- 安全影响：低但 safety-critical；不绕过 WDT/急停/故障锁存，故障时仍 `enable=false/brake=true/PWM=0`，只降低非安全诊断日志对 sensor task/RC 刷新的干扰。
+- OTA：版本 `2026.06.26-wdt-lidar-diag.1`，`firmware.bin` size `1141776`，MD5 `1936172e9b5fc653f0554c174933bfd3`，`force=false`；本地打包完成，未发布云端/未安装设备。
+- 验证：`git diff --check` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；MSYS2 g++ host smoke test PASS；`python tools/package_ota.py --notes ...` PASS。
+- 当前状态：PASS_NEEDS_DEVICE_OTA_AND架空_FIELD_CHECK。
+- 下一步：安装 OTA 后架空车轮，回中油门/转向并复位故障；若 TLM `hb` 均 <200 但仍 `stop=WDT`，说明只是历史锁存未清；若 `hb` >200 或出现 `sensor_task slow update`，继续查 TOF/I2C/雷达诊断阻塞。
+
 ### 2026-06-26 22:51 - Codex - RC 驱动轮 MOTOR_FLT 上拉修复
 - 结论：附件 TLM 显示 DS600 在线且油门随动，但 `mode=FAULT stop=MOTOR_FLT en=0 brk=1 scale=0.00 mf=1/1`，无响应根因是 GPIO2 控制器故障输入锁存，不是 RC 油门链路丢失。
 - 改动：`PowerMonitor` 将 GPIO2 控制器故障输入从 `FLOATING` 改为 `PULL_UP`，仍保持 `ACTIVE_LOW`；真实外部低电平故障仍会锁车，未接/开漏未拉低不再因悬空误报。

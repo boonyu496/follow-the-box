@@ -21,8 +21,8 @@ struct ObstacleDecision {
 // motion_mixer. It only attenuates *forward* motion toward an obstacle; turn
 // and reverse are left untouched so the operator/follow controller can still
 // steer or back away. It never writes GPIO and never bypasses the safety chain;
-// SafetyManager::hasStopObstacle() remains the authoritative stop, this limiter
-// only adds graduated slow-down and a redundant forward cut.
+// SafetyManager still owns the hard gate for forward motion into the stop band,
+// while this limiter adds graduated slow-down and a redundant forward cut.
 //
 // P0 scope (per UWB-LEGACY-MIGRATION-REVIEW task C): no automatic reverse, no
 // turn injection, no avoidance state machine. Side sectors are not used yet.

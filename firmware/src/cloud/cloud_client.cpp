@@ -314,7 +314,7 @@ bool CloudClient::uploadTelemetry(const SystemState& state, uint32_t /*now_ms*/)
   if (state_len == 0) {
     return false;
   }
-  if (DebugConsole::drainRecentJson(logs_json, sizeof(logs_json)) == 0) {
+  if (DebugConsole::copyRecentJson(logs_json, sizeof(logs_json)) == 0) {
     std::snprintf(logs_json, sizeof(logs_json), "[]");
   }
 

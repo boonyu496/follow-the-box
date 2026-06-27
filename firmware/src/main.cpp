@@ -201,8 +201,6 @@ void setup() {
   drive.setCalibration(calibration_store.load());
   app.setThrottleCalibrated(calibration_store.isCalibrated());
 
-  sensors.begin();
-  rc_input.begin();
   // begin() leaves the drive safe: enable off, brake engaged, throttle 0.
   drive.begin();
   // H5 transport: WiFi + async HTTP/WS (AsyncTCP task on Core 0). Never sets
@@ -212,6 +210,8 @@ void setup() {
   cloud_ota.begin(setOtaSafetyActive);
   h5_web.begin(&profile_store, &calibration_store, &wifi_store, &cloud_ota);
   beginOtaService();
+  sensors.begin();
+  rc_input.begin();
 
   // Core 1 = real-time control/safety (highest priority). Core 0 = blocking
   // I/O and comms, so neither can stall the 50 Hz motor loop.
@@ -219,10 +219,9 @@ void setup() {
                           configMAX_PRIORITIES - 1, nullptr, 1);
   xTaskCreatePinnedToCore(sensorTaskEntry, "sensor", 4096, nullptr, 3, nullptr,
                           0);
-  // 12 KB: the comm task hosts HTTPClient (cloud upload/poll) whose connect/
-  // TLS paths need far more than the old 4 KB; telemetry buffers themselves
-  // are static in CloudClient, this headroom is for the network stack calls.
-  xTaskCreatePinnedToCore(commTaskEntry, "comm", 12288, nullptr, 1, nullptr, 0);
+  // 24 KB: the comm task hosts AsyncWebServer pushes plus HTTPClient cloud/OTA
+  // calls; TLS/connect paths exceeded 12 KB on the non-octal ESP32-S3 build.
+  xTaskCreatePinnedToCore(commTaskEntry, "comm", 24576, nullptr, 1, nullptr, 0);
 }
 
 void loop() {

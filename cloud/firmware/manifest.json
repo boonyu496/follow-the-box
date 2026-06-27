@@ -1,6 +1,8 @@
 {
-  "version": "2026.06.26-rc-drive-fault-pullup.1",
-  "md5": "f7d724297bfd5af797535933fa16970e",
-  "size": 1141536,
-  "timestamp": "2026-06-26T14:58:02Z"
+  "version": "2026.06.27-local-web-ota-n8.3",
+  "file": "firmware.bin",
+  "md5": "a59458dcd232416028af10d5b6bc2a83",
+  "size": 1143104,
+  "force": false,
+  "notes": "Local browser OTA plus n8 flash recovery; normal package without compile-time WiFi secrets"
 }

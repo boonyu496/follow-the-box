@@ -151,6 +151,79 @@ bool CloudOtaManager::requestInstall(const char* version) {
   return accepted;
 }
 
+bool CloudOtaManager::beginLocalUpload(const char* label, char* reason,
+                                       size_t reason_size) {
+  if (in_progress_.load()) {
+    std::snprintf(reason, reason_size, "ota busy");
+    return false;
+  }
+
+  const char* upload_label = hasText(label) ? label : "local-upload";
+  setStatus(State::kInstalling, true, upload_label, "local upload", millis());
+  setInProgress(true);
+  FB_LOGW("cloud_ota: local upload start label=%s", upload_label);
+
+  if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
+    std::snprintf(reason, reason_size, "update begin failed err=%u",
+                  static_cast<unsigned>(Update.getError()));
+    setStatus(State::kFailed, true, upload_label, reason, millis());
+    return false;
+  }
+
+  std::snprintf(reason, reason_size, "ok");
+  return true;
+}
+
+bool CloudOtaManager::writeLocalUpload(uint8_t* data, size_t len,
+                                       char* reason, size_t reason_size) {
+  if (!in_progress_.load()) {
+    std::snprintf(reason, reason_size, "ota not started");
+    return false;
+  }
+  if (data == nullptr && len > 0) {
+    std::snprintf(reason, reason_size, "empty chunk");
+    setStatus(State::kFailed, true, "local-upload", reason, millis());
+    return false;
+  }
+  const size_t written = Update.write(data, len);
+  if (written != len) {
+    std::snprintf(reason, reason_size, "write failed err=%u",
+                  static_cast<unsigned>(Update.getError()));
+    setStatus(State::kFailed, true, "local-upload", reason, millis());
+    return false;
+  }
+  std::snprintf(reason, reason_size, "ok");
+  return true;
+}
+
+bool CloudOtaManager::finishLocalUpload(char* reason, size_t reason_size) {
+  if (!in_progress_.load()) {
+    std::snprintf(reason, reason_size, "ota not started");
+    return false;
+  }
+  const bool ended = Update.end(true);
+  const bool finished = Update.isFinished();
+  if (!ended || !finished) {
+    std::snprintf(reason, reason_size, "finish failed err=%u",
+                  static_cast<unsigned>(Update.getError()));
+    setStatus(State::kFailed, true, "local-upload", reason, millis());
+    return false;
+  }
+  std::snprintf(reason, reason_size, "ok");
+  setStatus(State::kRebooting, false, "local-upload",
+            "local upload complete; rebooting", millis());
+  FB_LOGI("cloud_ota: local upload complete, restarting");
+  return true;
+}
+
+void CloudOtaManager::abortLocalUpload(const char* reason) {
+  if (in_progress_.load()) {
+    Update.abort();
+    setStatus(State::kFailed, true, "local-upload",
+              hasText(reason) ? reason : "local upload aborted", millis());
+  }
+}
+
 void CloudOtaManager::setStatus(State state, bool update_available,
                                 const char* version, const char* reason,
                                 uint32_t checked_at_ms) {

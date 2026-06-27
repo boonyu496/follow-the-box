@@ -54,6 +54,7 @@ void testSafetyAndMixer() {
 
   state.safety = safety.evaluate(state);
   assert(state.safety.motion_allowed);
+  assert(state.safety.profile == SafetyProfile::LocalManual);
   assert(state.safety.stop_reason == StopReason::NONE);
   assert(modes.selectMode(state, state.safety) == RunMode::MANUAL_RC);
 
@@ -95,21 +96,53 @@ void testSafetyAndMixer() {
   state.rc.last_update_ms = 5000;
   state.safety = rc_loss_safety.evaluate(state);
   assert(state.safety.motion_allowed);
+  assert(state.safety.profile == SafetyProfile::LocalManual);
   assert(!state.safety.fault_latched);
   assert(state.safety.stop_reason == StopReason::NONE);
+
+  SafetyManager h5_safety;
+  state = SystemState{};
+  state.now_ms = 6000;
+  state.estop_active = false;
+  state.mode = RunMode::MANUAL_H5_LOW_SPEED;
+  state.heartbeat.sensor_task_ms = 6000;
+  state.heartbeat.uwb_task_ms = 6000;
+  state.h5.connected = true;
+  state.h5.last_update_ms = 6000;
+  state.h5.unlock_request = true;
+  state.safety = h5_safety.evaluate(state);
+  assert(state.safety.motion_allowed);
+  assert(state.safety.profile == SafetyProfile::RemoteManual);
+  assert(state.safety.stop_reason == StopReason::NONE);
+
+  state.now_ms = 6000 + profile::H5_LOST_STOP_MS + 1;
+  state.heartbeat.sensor_task_ms = state.now_ms;
+  state.heartbeat.uwb_task_ms = state.now_ms;
+  state.safety = h5_safety.evaluate(state);
+  assert(!state.safety.motion_allowed);
+  assert(state.safety.stop_reason == StopReason::H5_LOST);
 
   SafetyManager auto_safety;
   state = SystemState{};
   state.now_ms = 2000;
   state.estop_active = false;
   state.mode = RunMode::AUTO_FOLLOW;
-  state.install_wizard_complete = true;
-  state.throttle_calibrated = true;
+  state.install_wizard_complete = false;
+  state.throttle_calibrated = false;
   state.heartbeat.sensor_task_ms = 2000;
   state.heartbeat.uwb_task_ms = 2000;
   state.obstacle.valid = true;
   state.obstacle.last_update_ms = 2000;
   state.obstacle.front_center_mm = 1500;
+  state.uwb.valid = true;
+  state.uwb.last_update_ms = state.now_ms;
+  state.safety = auto_safety.evaluate(state);
+  assert(!state.safety.motion_allowed);
+  assert(state.safety.profile == SafetyProfile::Autonomous);
+  assert(state.safety.stop_reason == StopReason::INSTALL_WIZARD_NOT_DONE);
+
+  state.install_wizard_complete = true;
+  state.throttle_calibrated = true;
   state.uwb.valid = false;
   state.safety = auto_safety.evaluate(state);
   assert(!state.safety.motion_allowed);
@@ -764,6 +797,66 @@ void testManualRcMotorCommand() {
          profile::REMOTE_MAX_SPEED_SCALE * rc.speed_limit);
 }
 
+void testManualRcObstacleEscape() {
+  App app;
+  app.begin();
+
+  ObstacleSnapshot close_front;
+  close_front.valid = true;
+  close_front.last_update_ms = 1000;
+  close_front.front_center_mm = 300;
+
+  RcInput rc;
+  rc.online = true;
+  rc.last_update_ms = 1000;
+  rc.speed_limit = 0.5f;
+  rc.stop_switch = false;
+
+  app.ingestSensorInputs(UwbTarget{}, close_front, PowerStatus{},
+                         ImuSnapshot{}, TofSnapshot{}, SensorDiagnostics{},
+                         UltrasonicSnapshot{}, CameraStatus{}, false, 1000,
+                         1000);
+
+  // Forward into a near front obstacle remains blocked by SafetyManager.
+  rc.throttle = 1.0f;
+  rc.steering = 0.0f;
+  app.ingestRcInput(rc);
+  app.tick(1000);
+  app.tick(1020);
+  assert(app.state().mode == RunMode::MANUAL_RC);
+  assert(!app.state().safety.motion_allowed);
+  assert(app.state().safety.stop_reason == StopReason::OBSTACLE_STOP);
+  assert(!app.state().motor_command.enable);
+  assert(app.state().motor_command.brake);
+
+  // Backing away from the same front obstacle is allowed at the manual speed cap.
+  rc.last_update_ms = 1040;
+  rc.throttle = -1.0f;
+  app.ingestRcInput(rc);
+  app.tick(1040);
+  app.tick(1080);
+  assert(app.state().mode == RunMode::MANUAL_RC);
+  assert(app.state().safety.motion_allowed);
+  assert(app.state().safety.stop_reason == StopReason::NONE);
+  assert(app.state().motor_command.enable);
+  assert(!app.state().motor_command.brake);
+  assert(app.state().motor_command.left_target < 0.0f);
+  assert(app.state().motor_command.right_target < 0.0f);
+
+  // Pure turn is also preserved so an operator can pivot away from the obstacle.
+  rc.last_update_ms = 1120;
+  rc.throttle = 0.0f;
+  rc.steering = 1.0f;
+  app.ingestRcInput(rc);
+  app.tick(1120);
+  app.tick(1160);
+  assert(app.state().mode == RunMode::MANUAL_RC);
+  assert(app.state().safety.motion_allowed);
+  assert(app.state().safety.stop_reason == StopReason::NONE);
+  assert(app.state().motor_command.enable);
+  assert(app.state().motor_command.left_target > app.state().motor_command.right_target);
+}
+
 // --- H5 command handler (panel events -> H5ControlInput) ------------------
 void testH5CommandHandler() {
   H5CommandHandler h5;
@@ -827,7 +920,7 @@ void testH5CommandHandler() {
   h5.onJog(3, 0.6f, 0.0f, true, 160);
   assert(!h5.input().auto_request);
   assert(h5.input().unlock_request);
-  h5.update(160 + 1001);
+  h5.update(160 + profile::H5_LOST_STOP_MS + 1);
   assert(!h5.input().unlock_request);
   assert(std::fabs(h5.input().throttle) < 0.0001f);
 
@@ -1001,6 +1094,7 @@ int main() {
   testObstacleFusion();
   testSensorIngestion();
   testManualRcMotorCommand();
+  testManualRcObstacleEscape();
   testH5CommandHandler();
   testTelemetryJson();
   testRequestParser();

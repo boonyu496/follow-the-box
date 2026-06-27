@@ -88,9 +88,14 @@ void TelemetryLogger::emit(const SystemState& state) {
   const RcInput& rc = state.rc;
   const uint32_t rc_age_ms =
       elapsedMsClamped(state.now_ms, rc.last_update_ms);
+  const uint32_t sensor_hb_age_ms =
+      elapsedMsClamped(state.now_ms, state.heartbeat.sensor_task_ms);
+  const uint32_t uwb_hb_age_ms =
+      elapsedMsClamped(state.now_ms, state.heartbeat.uwb_task_ms);
   FB_LOGI(
       "TLM mode=%s stop=%s en=%d brk=%d L=%.2f%c R=%.2f%c scale=%.2f "
       "batt=%.1f pwr=%d low=%d mf=%d/%d estop=%d wiz=%d uwb=%d/%dmm "
+      "hb=%lu/%lu "
       "rc=%d age=%lu ch=%u/%u/%u/%u/%u ch_age=%lu/%lu/%lu/%lu/%lu "
       "thr=%.2f str=%.2f spd=%.2f stop=%d auto=%d "
       "lidar=%d rx=%lu pkt=%lu scan=%lu ce=%lu fe=%lu "
@@ -106,6 +111,8 @@ void TelemetryLogger::emit(const SystemState& state) {
       state.power.motor_fault_right ? 1 : 0,
       state.estop_active ? 1 : 0, state.install_wizard_complete ? 1 : 0,
       state.uwb.valid ? 1 : 0, state.uwb.distance_mm,
+      static_cast<unsigned long>(sensor_hb_age_ms),
+      static_cast<unsigned long>(uwb_hb_age_ms),
       rc.online ? 1 : 0, static_cast<unsigned long>(rc_age_ms),
       static_cast<unsigned>(rc.ch_us[0]), static_cast<unsigned>(rc.ch_us[1]),
       static_cast<unsigned>(rc.ch_us[2]), static_cast<unsigned>(rc.ch_us[3]),

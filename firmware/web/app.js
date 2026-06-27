@@ -132,6 +132,11 @@ const otaEls = {
   install: $("btn-ota-install"),
   later: $("btn-ota-later"),
   hint: $("ota-local-hint"),
+  directState: $("ota-direct-state"),
+  directFile: $("ota-direct-file"),
+  directUpload: $("btn-ota-direct-upload"),
+  directProgress: $("ota-direct-progress"),
+  directHint: $("ota-direct-hint"),
 };
 
 // modeLabels / stopLabels → loaded from ../shared/helpers.js
@@ -159,6 +164,7 @@ let lastTelemetryCameraUrl = "";
 let userCameraOverride = false;
 let cameraImageOnline = false;
 let cloudVideoTimer = null;
+let localAuthStatus = null;
 let latestState = null;
 let lastStateAt = 0;
 const tofRateWindow = [];
@@ -187,8 +193,32 @@ function refreshLocalKeyUi() {
   if (!extEls.localApiKey || !extEls.localKeyStatus) return;
   const key = localApiKey();
   extEls.localApiKey.value = key;
-  extEls.localKeyStatus.textContent = key ? "已设置" : "未设置";
+  if (localAuthStatus && !localAuthStatus.auth_required) {
+    extEls.localKeyStatus.textContent = "未启用";
+    extEls.localApiKey.placeholder = "当前固件不需要 X-FollowBox-Key";
+    setTextState(extEls.localKeyStatus, true, false);
+    return;
+  }
+  if (localAuthStatus?.auth_required && !localAuthStatus?.key_configured) {
+    extEls.localKeyStatus.textContent = "固件未配置 Key";
+    setTextState(extEls.localKeyStatus, false, true);
+    return;
+  }
+  extEls.localKeyStatus.textContent = key ? "已设置" : "需输入";
+  extEls.localApiKey.placeholder = "X-FollowBox-Key";
   setTextState(extEls.localKeyStatus, !!key, !key);
+}
+
+async function refreshLocalAuthStatus() {
+  if (!extEls.localKeyStatus) return;
+  try {
+    const res = await fetch("/api/local-auth/status", { cache: "no-store" });
+    if (!res.ok) return;
+    localAuthStatus = await res.json();
+    refreshLocalKeyUi();
+  } catch (e) {
+    /* older firmware: keep the manual key field usable */
+  }
 }
 
 // fmt / fmtMm / fmtAge / estimateBatteryPercent / setTextState → loaded from ../shared/helpers.js
@@ -676,7 +706,16 @@ function renderState(s) {
   const initFailures = Number(tof.init_failure_count || 0);
   const muxNacks = Number(tof.mux_nack_count || 0);
   let tofDiagnosis = "等待初始化诊断";
-  if (tofValidCount > 0) {
+  const tofValidValues = [
+    channelValid(tof, "front_left_valid", "front_left_mm") ? Number(tof.front_left_mm) : 0,
+    channelValid(tof, "front_center_valid", "front_center_mm") ? Number(tof.front_center_mm) : 0,
+    channelValid(tof, "front_right_valid", "front_right_mm") ? Number(tof.front_right_mm) : 0,
+  ].filter((value) => value > 0);
+  const suspiciousNearTof = tofValidValues.length > 0 &&
+    tofValidValues.every((value) => value < 300);
+  if (suspiciousNearTof) {
+    tofDiagnosis = "读数持续小于30cm：优先检查探头是否看到车壳/地面、保护膜、安装孔遮挡或朝向过低";
+  } else if (tofValidCount > 0) {
     tofDiagnosis = `读取正常，累计 ${tof.read_count || 0}`;
   } else if (muxNacks > 0) {
     tofDiagnosis = "TCA9548A 无响应：检查 3.3V、GPIO10/11、上拉和地址";
@@ -734,12 +773,18 @@ function renderState(s) {
 
   const cam = s.camera ?? {};
   const cameraVisible = !!cam.online || cameraImageOnline;
+  const cameraRelayText = activeCameraUrl.startsWith("cloud-relay:")
+    ? "云端转发"
+    : (cam.stream_url ? cam.stream_url : "无地址");
   els.camera.textContent = cameraVisible ? "摄像头在线" : "摄像头离线";
   els.cameraLink.textContent = cameraVisible ? "在线" : "离线";
   setTextState(els.cameraLink, cameraVisible, !cameraVisible);
   setStatus(els.sensorCameraStatus, cameraVisible ? "在线" : "离线", cameraVisible, !cameraVisible);
   if (els.sensorCameraAge) els.sensorCameraAge.textContent = cam.stream_url ? "有地址" : "无地址";
-  if (els.sensorCameraDetail) els.sensorCameraDetail.textContent = cameraVisible ? "在线" : "离线";
+  if (els.sensorCameraDetail) {
+    els.sensorCameraDetail.textContent =
+      `${cameraVisible ? "在线" : "离线"} / ${cameraRelayText}`;
+  }
   setStatus(els.sensorPowerStatus,
             !batteryVoltageOk && p.battery_voltage != null ? "电压异常" :
               (p.low_battery ? "低电压" : (p.battery_voltage != null ? "正常" : "无数据")),
@@ -1260,6 +1305,8 @@ async function refreshLogs() {
     const body = await res.json();
     if (Array.isArray(body.logs) && body.logs.length) {
       els.logs.textContent = body.logs.slice(-120).join("\n");
+    } else if (els.logs.textContent.trim() === "-- 等待日志 --") {
+      els.logs.textContent = "-- 暂无设备日志；触发一次传感器/视频/控制动作后会显示 --";
     }
   } catch (e) {
     /* keep last visible logs */
@@ -1604,6 +1651,64 @@ otaEls.later?.addEventListener("click", () => {
   otaEls.hint.textContent = "未提交安装请求；之后可再次检查。";
 });
 
+function uploadDirectOta() {
+  const file = otaEls.directFile?.files?.[0];
+  if (!file) {
+    otaEls.directState.textContent = "未选择文件";
+    otaEls.directHint.textContent = "请先选择 PlatformIO 生成的 firmware.bin。";
+    return;
+  }
+  if (!file.name.endsWith(".bin")) {
+    otaEls.directState.textContent = "文件类型不对";
+    otaEls.directHint.textContent = "请选择 .bin 固件文件。";
+    return;
+  }
+  if (!confirm(`直传 ${file.name}？上传期间车辆会强制停止并自动重启。`)) return;
+
+  const form = new FormData();
+  form.append("firmware", file, file.name);
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/ota/local-upload");
+  const key = localApiKey();
+  if (key) xhr.setRequestHeader("X-FollowBox-Key", key);
+  otaEls.directUpload.disabled = true;
+  otaEls.directProgress.value = 0;
+  otaEls.directState.textContent = "上传中";
+  otaEls.directHint.textContent = "请勿断电；完成后页面断开属于设备重启的预期现象。";
+
+  xhr.upload.onprogress = (event) => {
+    if (event.lengthComputable) {
+      otaEls.directProgress.value = Math.round((event.loaded / event.total) * 100);
+    }
+  };
+  xhr.onload = () => {
+    otaEls.directUpload.disabled = false;
+    if (xhr.status >= 200 && xhr.status < 300) {
+      otaEls.directProgress.value = 100;
+      otaEls.directState.textContent = "重启中";
+      otaEls.directHint.textContent = "上传完成，等待设备重新上线。";
+      pollOtaStatus();
+      return;
+    }
+    let reason = xhr.statusText || "上传失败";
+    try {
+      reason = JSON.parse(xhr.responseText).reason || reason;
+    } catch (e) {
+      /* keep HTTP text */
+    }
+    otaEls.directState.textContent = "上传失败";
+    otaEls.directHint.textContent = xhr.status === 401 ? "本地控制 Key 无效。" : reason;
+  };
+  xhr.onerror = () => {
+    otaEls.directUpload.disabled = false;
+    otaEls.directState.textContent = "连接中断";
+    otaEls.directHint.textContent = "若固件已写完，设备可能正在重启；否则请重新上传。";
+  };
+  xhr.send(form);
+}
+
+otaEls.directUpload?.addEventListener("click", uploadDirectOta);
+
 refreshOtaStatus();
 
 // ── Log actions ──
@@ -1664,6 +1769,7 @@ setInterval(refreshLogs, 2000);
 setInterval(refreshWifiStatus, 5000);
 refreshLogs();
 refreshWifiStatus();
+refreshLocalAuthStatus();
 refreshLocalKeyUi();
 restoreCameraOverride();
 setCameraStream(els.cameraUrl?.value);

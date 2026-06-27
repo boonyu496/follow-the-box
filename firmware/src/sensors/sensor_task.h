@@ -95,6 +95,8 @@ class SensorTask {
   uint32_t last_lidar_checksum_errors_ = 0;
   uint32_t last_lidar_framing_errors_ = 0;
   uint32_t last_lidar_start_retry_ms_ = 0;
+  uint32_t last_lidar_raw_diag_ms_ = 0;
+  uint32_t last_slow_update_log_ms_ = 0;
   uint32_t lidar_current_baud_ = 0;
   int lidar_active_rx_pin_ = -1;
   int lidar_active_tx_pin_ = -1;

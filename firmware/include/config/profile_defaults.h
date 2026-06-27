@@ -11,7 +11,7 @@ constexpr float CLOUD_MAX_SPEED_SCALE = 0.08f;
 constexpr float AUTO_FOLLOW_MAX_SPEED_SCALE = 0.30f;
 
 constexpr uint32_t PHYSICAL_REMOTE_LOST_STOP_MS = 500;
-constexpr uint32_t H5_LOST_STOP_MS = 1000;
+constexpr uint32_t H5_LOST_STOP_MS = 500;
 constexpr uint32_t CLOUD_LOST_STOP_MS = 700;
 constexpr uint32_t UWB_STALE_STOP_MS = 1000;
 constexpr uint32_t OBSTACLE_STALE_TIMEOUT_MS = 300;

@@ -325,6 +325,12 @@ void TofVl53l1xArray::begin() {
     const bool recovered = g_i2c_bus.busClear();
     stats_.bus_clear_count++;
     FB_LOGW("TOF begin: I2C bus not released, bus_clear=%d", recovered ? 1 : 0);
+    if (!recovered || digitalRead(pins::PIN_I2C_SDA) != HIGH ||
+        digitalRead(pins::PIN_I2C_SCL) != HIGH) {
+      stats_.init_failure_count += kChannelCount;
+      FB_LOGW("TOF begin: bus held low, skip init so boot/OTA stay reachable");
+      return;
+    }
   }
   restoreTofI2cClock();
   detectAndLogTcaAddress();

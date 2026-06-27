@@ -102,6 +102,9 @@ const els = {
   raw: $("raw"),
   copyLogs: $("copy-logs"),
   clearLogs: $("clear-logs"),
+  browserLogs: $("browser-logs"),
+  copyBrowserLogs: $("copy-browser-logs"),
+  clearBrowserLogs: $("clear-browser-logs"),
   spatialMap: $("spatial-map"),
   otaVersion: $("ota-version"),
   otaCurrentVersion: $("ota-current-version"),
@@ -159,11 +162,11 @@ const STORAGE_KEY_CAMERA_LAST = "fb_camera_last_url";
 function loadSetting(storageKey, defaultValue) {
   try {
     const stored = localStorage.getItem(storageKey);
-    if (stored !== null) return stored;
+    if (stored !== null && stored !== "") return stored;
   } catch (e) { /* localStorage disabled */ }
   try {
     const legacy = sessionStorage.getItem(storageKey);
-    if (legacy !== null) {
+    if (legacy !== null && legacy !== "") {
       saveSetting(storageKey, legacy);
       return legacy;
     }
@@ -191,6 +194,8 @@ let isFullscreen = false;
 let fullscreenOrientationLocked = false;
 let activeCameraUrl = "";
 let userCameraOverride = false;
+let cameraRetryTimer = null;
+let cameraRetryDelay = 3000;
 let latestState = null;
 let latestLastIngestAt = 0;
 let latestTelemetryFreshAt = 0;
@@ -487,7 +492,8 @@ function persistLastCameraUrl(url) {
 }
 
 function useCloudCameraRelay(options = {}) {
-  const next = cloudVideoLatestUrl();
+  // Use MJPEG stream for live video; browser handles frame updates automatically
+  const next = cloudVideoStreamUrl();
   userCameraOverride = false;
   updateCamStream(next, options);
   if (els.cameraUrlState) els.cameraUrlState.textContent = "云端转发";
@@ -506,8 +512,27 @@ function updateCamStream(url, options = {}) {
   if (els.cameraUrlState) els.cameraUrlState.textContent = "加载中";
 }
 
-els.cameraStream.addEventListener("load", () => setCameraOnline(true, "画面在线"));
-els.cameraStream.addEventListener("error", () => setCameraOnline(false, "画面离线"));
+els.cameraStream.addEventListener("load", () => {
+  setCameraOnline(true, "画面在线");
+  cameraRetryDelay = 3000; // Reset backoff on successful load
+  if (cameraRetryTimer) { clearTimeout(cameraRetryTimer); cameraRetryTimer = null; }
+});
+els.cameraStream.addEventListener("error", () => {
+  setCameraOnline(false, "画面离线");
+  // Auto-retry with exponential backoff (3 s → 4.5 s → 6.7 s … max 15 s)
+  if (!cameraRetryTimer) {
+    const delay = cameraRetryDelay;
+    cameraRetryDelay = Math.min(Math.round(cameraRetryDelay * 1.5), 15000);
+    cameraRetryTimer = setTimeout(() => {
+      cameraRetryTimer = null;
+      if (!userCameraOverride) {
+        activeCameraUrl = ""; // Force reload on next attempt
+        useCloudCameraRelay();
+      }
+    }, delay);
+    if (els.cameraStatus) els.cameraStatus.textContent = `画面离线，${Math.round(delay / 1000)}s 后重试`;
+  }
+});
 
 els.cameraUrl.addEventListener("input", () => {
   const url = els.cameraUrl.value.trim();
@@ -864,11 +889,18 @@ function render(payload) {
     setTextState(els.sensorSummary, sensorOkCount >= 7, sensorOkCount >= 4);
   }
   const frameSeq = Number(payload.video?.frameSeq);
-  if (!userCameraOverride && payload.video?.online) {
-    if (Number.isFinite(frameSeq)) latestVideoFrameSeq = frameSeq;
-    updateCamStream(cloudVideoLatestUrl(latestVideoFrameSeq));
-  } else if (!userCameraOverride && !payload.video?.online) {
-    setCameraOnline(false, "画面离线");
+  if (!userCameraOverride) {
+    if (payload.video?.online) {
+      if (Number.isFinite(frameSeq)) latestVideoFrameSeq = frameSeq;
+      // MJPEG stream: reconnect only if not already streaming this URL
+      const streamUrl = cloudVideoStreamUrl();
+      if (activeCameraUrl !== streamUrl) {
+        updateCamStream(streamUrl);
+      }
+    } else if (!activeCameraUrl) {
+      // No active stream at all — show offline placeholder
+      setCameraOnline(false, "画面离线");
+    }
   }
 
   // Spatial map (RAF throttled)
@@ -1219,6 +1251,72 @@ async function copyVisibleLogs() {
 els.copyLogs.addEventListener("click", copyVisibleLogs);
 els.clearLogs.addEventListener("click", () => { els.logs.textContent = ""; });
 
+// ── Browser / page console log capture ──
+const pageLogBuffer = [];
+const MAX_PAGE_LOGS = 300;
+
+function appendPageLog(level, argsArr) {
+  const ts = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+  const text = argsArr.map((a) => {
+    try {
+      return typeof a === "object" && a !== null ? JSON.stringify(a) : String(a);
+    } catch (_e) { return String(a); }
+  }).join(" ");
+  pageLogBuffer.push(`[${ts}][${level}] ${text}`);
+  if (pageLogBuffer.length > MAX_PAGE_LOGS) pageLogBuffer.shift();
+  if (els.browserLogs) {
+    els.browserLogs.textContent = pageLogBuffer.join("\n");
+    els.browserLogs.scrollTop = els.browserLogs.scrollHeight;
+  }
+}
+
+["log", "info", "warn", "error"].forEach((level) => {
+  const orig = console[level].bind(console);
+  console[level] = (...args) => { orig(...args); appendPageLog(level.toUpperCase(), args); };
+});
+
+window.addEventListener("error", (ev) => {
+  appendPageLog("RUNTIME", [`${ev.message} @${ev.filename}:${ev.lineno}`]);
+});
+window.addEventListener("unhandledrejection", (ev) => {
+  appendPageLog("PROMISE", [String(ev.reason)]);
+});
+
+if (els.copyBrowserLogs) {
+  els.copyBrowserLogs.addEventListener("click", async () => {
+    const text = pageLogBuffer.join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      els.copyBrowserLogs.textContent = "已复制";
+    } catch (_e) { els.copyBrowserLogs.textContent = "复制失败"; }
+    setTimeout(() => { els.copyBrowserLogs.textContent = "复制"; }, 1200);
+  });
+}
+if (els.clearBrowserLogs) {
+  els.clearBrowserLogs.addEventListener("click", () => {
+    pageLogBuffer.length = 0;
+    if (els.browserLogs) els.browserLogs.textContent = "";
+  });
+}
+
+// ── Local config: auto-fill operator token from server on local network ──
+async function initLocalConfig() {
+  if (els.operatorToken && els.operatorToken.value) return; // Already filled
+  try {
+    const resp = await fetch(new URL("api/config", APP_BASE_URL).toString());
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data?.local && data?.operator_token && !els.operatorToken.value) {
+      els.operatorToken.value = data.operator_token;
+      saveSetting(STORAGE_KEY_TOKEN, data.operator_token);
+      console.info("[config] 本地 Token 已从服务器自动填入");
+      // Reconnect with the correct token
+      connectEvents();
+      if (!userCameraOverride) { activeCameraUrl = ""; useCloudCameraRelay(); }
+    }
+  } catch (_e) { /* network error – ignore */ }
+}
+
 // ── Online/Offline detection ──
 
 window.addEventListener("online", () => {
@@ -1437,7 +1535,7 @@ const savedCamera = loadSetting(STORAGE_KEY_CAMERA, "");
 
 if (els.operatorToken) els.operatorToken.value = savedToken;
 if (els.deviceId) els.deviceId.value = savedDevice;
-const initialCloudCameraUrl = cloudVideoLatestUrl();
+const initialCloudCameraUrl = cloudVideoStreamUrl();
 if (els.cameraUrl) els.cameraUrl.value = savedCamera || initialCloudCameraUrl;
 
 setupCanvasDPI(els.spatialMap);
@@ -1454,3 +1552,5 @@ if (savedCamera) {
 } else {
   useCloudCameraRelay({ persistLast: true });
 }
+// Auto-fill token from server if this is a local network session
+initLocalConfig();

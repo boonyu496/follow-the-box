@@ -287,6 +287,17 @@
           <small id="ota-local-hint">检查更新不会自动安装。</small>
         </article>
 
+        <article class="fb-panel">
+          <header class="fb-section-head">
+            <strong>测试直传 OTA</strong>
+            <span id="ota-direct-state">未选择</span>
+          </header>
+          <label>固件文件 <input id="ota-direct-file" type="file" accept=".bin,application/octet-stream" /></label>
+          <button id="btn-ota-direct-upload" class="contrast">上传 firmware.bin 并重启</button>
+          <progress id="ota-direct-progress" value="0" max="100"></progress>
+          <small id="ota-direct-hint">选择 .pio/build/esp32-s3-devkitc-1/firmware.bin。</small>
+        </article>
+
         <details>
           <summary>安装与油门标定</summary>
           <div class="fb-detail-body">

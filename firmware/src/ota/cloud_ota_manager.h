@@ -36,6 +36,11 @@ class CloudOtaManager {
   bool inProgress() const { return in_progress_.load(); }
   bool requestCheck();
   bool requestInstall(const char* version);
+  bool beginLocalUpload(const char* label, char* reason, size_t reason_size);
+  bool writeLocalUpload(uint8_t* data, size_t len, char* reason,
+                        size_t reason_size);
+  bool finishLocalUpload(char* reason, size_t reason_size);
+  void abortLocalUpload(const char* reason);
   Status status() const;
   static const char* stateName(State state);
 

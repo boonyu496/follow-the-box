@@ -24,8 +24,19 @@ constexpr uint8_t SOFT_AP_CHANNEL = 6;
 constexpr uint8_t SOFT_AP_MAX_CONN = 2;  // panel + spare; keep small for latency.
 
 // --- STA (join existing WiFi) ---
-constexpr char STA_SSID[] = "";      // FILL IN for STA mode.
-constexpr char STA_PASSWORD[] = "";  // FILL IN for STA mode.
+// Bench builds may inject these without committing secrets:
+//   -D FOLLOWBOX_WIFI_STA_SSID=\"ssid\"
+//   -D FOLLOWBOX_WIFI_STA_PASSWORD=\"password\"
+#ifndef FOLLOWBOX_WIFI_STA_SSID
+#define FOLLOWBOX_WIFI_STA_SSID ""
+#endif
+
+#ifndef FOLLOWBOX_WIFI_STA_PASSWORD
+#define FOLLOWBOX_WIFI_STA_PASSWORD ""
+#endif
+
+constexpr char STA_SSID[] = FOLLOWBOX_WIFI_STA_SSID;
+constexpr char STA_PASSWORD[] = FOLLOWBOX_WIFI_STA_PASSWORD;
 
 // HTTP/WebSocket server port.
 constexpr uint16_t HTTP_PORT = 80;
