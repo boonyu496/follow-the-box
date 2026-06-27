@@ -352,6 +352,62 @@ function Test-HostReachable {
   }
 }
 
+function Get-OtaTargetBaseUrl {
+  param([string]$Target)
+
+  $trimmed = ([string]$Target).Trim().TrimEnd("/")
+  if ([string]::IsNullOrWhiteSpace($trimmed)) { return "" }
+  if ($trimmed -match "^https?://") { return $trimmed }
+  return "http://$trimmed"
+}
+
+function Get-OtaEndpointUrl {
+  param([string]$Target)
+
+  $baseUrl = Get-OtaTargetBaseUrl -Target $Target
+  if ([string]::IsNullOrWhiteSpace($baseUrl)) { return "" }
+  return (Join-UrlPath -BaseUrl $baseUrl -RelativePath "api/ota/local-upload")
+}
+
+function Test-OtaHttpEndpoint {
+  param([string]$Target)
+
+  $baseUrl = Get-OtaTargetBaseUrl -Target $Target
+  if ([string]::IsNullOrWhiteSpace($baseUrl)) {
+    return [ordered]@{ ok = $false; url = ""; statusCode = 0; reason = "OTA target is empty." }
+  }
+  if (-not (Test-CommandExists -Name "curl.exe")) {
+    return [ordered]@{ ok = $false; url = ""; statusCode = 0; reason = "curl.exe was not found in PATH." }
+  }
+
+  $statusUrl = Join-UrlPath -BaseUrl $baseUrl -RelativePath "api/ota/status"
+  $check = Invoke-ExternalCommand -FilePath "curl.exe" -Arguments @(
+    "--silent",
+    "--show-error",
+    "--max-time", "5",
+    "--connect-timeout", "3",
+    "--noproxy", "*",
+    "--write-out", "`n%{http_code}",
+    $statusUrl
+  ) -WorkingDirectory $script:RepoRoot -TimeoutMs 10000
+  $stdout = [string]$check.stdout
+  $lines = @($stdout -split "`r?`n")
+  $statusCode = 0
+  if ($lines.Count -gt 0) {
+    [void][int]::TryParse($lines[$lines.Count - 1].Trim(), [ref]$statusCode)
+  }
+  $body = if ($lines.Count -gt 1) { (($lines[0..($lines.Count - 2)]) -join "`n").Trim() } else { "" }
+  return [ordered]@{
+    ok         = ($check.exitCode -eq 0 -and $statusCode -ge 200 -and $statusCode -lt 300)
+    url        = $statusUrl
+    uploadUrl  = (Get-OtaEndpointUrl -Target $Target)
+    statusCode = $statusCode
+    reason     = if ($check.exitCode -eq 0) { "" } else { $check.stderr.Trim() }
+    body       = $body
+    result     = $check
+  }
+}
+
 function Get-HashtableValue {
   param(
     [hashtable]$Table,
@@ -838,17 +894,24 @@ function Get-PreflightData {
       $warnings += "Confirm wheels are lifted and the drive chain is safe before serial flashing."
     }
     "upload-network" {
-      $reachable = Test-HostReachable -Target ([string]$Config.otaUploadPort)
+      $endpoint = Test-OtaHttpEndpoint -Target ([string]$Config.otaUploadPort)
       $pio = Resolve-PlatformIoCommand -Command ([string]$Config.pioCommand)
       $details.network = [ordered]@{
-        target = $Config.otaUploadPort
+        target       = $Config.otaUploadPort
+        uploadMethod = "http-local-upload"
+        statusUrl    = $endpoint.url
+        uploadUrl    = $endpoint.uploadUrl
       }
+      $details.endpoint = $endpoint
       $details.pio = $pio
-      $summary = "Will upload firmware over network OTA."
+      $summary = "Will build firmware and upload it directly to the board HTTP OTA endpoint."
       $checks += [ordered]@{ label = "OTA target configured"; ok = (-not [string]::IsNullOrWhiteSpace([string]$Config.otaUploadPort)); value = [string]$Config.otaUploadPort }
-      $checks += [ordered]@{ label = "Target reachable"; ok = $reachable; value = [string]$Config.otaUploadPort }
+      $checks += [ordered]@{ label = "Board HTTP OTA endpoint reachable"; ok = [bool]$endpoint.ok; value = if ($endpoint.ok) { $endpoint.url } else { $endpoint.reason } }
       $checks += [ordered]@{ label = "PlatformIO available"; ok = [bool]$pio.ok; value = if ($pio.ok) { $pio.resolvedPath } else { $pio.reason } }
+      $checks += [ordered]@{ label = "curl.exe available"; ok = (Test-CommandExists -Name "curl.exe") }
       $warnings += "Confirm the target IP belongs to the intended board before OTA."
+      $warnings += "This VM-safe path uses board HTTP upload; it requires firmware that exposes /api/ota/local-upload."
+      $warnings += "This updates the app partition only; LittleFS web assets still require uploadfs when they change."
     }
     default {
       throw "Unsupported action: $action"
@@ -1149,6 +1212,109 @@ function Publish-OtaFilesLocal {
     sourceVersion = $sourceVersion
     build         = $build
     binPath       = $targetBin
+  }
+}
+
+function Invoke-LanHttpOtaUpload {
+  param(
+    [hashtable]$Config,
+    [hashtable]$Body
+  )
+
+  if ([string]::IsNullOrWhiteSpace([string]$Config.otaUploadPort)) {
+    return [ordered]@{
+      ok     = $false
+      step   = "ota-target"
+      reason = "otaUploadPort is required."
+    }
+  }
+
+  $pio = Resolve-PlatformIoCommand -Command ([string]$Config.pioCommand)
+  if (-not $pio.ok) {
+    return [ordered]@{
+      ok     = $false
+      step   = "platformio"
+      reason = $pio.reason
+      pio    = $pio
+    }
+  }
+
+  if (-not (Test-CommandExists -Name "curl.exe")) {
+    return [ordered]@{
+      ok     = $false
+      step   = "curl"
+      reason = "curl.exe was not found in PATH."
+    }
+  }
+
+  Assert-PathExists -Path $Config.firmwarePath -Label "Firmware path"
+  $envName = if ($Body.ContainsKey("otaEnv") -and $Body.otaEnv) {
+    [string]$Body.otaEnv
+  } else {
+    [string]$Config.otaEnv
+  }
+  if ([string]::IsNullOrWhiteSpace($envName)) {
+    return [ordered]@{
+      ok     = $false
+      step   = "ota-env"
+      reason = "otaEnv is required."
+    }
+  }
+
+  $endpoint = Test-OtaHttpEndpoint -Target ([string]$Config.otaUploadPort)
+  if (-not $endpoint.ok) {
+    return [ordered]@{
+      ok       = $false
+      step     = "ota-http-endpoint"
+      reason   = "The board HTTP OTA endpoint is not reachable. Install a firmware build that exposes /api/ota/local-upload, or put the VM and board on the same reachable LAN."
+      endpoint = $endpoint
+    }
+  }
+
+  $build = Invoke-ExternalCommand -FilePath $pio.command -Arguments @(
+    "run", "-d", $Config.firmwarePath, "-e", $envName
+  ) -WorkingDirectory $Config.firmwarePath -TimeoutMs 300000
+  if ($build.exitCode -ne 0) {
+    return [ordered]@{
+      ok       = $false
+      step     = "build"
+      reason   = "PlatformIO build failed."
+      endpoint = $endpoint
+      result   = $build
+    }
+  }
+
+  $binPath = Join-Path $Config.firmwarePath ".pio\build\$envName\firmware.bin"
+  Assert-PathExists -Path $binPath -Label "Built firmware"
+
+  $uploadUrl = Get-OtaEndpointUrl -Target ([string]$Config.otaUploadPort)
+  $arguments = @(
+    "--fail",
+    "--show-error",
+    "--silent",
+    "--max-time", "240",
+    "--connect-timeout", "10",
+    "--noproxy", "*",
+    "-H", "Expect:",
+    "-F", "firmware=@$binPath;filename=firmware.bin;type=application/octet-stream"
+  )
+  $localApiKey = [string](Get-HashtableValue -Table $Config -Key "localApiKey" -Default "")
+  if (-not [string]::IsNullOrWhiteSpace($localApiKey)) {
+    $arguments += @("-H", "X-FollowBox-Key: $localApiKey")
+  }
+  $arguments += $uploadUrl
+
+  $upload = Invoke-ExternalCommand -FilePath "curl.exe" -Arguments $arguments -WorkingDirectory $Config.firmwarePath -TimeoutMs 300000
+  return [ordered]@{
+    ok           = ($upload.exitCode -eq 0)
+    step         = if ($upload.exitCode -eq 0) { "uploaded" } else { "upload" }
+    reason       = if ($upload.exitCode -eq 0) { "Board accepted the HTTP OTA upload and should reboot." } else { "HTTP OTA upload failed." }
+    target       = [string]$Config.otaUploadPort
+    endpoint     = $endpoint
+    firmwareBin  = $binPath
+    uploadMethod = "http-local-upload"
+    build        = $build
+    result       = $upload
   }
 }
 
@@ -1671,13 +1837,8 @@ function Handle-ApiRequest {
       "/api/ota/upload-network" {
         $body = Read-JsonBody -Request $request
         $runtimeConfig = Merge-Config -Base $config -Incoming $body
-        $pio = Resolve-PlatformIoCommand -Command ([string]$runtimeConfig.pioCommand)
-        if (-not $pio.ok) {
-          New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = $false; step = "platformio"; reason = $pio.reason; pio = $pio }
-          return
-        }
-        $upload = Invoke-ExternalCommand -FilePath $pio.command -Arguments @("run", "-d", $runtimeConfig.firmwarePath, "-e", $runtimeConfig.otaEnv, "-t", "upload", "--upload-port", $runtimeConfig.otaUploadPort) -WorkingDirectory $runtimeConfig.firmwarePath
-        New-JsonResponse -Response $response -StatusCode 200 -Body @{ ok = ($upload.exitCode -eq 0); result = $upload }
+        $result = Invoke-LanHttpOtaUpload -Config $runtimeConfig -Body $body
+        New-JsonResponse -Response $response -StatusCode 200 -Body $result
         return
       }
       default {

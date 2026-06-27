@@ -41,6 +41,16 @@
 - 当前状态：PASS_CLOUD_DEPLOYED_NEEDS_DEVICE_FS_REFRESH；PM2 restart 后云端内存帧清空，公网 `latest.jpg` 暂时 404，需设备侧重新上传 camera frame 后云端画面才会有真实帧。
 - 下一步：对车端 AP/LAN 执行 LittleFS `uploadfs` 后，用手机分别连接 FollowBox AP 和局域网打开页面；云端 H5 等设备重新上传帧后确认 relay 显示。
 
+### 2026-06-27 23:45 - Codex - Control center VM-safe LAN OTA button
+- Change: Switched only the control-center "upload-network" action from PlatformIO espota reverse-connect upload to board HTTP multipart upload at `/api/ota/local-upload` after a local PlatformIO build.
+- Files: `tools/followbox-control-center.ps1`, `AI-HANDOFF-MEMORY.md`.
+- Architecture impact: No firmware/cloud/H5 protocol schema change; only the local operator console backend route and preflight for one button changed.
+- Safety impact: No motor/e-stop/PWM/GPIO/ADC/I2C/power gate change; OTA still relies on firmware `CloudOtaManager` local upload safety behavior and app-partition reboot.
+- OTA: No new device OTA package was published by this task; button builds the selected `otaEnv` locally and uploads its `.pio/build/<otaEnv>/firmware.bin` directly to the board.
+- Verification: PowerShell parser PASS; `git diff --check -- tools/followbox-control-center.ps1 AI-HANDOFF-MEMORY.md` PASS; `/api/preflight` now uses `http-local-upload` and `curl --noproxy`; `pio run -d firmware -e ota` timed out before `firmware.bin`.
+- Current state: PASS_STATIC_NEEDS_BOARD_HTTP_OTA_AND_BUILD_TEST.
+- Next step: Start `tools/start-followbox-control-center.cmd`, set the LAN board IP in the OTA address field, use preflight to confirm `/api/ota/status`, then click the LAN OTA button with wheels lifted.
+
 ### 2026-06-27 21:05 - Codex - LAN direct browser OTA
 - 改动：新增本地浏览器直传 app 固件 OTA；固件内置 `/ota-upload` 简易页和 `/api/ota/local-upload` multipart 上传接口，H5 设置页新增“测试直传 OTA”按钮；`/ota-upload` 注册在静态文件服务前，避免被 `serveStatic("/")` 抢占。
 - 文件：`firmware/src/ota/cloud_ota_manager.{h,cpp}`, `firmware/src/web/h5_web_server.cpp`, `firmware/web/{index.html,app.js}`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`
