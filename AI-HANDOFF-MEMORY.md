@@ -36,6 +36,17 @@
 ```
 
 ## 最新交接记录
+### 2026-06-30 00:31 - Codex - softAP stable OTA published
+- 改动：继续排查“进入本地热点页面后 AP 断开”；确认设备仍运行 `2026.06.29-softap-wdt.1`，并将已准备的 `2026.06.29-softap-stable.1` 发布到云端 OTA。
+- 文件：`cloud/firmware/manifest.json`, `AI-HANDOFF-MEMORY.md`（`cloud/firmware/firmware.bin` 远端已上传，本地 MD5/size 未变）。
+- 架构影响：低；未改 WiFi 源码、H5 源码、GPIO、协议、`main.cpp` 或运动/安全链路。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源输出改动；本次只发布候选固件，不触发设备安装或重启。
+- OTA：版本 `2026.06.29-softap-stable.1` 已发布到 `/www/wwwroot/followbox-cloud/firmware`，size `1149936`，MD5 `025e89d994de94616e825326657996ae`，`force=false`；设备尚未安装。
+- 锁定影响：触及 `OTA_PACKAGE` 与 `CLOUD_H5_DEPLOY`；解锁理由：stable 包已生成但未云端发布，导致 H5 仍显示 `softap-wdt.1` 为最新，无法安装 AP 稳定修复。
+- 验证：control-center preflight PASS；远端 manifest/bin 校验 PASS；公网 version/download 校验 PASS；云端 operator API 显示 current=`2026.06.29-softap-wdt.1`、available=`2026.06.29-softap-stable.1`、update_available=true。
+- 当前状态：PASS_PUBLISHED_NEEDS_DEVICE_INSTALL
+- 下一步：由用户在云端或本地 H5 显式点击安装 `2026.06.29-softap-stable.1`；重启后观察 `FollowBox` SSID 至少 2 分钟，并查 `/api/wifi/status.ap_ready/ap_clients/wifi_channel`。
+
 ### 2026-06-29 23:57 - Codex - softAP regression package repair
 - 改动：复查今晚 AP 回归链路；确认原始设计是 AP+STA 常驻，本机无法扫 WiFi 因 `wlansvc` 未运行，云端 SSE 显示设备在线且当前运行 `2026.06.29-softap-txpower.1`；重新生成一致的 stable OTA 包。
 - 文件：`cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
