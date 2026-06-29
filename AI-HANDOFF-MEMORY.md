@@ -36,6 +36,17 @@
 ```
 
 ## 最新交接记录
+### 2026-06-30 01:05 - Codex - softAP no-video OTA published
+- 改动：排查 `softap-stable.1` 仍掉热点；复现 `192.168.134.132:80` TCP 可连但 `/`、`/api/state`、`/api/wifi/status` 均 `Empty reply`，云端 SSE 显示设备约 `now_ms=117s` 后停止 ingest，最后视频 relay 帧贴近离线点；先关闭主控侧 cloud video relay 默认值，保留遥测/日志/OTA/云控。
+- 文件：`firmware/include/config/cloud_config.h`, `firmware/src/cloud/cloud_client.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：低；不改模块边界、GPIO、H5 API、LittleFS 或 `main.cpp`；视频仅显示链路，摄像头直连 AP/LAN stream 仍由独立 camera board 提供。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源输出改动；未触碰 `safety_manager -> applyFinalGate() -> drive_adapter`。
+- OTA：版本 `2026.06.30-softap-no-video.1` 已发布到 `/www/wwwroot/followbox-cloud/firmware`，size `1148592`，MD5 `2e2907b69cdcceb1659f3fe2a7c74438`，`force=false`；设备尚未安装。
+- 锁定影响：触及 `OTA_PACKAGE`、`CLOUD_H5_DEPLOY` 与 `BOARD_N32R16V` 路径；解锁理由：只递增固件版本并发布主控视频中继关闭候选，未改板型/flash/PSRAM，且只上传 `cloud/firmware` 两个 OTA 文件到 FollowBox 远端目录。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build ...` PASS；control-center preflight PASS；远端 manifest/bin 校验 PASS；公网 version/download 校验 PASS。
+- 当前状态：PASS_PUBLISHED_NEEDS_DEVICE_REBOOT_AND_INSTALL
+- 下一步：因当前设备本地 HTTP 与云端 ingest 已卡住，先物理重启/断电重上电；设备回到云端后在 H5 显式安装 `2026.06.30-softap-no-video.1`，安装后观察 `FollowBox` SSID、LAN `http://<STA-IP>/api/state` 和云端在线至少 3-5 分钟；云端视频离线属本版预期。
+
 ### 2026-06-30 00:31 - Codex - softAP stable OTA published
 - 改动：继续排查“进入本地热点页面后 AP 断开”；确认设备仍运行 `2026.06.29-softap-wdt.1`，并将已准备的 `2026.06.29-softap-stable.1` 发布到云端 OTA。
 - 文件：`cloud/firmware/manifest.json`, `AI-HANDOFF-MEMORY.md`（`cloud/firmware/firmware.bin` 远端已上传，本地 MD5/size 未变）。

@@ -44,13 +44,13 @@ constexpr uint32_t HTTP_TIMEOUT_MS = 1000;
 constexpr uint32_t TELEMETRY_RETRY_MIN_MS = 750;
 constexpr uint32_t TELEMETRY_RETRY_MAX_MS = 3000;
 
-// Optional low-FPS public video relay. The controller fetches a JPEG snapshot
-// from the camera on the local FollowBox AP and uploads it to the cloud. This
-// is display-only and never feeds the motion/safety path. Video is strictly
-// lower priority than telemetry: failures back off, and video is skipped while
-// telemetry has not recently succeeded.
+// Optional low-FPS public video relay. Keep it disabled by default on the main
+// controller: pulling JPEG frames from the camera over the softAP while the STA
+// leg uploads to the cloud shares the same WiFi/LwIP stack as local H5 and was
+// observed to make AP/LAN HTTP stop responding after sustained runtime. Direct
+// AP/LAN camera viewing can still use the camera board's own stream.
 #ifndef FOLLOWBOX_CLOUD_VIDEO_ENABLED
-#define FOLLOWBOX_CLOUD_VIDEO_ENABLED 1
+#define FOLLOWBOX_CLOUD_VIDEO_ENABLED 0
 #endif
 constexpr bool VIDEO_ENABLED = (FOLLOWBOX_CLOUD_VIDEO_ENABLED != 0);
 

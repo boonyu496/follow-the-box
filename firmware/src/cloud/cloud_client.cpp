@@ -124,6 +124,9 @@ void CloudClient::begin() {
   video_retry_interval_ms_ = cloud_config::VIDEO_UPLOAD_INTERVAL_MS;
   if (cloud_config::ENABLED) {
     FB_LOGI("cloud_client: enabled device=%s", cloud_config::DEVICE_ID);
+    if (!cloud_config::VIDEO_ENABLED) {
+      FB_LOGI("cloud_client: video relay disabled");
+    }
   }
 }
 

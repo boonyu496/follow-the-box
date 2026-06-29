@@ -1,8 +1,8 @@
 {
-  "version": "2026.06.29-softap-stable.1",
-  "file": "firmware.bin",
-  "md5": "025e89d994de94616e825326657996ae",
-  "size": 1149936,
-  "force": false,
-  "notes": "Stop runtime softAP restarts, disable WiFi sleep, and allow up to four AP clients for hotspot stability."
+    "version":  "2026.06.30-softap-no-video.1",
+    "file":  "firmware.bin",
+    "md5":  "2e2907b69cdcceb1659f3fe2a7c74438",
+    "size":  1148592,
+    "force":  false,
+    "notes":  "Disable controller-side cloud video relay by default to keep AP/LAN HTTP stable; telemetry, logs, OTA, and cloud commands remain enabled."
 }
