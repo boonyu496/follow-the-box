@@ -1,8 +1,8 @@
 {
   "version": "2026.06.29-softap-stable.1",
   "file": "firmware.bin",
-  "md5": "12a959f2f556d3d7730eb27274a97741",
-  "size": 1149616,
+  "md5": "025e89d994de94616e825326657996ae",
+  "size": 1149936,
   "force": false,
   "notes": "Stop runtime softAP restarts, disable WiFi sleep, and allow up to four AP clients for hotspot stability."
 }

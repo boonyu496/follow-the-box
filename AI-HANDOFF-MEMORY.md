@@ -36,6 +36,17 @@
 ```
 
 ## 最新交接记录
+### 2026-06-29 23:57 - Codex - softAP regression package repair
+- 改动：复查今晚 AP 回归链路；确认原始设计是 AP+STA 常驻，本机无法扫 WiFi 因 `wlansvc` 未运行，云端 SSE 显示设备在线且当前运行 `2026.06.29-softap-txpower.1`；重新生成一致的 stable OTA 包。
+- 文件：`cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：低；未改 WiFi 源码/GPIO/安全链路/协议，只修复 OTA artifact 与 manifest 一致性。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源输出改动；设备仍由现有 safety gate 裁决，当前云端状态为 `ESTOP_ACTIVE`/motor disabled。
+- OTA：版本 `2026.06.29-softap-stable.1`，本地 `cloud/firmware/firmware.bin` size `1149936`，MD5 `025e89d994de94616e825326657996ae`，`force=false`；尚未部署云端、尚未安装设备。
+- 锁定影响：触及 `OTA_PACKAGE` 与 `CLOUD_H5_DEPLOY`；解锁理由：旧本地 `manifest.json` 与被忽略的 `firmware.bin` 不匹配，稳定版无法可靠发布/安装；本次只更新本地 `cloud/firmware` artifact，未执行远程部署。
+- 验证：`python tools/package_ota.py ...` PASS（含 `pio run -d firmware -e esp32-s3-devkitc-1` PASS）；云端 SSE 证实设备未重启且上报版本为 `2026.06.29-softap-txpower.1`。
+- 当前状态：PASS_BUILD_NEEDS_CLOUD_PUBLISH_AND_DEVICE_INSTALL
+- 下一步：按云端隔离规则发布 `cloud/firmware` 后，在 H5 显式授权安装 `2026.06.29-softap-stable.1`；安装后观察 `FollowBox` SSID 2 分钟并查 `/api/wifi/status`。
+
 ### 2026-06-29 22:09 - Codex - cloud SSE log flood fix
 - 改动：修复云端 H5 看似失联/卡死的日志洪泛；服务端对设备重复上报的 recent logs 做去重、单行截断和广播上限，新增 Node 回归测试，并已部署到 FollowBox 云端。
 - 文件：`cloud/server.js`, `cloud/server.log-dedup.test.js`, `AI-HANDOFF-MEMORY.md`
