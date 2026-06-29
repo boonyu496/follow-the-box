@@ -1,0 +1,4 @@
+interface:
+  display_name: "FollowBox Verified Locks"
+  short_description: "Protect verified FollowBox decisions from accidental edits."
+  default_prompt: "Check FollowBox verified locks before changing files."

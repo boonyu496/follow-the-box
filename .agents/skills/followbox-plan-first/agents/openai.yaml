@@ -1,0 +1,4 @@
+interface:
+  display_name: "FollowBox Plan First"
+  short_description: "Require a scoped plan before edits."
+  default_prompt: "Plan the FollowBox change before editing."

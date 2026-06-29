@@ -1031,7 +1031,7 @@ async function checkOtaVersion() {
     const token = els.operatorToken.value.trim();
     const headers = {};
     if (token) headers.Authorization = `Bearer ${token}`;
-    const resp = await fetch(apiPath("firmware/version"), { headers });
+    const resp = await fetch(apiPath("firmware/version"), { headers, cache: "no-store" });
     if (resp.status === 404) {
       els.otaVersion.textContent = "未发布";
       checkedOtaVersion = "";

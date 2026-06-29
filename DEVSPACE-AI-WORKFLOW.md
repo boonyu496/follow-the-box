@@ -142,11 +142,25 @@ devspace run-pipeline ai-handoff-check
 - Firmware source of truth remains `firmware/`.
 - Embedded H5 source of truth remains `firmware/web/`.
 - Cloud telemetry/control relay remains `cloud/`.
+- Cloud H5 source of truth remains `cloud/public/`; cloud OTA publication artifacts remain `cloud/firmware/`.
 - Cloud H5 must not set PWM, clear safety locks, or bypass setup/install gates.
 - All motion still goes through `safety_manager -> applyFinalGate() -> drive_adapter`.
 - `drive_adapter_analog_bldc` remains the only PWM outlet.
 - Hardware flashing, serial monitoring, and real motor tests stay local.
 - Safety-critical work still follows `architect -> safety-reviewer -> tester -> safety-officer`.
+
+## Cloud H5 Deployment Isolation
+
+The cloud host may contain multiple projects. Treat FollowBox cloud deployment as a narrow, project-scoped operation:
+
+- Deploy only the repository `cloud/` directory for the FollowBox cloud service.
+- Deploy only `cloud/public/` for cloud H5 assets.
+- Deploy only `cloud/firmware/` for FollowBox OTA artifacts.
+- Do not copy or delete parent directories such as `/www/wwwroot`, `/www/server`, user home directories, repository parents, or any directory that contains multiple projects.
+- Remote targets must be the FollowBox cloud root, normally ending in `followbox-cloud`.
+- Restart only the FollowBox service/process/container; do not run `pm2 restart all`.
+- Exclude `.env`, `.env.local`, PEM/key files, tokens, `node_modules/`, logs, caches, and unrelated project folders.
+- After deployment, verify `/api/health`, `deploy-version.txt`, or `devspace run cloud-check`.
 
 ## Security And Account Hygiene
 

@@ -482,7 +482,7 @@ BOOT_SELF_TEST
 
 引脚只允许定义在 `include/config/board_pins.h`。
 
-> P0 修订：ESP32-S3-DevKitC-1 N8R8 / 带 PSRAM 核心板上，不再使用 GPIO35、GPIO36、GPIO37、GPIO47、GPIO48 作为外部输出。旧方案中这些脚用于刹车/倒车/使能/油门 PWM，现全部作废。实际 PCB 下单前还要按到货板卡丝印和原厂资料复核。
+> P0 修订：ESP32-S3-DevKitC-1-N32R16V / ESP32-S3-WROOM-2-N32R16V 核心板上，不再使用 GPIO35、GPIO36、GPIO37、GPIO47、GPIO48 作为外部输出。旧方案中这些脚用于刹车/倒车/使能/油门 PWM，现全部作废。实际 PCB 下单前还要按到货板卡丝印和原厂资料复核。
 
 ```cpp
 #pragma once
@@ -897,7 +897,7 @@ IMU 上电静止要求：JY60/JY61P 在上电最初 2-3 秒会估计静态零偏
 ```ini
 [env:esp32-s3-devkitc-1]
 platform = espressif32
-board = esp32-s3-devkitc-1
+board = esp32-s3-devkitc-1-n32r16v
 framework = arduino
 monitor_speed = 115200
 build_flags =

@@ -224,7 +224,7 @@ function Get-DefaultConfig {
     cloudHost             = "82.156.85.60"
     cloudPort             = 51400
     cloudUser             = "root"
-    cloudPemPath          = "C:\Users\chenb\AppData\Local\Temp\vmware-chenb\VMwareDnD\29853150\codex.pem"
+    cloudPemPath          = (Join-Path $env:USERPROFILE "Downloads\codex.pem")
     cloudRemoteDir        = "/www/wwwroot/followbox-cloud"
     cloudVerifyUrl        = "https://www.boonai.cn/fb/"
     cloudVerifyDeviceId   = "followbox-001"

@@ -15,6 +15,12 @@
 8. 如果某条记录已经过期，可以移动到 `## 已过期/归档记录`，不要让顶部堆太长。
 9. 交接记录只记录“本次新增的信息”，不要重复抄写 `FIRMWARE-SPEC.md`、`PIN-MAP-V1.md`、`skills/README.md` 已经固定的长期事实。
 
+## 长期硬件记忆
+
+- 当前 FollowBox 主控板固定为 `ESP32-S3-DevKitC-1-N32R16V` / `ESP32-S3-WROOM-2-N32R16V`。
+- 硬件规格：32 MB Octal Flash + 16 MB Octal PSRAM，OPI/1.8 V；PlatformIO 使用项目本地 board `esp32-s3-devkitc-1-n32r16v`。
+- 固件默认环境必须保留 `opi_opi`、OPI boot、32MB flash、16MB PSRAM 和 32MB 分区；禁止改成其他 Flash/PSRAM/电压配置。
+
 ## 推荐格式
 
 ```markdown
@@ -30,6 +36,125 @@
 ```
 
 ## 最新交接记录
+### 2026-06-29 22:09 - Codex - cloud SSE log flood fix
+- 改动：修复云端 H5 看似失联/卡死的日志洪泛；服务端对设备重复上报的 recent logs 做去重、单行截断和广播上限，新增 Node 回归测试，并已部署到 FollowBox 云端。
+- 文件：`cloud/server.js`, `cloud/server.log-dedup.test.js`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：低；只改云端遥测广播负载，不改固件模块、H5 command API、OTA 协议、GPIO 或运动链路。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源输出改动；云端仍只走既有低速命令接口，未绕过本地 safety gate。
+- OTA：不需要设备 OTA；本次只改云端服务源码和测试，未改设备固件/车端 LittleFS/Profile/协议。
+- 锁定影响：触及 `CLOUD_H5_DEPLOY`；解锁理由：修复 `cloud/server.js` SSE 日志广播洪泛；仅上传 `cloud/server.js` 到 `/www/wwwroot/followbox-cloud/server.js`，只重启 PM2 `followbox-cloud`，未触碰其他项目路径。
+- 验证：`node cloud/server.log-dedup.test.js` PASS；`node --check cloud/server.js`/`cloud/public/app.js`/`cloud/server.log-dedup.test.js` PASS；公网 `/api/health` PASS；SSE 首包约 13KB、`online=true`、`logs=60`。
+- 当前状态：PASS_DEPLOYED
+- 下一步：刷新云端 H5 应恢复；另需确认 USB 烧录目标为何仍运行 `2026.06.29-softap-wdt.1`，以及 Windows 扫描不到 SSID 但车端自报 `ap_ready=true/ap_clients=1` 的现场侧原因。
+
+### 2026-06-29 21:51 - Codex - softAP stability rollback
+- 改动：修正上一版热点修复过度干预；移除运行期 5s softAP 自动重启，保留 `/api/wifi/status` 只读 AP 诊断，关闭 WiFi sleep，并把热点最大连接数从 2 提到 4。
+- 文件：`firmware/src/web/h5_web_server.cpp`, `firmware/include/config/network_config.h`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`
+- 架构影响：低；只改 WiFi/H5 transport 与 OTA 版本，不改 GPIO、协议 schema、运动链路、`main.cpp` 或 safety gate。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源输出改动；未绕过 `safety_manager -> applyFinalGate() -> drive_adapter`。
+- OTA：版本 `2026.06.29-softap-stable.1`，本地 `cloud/firmware/firmware.bin` size `1149616`，MD5 `12a959f2f556d3d7730eb27274a97741`，`force=false`；未部署云端。
+- 锁定影响：触及 `OTA_PACKAGE`；解锁理由：固件 WiFi 稳定性修复需要递增版本并重新生成 OTA 包，manifest 与 firmware.bin 已由脚本校验。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --skip-build ...` PASS；本机当前扫不到 `FollowBox` 且 LAN/AP IP 均超时，需安装本版本后实机复测。
+- 当前状态：PASS_BUILD_NEEDS_DEVICE_INSTALL
+- 下一步：安装 `2026.06.29-softap-stable.1` 后，观察 2 分钟 `FollowBox` SSID 是否持续可见；用 `/api/wifi/status` 看 `ap_ready/ap_clients/wifi_channel`。
+
+### 2026-06-29 21:38 - Codex - softAP watchdog recovery
+- 改动：固件新增 softAP 启动/周期状态日志与 AP mode/IP 丢失自恢复；启动期传感器心跳加入 5s boot grace，运行期 watchdog 仍为 200ms。
+- 文件：`firmware/src/web/h5_web_server.cpp`, `firmware/include/config/profile_defaults.h`, `firmware/src/safety/safety_manager.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`
+- 架构影响：低；不改 GPIO/板型/协议 schema/运动输出链路，`/api/wifi/status` 只增加只读 AP 诊断字段。
+- 安全影响：触及关键任务 heartbeat 判定；未绕过 `applyFinalGate()`，未改 PWM/drive_adapter，boot grace 仅覆盖上电前 5s，之后 sensor/uwb heartbeat 仍按 200ms 锁定 `WATCHDOG_TIMEOUT`。
+- OTA：版本 `2026.06.29-softap-wdt.1`，本地 `cloud/firmware/firmware.bin` size `1149328`，MD5 `a29d9d6814d0df8be2ebdb9c860aaddd`，`force=false`；未部署云端。
+- 锁定影响：触及 `SAFETY_GATE` 与 `OTA_PACKAGE`；解锁理由：修复实测 AP 不可诊断/不可恢复，以及启动期 TOF/LIDAR 初始化慢更新误触发 WDT；验证证据见下。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；旧 `firmware/tools/logic_smoke_test` 运行 PASS；重编 host smoke 的 `g++` 返回 1 但无 stderr；`python tools/package_ota.py --skip-build ...` PASS；`git diff --check` 仅 CRLF 警告。
+- 当前状态：PASS_BUILD_NEEDS_DEVICE_INSTALL；需安装固件后用串口/H5 查看 `wifi_ap`/`wifi:` 日志和 `/api/wifi/status.ap_ready`，确认 AP 恢复。
+- 下一步：用 LAN 本地 OTA/USB 安装 `2026.06.29-softap-wdt.1`，再验证 `FollowBox` SSID、`192.168.4.1/api/wifi/status`、启动 5s 后是否不再误锁 WDT；需要云端 OTA 时再单独部署 `cloud/firmware`。
+
+### 2026-06-29 21:28 - Codex - network outage triage
+- 改动：只读排查并记录结论；未改固件/云端代码，未烧录/部署。
+- 文件：`AI-HANDOFF-MEMORY.md`
+- 架构影响：无；现有固件仍是 AP+STA 设计，`network_config.h`/`h5_web_server.cpp` 本轮未改。
+- 安全影响：无输出改动；实测设备处于 `FAULT_LOCKOUT`，`stop_reason=WATCHDOG_TIMEOUT`，电机 `enable=false`/`brake=true`。
+- OTA：不需要设备 OTA；这是排障记录。设备当前 `/api/ota/status` 报 `2026.06.29-lan-h5-video-logs.1`，但公网 `/firmware/version` 仍发布 `2026.06.28-n32r16v-board.1`。
+- 结论：LAN/STA 实际在线，`/api/wifi/status` 为 `ssid=quanyuxixi2022 ip=192.168.134.132 rssi=-74`，云端 SSE 也 `online=true`；异常集中在 AP `192.168.4.1` 超时、Windows 扫描不到 `FollowBox` SSID、本地 `/api/logs` 超时。
+- 根因候选：20:56 改动只涉及 `firmware/web/app.js` 日志/视频 fallback、版本号和 OTA 包，未触碰 WiFi 初始化；`WATCHDOG_TIMEOUT` 来自传感器任务启动期 `sensor_task slow update dt=224/373ms` 超过 200ms 阈值，可解释安全锁定但不直接解释 AP 消失。
+- 验证：`esptool chip-id` 识别 ESP32-S3/16MB PSRAM；`curl http://192.168.134.132/api/state` PASS；`curl /api/logs` 超时；`netsh wlan show networks` 仅见路由器 SSID；公网 `/api/health` PASS、SSE 返回设备状态。
+- 当前状态：NEEDS_IMPLEMENTATION；若要彻底修复，需要给固件补 softAP 状态/自恢复日志，并处理传感器任务启动期 WDT 阈值/心跳策略。
+- 下一步：短期用 `http://192.168.134.132/` 进车端 H5；若要发布 6/29 OTA 到云端，先按云端隔离规则同步 `cloud/firmware` 并验证 `/firmware/version`。
+
+### 2026-06-29 20:56 - Codex - LAN H5 video relay and logs
+- 改动：本地车端 H5 在 LAN 访问私网相机地址时改用云端 MJPEG stream fallback，并新增页面本地诊断日志缓冲；`/api/logs`/`/api/state` 轮询加超时，避免日志接口不可用时页面沉默或挂起。
+- 文件：`firmware/web/app.js`, `firmware/include/config/ota_config.h`, `cloud/firmware/firmware.bin`, `cloud/firmware/manifest.json`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：低；只改 H5 显示/诊断和版本/OTA 包记录，不改固件模块边界、H5 API schema、GPIO、协议或运动链路。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C/电源控制改动；视频/日志仍只读显示，不参与 safety_manager 或运动许可。
+- OTA：版本 `2026.06.29-lan-h5-video-logs.1`，`cloud/firmware/firmware.bin` size `1148368`，MD5 `f4662739d41cac4cc0cbe0bc7be114e7`，`force=false`；注意普通 app OTA 不更新 LittleFS 页面，仍需 `uploadfs`。
+- 锁定影响：触及 `OTA_PACKAGE`；解锁理由：本地车端 H5 修改按项目规则递增版本并重新生成 OTA manifest/bin，未改变 OTA 协议或发布路径。
+- 验证：`node --check firmware/web/app.js` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py ...` PASS；云端 `/video/stream` 返回 `200 multipart/x-mixed-replace` 并传帧。
+- 当前状态：PASS_CODE_AND_PACKAGE_NEEDS_DEVICE_LITTLEFS_UPLOAD；尝试 `pio run -d firmware -e ota -t uploadfs` 到 `192.168.4.1` 失败：`No response from the ESP`，当前 `192.168.134.132/` 仍是旧页面（无日志面板）。
+- 下一步：用 USB 或能完成 ArduinoOTA UDP 邀请/反连的 AP 网络执行 `pio run -d firmware -e esp32-s3-devkitc-1 -t uploadfs`，再刷新 `http://192.168.134.132/#status` 验证日志和视频。
+
+### 2026-06-29 11:30 - Codex - AI skill wrappers and deploy locks
+- 改动：新增 Codex 可自动发现的 `.agents/skills` 轻量包装层、`VERIFIED-LOCKS.md` 锁定清单和 `tools/check_verified_locks.py`，并把云端 H5 部署隔离规则写入项目入口文档。
+- 文件：`.agents/skills/*/SKILL.md`, `VERIFIED-LOCKS.md`, `tools/check_verified_locks.py`, `tools/check_ai_handoff.py`, `AGENTS.md`, `AI-AGENT-RUNBOOK.md`, `skills/README.md`, `README.md`, `DEVSPACE-AI-WORKFLOW.md`, `devspace.yaml`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：仅 AI 协作/门禁/部署规则层；不改固件模块边界、GPIO、协议 schema、H5 API 或运动链路。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源行为改动；新增锁定项保护 N32R16V、Pin Map、安全门控、PWM 出口、UWB、OTA 和云端 H5 部署隔离。
+- OTA：不需要设备 OTA；本次只改文档、AI skill 包装、DevSpace 计划提示和本地检查脚本，不改设备固件或车端 LittleFS/H5。
+- 锁定影响：触及 `AI_SKILLS_HANDOFF` 与 `CLOUD_H5_DEPLOY` 规则文档；解锁理由：用户要求让 Codex 读取包装技能并增加云端多项目防污染规则。
+- 验证：6 个 `.agents/skills/*` 均通过 `quick_validate.py`；`python tools/check_ai_handoff.py` PASS；`python tools/check_verified_locks.py` 返回 WARN（当前工作区已有多项历史未提交锁定文件改动，按 warning 模式提示）；`git diff --check` 仅 CRLF 提示。
+- 当前状态：PASS_WITH_LOCK_WARNINGS_FROM_EXISTING_DIRTY_WORKTREE
+- 下一步：后续干净工作区/CI 可用 `python tools/check_verified_locks.py --strict` 阻断无 `锁定影响/解锁理由` 的锁定项修改。
+
+### 2026-06-28 23:58 - Codex - duplicate firmware reporter guard
+- 改动：修复云端当前版本在 `2026.06.28-n32r16v-board.1` 与 `2026.06.27-local-web-ota-n8.2` 间跳变；服务端在 manifest 版本设备已在线时忽略同 `deviceId` 的旧固件重复上报，云端 H5 检查更新不再提交浏览器本地 `latestState` 版本。
+- 文件：`cloud/server.js`, `cloud/public/app.js`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：低；仅云端设备状态仲裁与 H5 查询行为，不改固件模块边界、协议 schema、GPIO、运动链路或 OTA 包格式。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C/电源控制改动；旧固件重复上报只被云端忽略，不触发任何设备动作。
+- OTA：不需要设备 OTA；本次只改云端服务/H5。既有 `2026.06.28-n32r16v-board.1` OTA 包仍在线，size `1148224`，MD5 `83d6f8cd52c03fdf45e4fc0db84f5564`。
+- 根因：公网 SSE 实测同一 `followbox-001` 同时有两条启动时间线交替上报，旧线版本 `2026.06.27-local-web-ota-n8.2` 会覆盖新线 `2026.06.28-n32r16v-board.1`；这说明同 ID 旧固件源仍在线或旧分区/旧设备仍在上报。
+- 验证：本地 Node 复现脚本先红后绿；`node --check cloud/server.js cloud/public/app.js` PASS；已部署云端并重启 PM2，deploy `2026-06-28T23:55:16+08:00`；公网 version API 连续 8 次均 current/available `2026.06.28-n32r16v-board.1`、`update_available=false`；SSE 出现 `ignored duplicate firmware report`。
+- 当前状态：PASS_CLOUD_STABLE_DUPLICATE_OLD_REPORTER_IGNORED
+- 下一步：刷新云端 H5 后应不再跳版；若确实还有另一块旧设备需要升级，先给它改独立 `FOLLOWBOX_CLOUD_DEVICE_ID` 或临时关闭已刷 6/28 的设备后再单独 OTA。
+
+### 2026-06-28 23:40 - Codex - cloud OTA version mismatch repair
+- 改动：修复云端 OTA 检查显示抖动：H5 检查更新时带上最新遥测固件版本；控制中心默认 SSH key 改为当前用户 `Downloads\codex.pem`，避免新配置指向旧 `chenb` 临时路径。
+- 文件：`cloud/public/app.js`, `tools/followbox-control-center.ps1`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：低；只改云端 H5 查询参数和本机发布工具默认配置，不改固件模块边界、协议 schema、GPIO 或运动链路。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C/电源控制改动；云端 OTA 仍只发布包，不自动安装设备。
+- OTA：未生成新设备版本；已将既有 `2026.06.28-n32r16v-board.1` 的 `firmware.bin`/`manifest.json` 发布到 `/www/wwwroot/followbox-cloud/firmware/`，远端 size `1148224`、MD5 `83d6f8cd52c03fdf45e4fc0db84f5564` 匹配。
+- 根因：远端 `manifest.json` 停在 `2026.06.27-local-web-ota-n8.3`，但远端 `firmware.bin` 是另一版 `e1ec0c0f...`/`1142432`，服务端 MD5/size 校验失败导致 `/firmware/version` 返回 `firmware not published`。
+- 验证：`node --check cloud/public/app.js cloud/server.js` PASS；PowerShell parser PASS；公网 `/api/health` deploy `2026-06-28T23:37:37+08:00`；`/firmware/version?current=2026.06.28-n32r16v-board.1` 返回 `update_available=false`；download MD5/size PASS。
+- 当前状态：PASS_CLOUD_OTA_PUBLISHED_DEVICE_ALREADY_6_28
+- 下一步：刷新 `https://www.boonai.cn/fb/` 后点“检查更新”，应显示当前/可用版本均为 `2026.06.28-n32r16v-board.1` 且不再提示安装；若设备刚好离线，等待下一次遥测上报或手动检查一次。
+
+### 2026-06-28 23:45 - Codex - remove obsolete board fallback wording
+- 改动：新增项目本地 PlatformIO board `esp32-s3-devkitc-1-n32r16v`，主固件和 reset probe 均改用该 board；删除旧 fallback env、旧 OTA 默认 env 和相关文档措辞。
+- 文件：`firmware/boards/esp32-s3-devkitc-1-n32r16v.json`, `firmware/platformio.ini`, `firmware/diagnostics/reset_probe/platformio.ini`, `tools/package_ota.py`, `firmware/include/config/ota_config.h`, `cloud/firmware/*`, `AGENTS.md`, `AI-HANDOFF-MEMORY.md`, `FIRMWARE-SPEC*`, `CURRENT-*`, `firmware/README.md`, `test/01-OTA可行性方案.md`
+- 架构影响：低；构建目标身份收敛为 N32R16V，不改生产固件模块边界、GPIO、协议、H5 API 或运动链路。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源控制改动；降低错误 Flash/PSRAM/电压配置造成启动异常的风险。
+- OTA：版本 `2026.06.28-n32r16v-board.1`，`cloud/firmware/firmware.bin` size `1148224`，MD5 `83d6f8cd52c03fdf45e4fc0db84f5564`，`force=false`；本地生成，未发布云端/未安装设备。
+- 验证：主固件 `pio run -d firmware -e esp32-s3-devkitc-1` SUCCESS，PlatformIO 输出 `FollowBox ESP32-S3-DevKitC-1-N32R16V (32 MB Octal Flash, 16 MB Octal PSRAM, 1.8 V)`；reset probe 同样 SUCCESS；旧 fallback/env/误导关键词 `rg` 无命中；`git diff --check` 仅 CRLF 提示。
+- 当前状态：PASS_BUILD_NEEDS_DEVICE_OTA_IF_INSTALLING
+- 下一步：后续构建/烧录/诊断继续使用 `esp32-s3-devkitc-1` env，但其 board 已是项目本地 `esp32-s3-devkitc-1-n32r16v`；需要实车应用时再由用户触发 OTA 或 USB 烧录。
+
+### 2026-06-28 23:25 - Codex - N32R16V board identity memory
+- 改动：把当前主控板身份写入项目级硬约束和交接长期记忆：`ESP32-S3-DevKitC-1-N32R16V` / `ESP32-S3-WROOM-2-N32R16V`，32MB Octal Flash + 16MB Octal PSRAM，OPI/1.8V。
+- 文件：`AGENTS.md`, `AI-HANDOFF-MEMORY.md`, `firmware/diagnostics/reset_probe/README.md`
+- 架构影响：文档/协作约束更新；不改生产固件模块、协议、GPIO、H5 或云端接口。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C/电源控制改动；降低后续误用错误 Flash/PSRAM/电压配置导致启动异常的风险。
+- OTA：不需要设备 OTA；本次只写项目记忆和诊断说明，不改生产固件二进制。
+- 验证：`rg` 确认 AGENTS/AI-HANDOFF/reset_probe README 均可搜到 N32R16V/WROOM-2-N32R16V/32MB Octal/16MB Octal/1.8V；`python tools\check_ai_handoff.py` PASS。
+- 当前状态：PASS
+- 下一步：后续任何固件/诊断/烧录任务都先按 N32R16V/OPI/1.8V 配置判断。
+
+### 2026-06-28 23:10 - Codex - reset probe standalone diagnostic
+- 改动：新增独立 ESP32-S3 reset probe 诊断工程，用于烧录后区分电源/EN/flash-PSRAM/主固件 WDT 或 panic 问题；每秒输出 alive、heap、PSRAM、stack，并支持串口触发 SW/PANIC/DEEPSLEEP 对照。
+- 文件：`firmware/diagnostics/reset_probe/platformio.ini`, `firmware/diagnostics/reset_probe/src/main.cpp`, `firmware/diagnostics/reset_probe/README.md`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无生产固件模块边界变更；不改 `firmware/src/main.cpp`、H5、协议、云端或 `drive_adapter_analog_bldc`。
+- 安全影响：无 motor/e-stop/PWM/GPIO/ADC/I2C/电源控制改动；诊断程序不初始化任何车端输出或传感器。
+- OTA：不需要设备 OTA；这是单独 PlatformIO 诊断工程，需 USB 手动烧录，不修改生产固件版本或 cloud firmware 包。
+- 验证：`pio run -d firmware\diagnostics\reset_probe -e esp32-s3-devkitc-1` SUCCESS；`git diff --check` PASS（仅 AI-HANDOFF CRLF 提示）；未真机烧录。
+- 当前状态：PASS_BUILD_NEEDS_USB_FLASH
+- 下一步：编译通过后 USB 烧录 reset probe，若 probe 也重启优先查供电/EN/板型配置；若 probe 稳定再回主固件查任务阻塞或外设链路。
+
 ### 2026-06-28 00:14 - Codex - Control center repo push no-op fix
 - 改动：修复控制中心“一键推送到仓库”在 0 个本地改动、0 个未推送 commit 时被 preflight 判成“已阻止/失败”的问题；clean 且 ahead=0 时执行接口返回 `git-noop` 成功，并通过远端 HEAD 校验确认仓库已同步。
 - 文件：`tools/followbox-control-center.ps1`, `AI-HANDOFF-MEMORY.md`
@@ -1016,11 +1141,11 @@
 - 下一步：用手机或开启电脑 WLAN 搜索 `FollowBox`，连接后访问 `http://192.168.4.1/`；现场确认急停、默认 PWM/使能/刹车安全态。
 
 ### 2026-06-13 08:36 - Codex - ESP32-S3 N32R16V 首烧 WiFi 不出现修复
-- 改动：默认 PlatformIO 环境改为 ESP32-S3-DevKitC-1-N32R16V：`opi_opi`、OPI boot、32MB flash、16MB PSRAM；新增 32MB OTA+LittleFS 分区；旧 N8 配置改为显式备用环境；弃用会禁用 OPI 检测的旧脚本。
+- 改动：默认 PlatformIO 环境改为 ESP32-S3-DevKitC-1-N32R16V：`opi_opi`、OPI boot、32MB flash、16MB PSRAM；新增 32MB OTA+LittleFS 分区；弃用会禁用 OPI 检测的旧脚本。
 - 文件：`firmware/platformio.ini`, `firmware/partitions/ota_32MB.csv`, `firmware/patch_sdkconfig.py`, `firmware/README.md`
 - 架构影响：无业务模块边界变化；只改烧录/存储布局，WiFi/H5 代码不变。
 - 安全影响：无新增运动权限；未触碰 GPIO、PWM、急停、安全门控。
-- 验证：`pio run -e esp32-s3-devkitc-1` PASS；`pio run -e esp32-s3-devkitc-1 -t buildfs` PASS；`pio run -e esp32-s3-devkitc-1-n8` PASS；`esptool.py image_info --version 2 firmware.bin` 显示 `Flash size: 32MB`, `Flash mode: DOUT`, checksum/hash valid；`node --check firmware/web/app.js` PASS。
+- 验证：`pio run -e esp32-s3-devkitc-1` PASS；`pio run -e esp32-s3-devkitc-1 -t buildfs` PASS；`esptool.py image_info --version 2 firmware.bin` 显示 `Flash size: 32MB`, `Flash mode: DOUT`, checksum/hash valid；`node --check firmware/web/app.js` PASS。
 - 当前状态：NEEDS_VERIFICATION（未真机 erase/upload/uploadfs；用户日志表明旧固件在 flash probe 阶段崩溃，WiFi 尚未启动）。
 - 下一步：对 N32R16V 先执行 `pio run -d firmware -e esp32-s3-devkitc-1 -t erase`，再 USB `upload` 和 `uploadfs`，串口确认不再出现 `Detected size(512k)` 后查找 `FollowBox` SoftAP。
 

@@ -16,6 +16,10 @@ constexpr uint32_t CLOUD_LOST_STOP_MS = 700;
 constexpr uint32_t UWB_STALE_STOP_MS = 1000;
 constexpr uint32_t OBSTACLE_STALE_TIMEOUT_MS = 300;
 constexpr uint32_t TASK_HEARTBEAT_TIMEOUT_MS = 200;
+// Runtime heartbeat stays strict at 200 ms. Boot gets an explicit grace window
+// because TOF init and lidar probe can take longer before the first stable
+// sensor heartbeat, while motor output is still held safe by the startup gates.
+constexpr uint32_t TASK_HEARTBEAT_BOOT_GRACE_MS = 5000;
 
 constexpr int OBSTACLE_STOP_DISTANCE_MM = 500;
 constexpr int OBSTACLE_SLOW_DISTANCE_MM = 1000;

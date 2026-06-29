@@ -231,17 +231,20 @@ bool SafetyManager::hasAutoObstacleTimeout(const SystemState& state) const {
 
 bool SafetyManager::hasCriticalHeartbeatTimeout(const SystemState& state) const {
   const uint32_t timeout = profile::TASK_HEARTBEAT_TIMEOUT_MS;
-  const uint32_t grace_period = 3000;  // 3s startup grace period
+  const uint32_t boot_grace = profile::TASK_HEARTBEAT_BOOT_GRACE_MS;
+  if (state.now_ms <= boot_grace) {
+    return false;
+  }
 
   const bool sensor_started = state.heartbeat.sensor_task_ms != 0;
   const bool sensor_timeout = sensor_started
       ? (elapsedMs(state.now_ms, state.heartbeat.sensor_task_ms) > timeout)
-      : (state.now_ms > grace_period);
+      : true;
 
   const bool uwb_started = state.heartbeat.uwb_task_ms != 0;
   const bool uwb_timeout = uwb_started
       ? (elapsedMs(state.now_ms, state.heartbeat.uwb_task_ms) > timeout)
-      : (state.now_ms > grace_period);
+      : true;
 
   return sensor_timeout || uwb_timeout;
 }

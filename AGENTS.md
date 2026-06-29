@@ -67,14 +67,17 @@ Coordinator (hermes default, deepseek-v4-flash)
 
 ### 硬约束（所有角色遵守）
 1. 项目路径：`D:\car\Follow the box` → WSL `/mnt/d/car/Follow the box`
-2. 权威文档：FIRMWARE-SPEC.md > CURRENT-WIRING-AI.md > PIN-MAP-V1.md
-3. main.cpp 只做入口，禁止业务逻辑
-4. GPIO 常量只在 board_pins.h
-5. 所有运动经过 safety_manager → applyFinalGate() → drive_adapter
-6. drive_adapter_analog_bldc 是唯一 PWM 出口
-7. 禁止旧 GPIO35/36/37/47/48
-8. UWB 协议未抓包前禁止编造 parser
-9. H5 不能设 PWM / 清安全锁 / 绕过安装向导
+2. 当前主控板固定为 `ESP32-S3-DevKitC-1-N32R16V` / `ESP32-S3-WROOM-2-N32R16V`：32 MB Octal Flash + 16 MB Octal PSRAM，OPI/1.8 V；禁止改成其他 Flash/PSRAM/电压配置
+3. 权威文档：FIRMWARE-SPEC.md > CURRENT-WIRING-AI.md > PIN-MAP-V1.md
+4. main.cpp 只做入口，禁止业务逻辑
+5. GPIO 常量只在 board_pins.h
+6. 所有运动经过 safety_manager → applyFinalGate() → drive_adapter
+7. drive_adapter_analog_bldc 是唯一 PWM 出口
+8. 禁止旧 GPIO35/36/37/47/48
+9. UWB 协议未抓包前禁止编造 parser
+10. H5 不能设 PWM / 清安全锁 / 绕过安装向导
+11. 已验证方案先看 `VERIFIED-LOCKS.md`；触及锁定项必须写 `解锁理由` 和验证证据
+12. Codex 自动发现技能入口在 `.agents/skills/`；详细项目技能仍以 `skills/README.md` 和 `skills/*/SKILL.md` 为准
 
 ### 子代理限制
 - leaf 角色：不能 delegate_task、不能 clarify、不能 memory、不能 send_message
@@ -106,7 +109,16 @@ devspace run-pipeline ai-handoff-check
 1. `devspace.yaml` 是云端控制台开发入口，不替代 `firmware/platformio.ini`。
 2. `devspace dev` 默认进入 `followbox-dev` namespace，转发本地 `http://localhost:8080`。
 3. 安全相关改动仍执行 architect → safety-reviewer → tester → safety-officer 流程。
-4. Codex 完成任何文件改动后必须更新 `AI-HANDOFF-MEMORY.md` 并跑交接检查。
+4. Codex 完成任何文件改动后必须更新 `AI-HANDOFF-MEMORY.md` 并跑 `python tools/check_ai_handoff.py` 与 `python tools/check_verified_locks.py`。
+
+### 云端 H5 部署隔离规则
+1. 云端服务源码只允许来自 `cloud/`；云端 H5 只允许来自 `cloud/public/`；云端 OTA 只允许来自 `cloud/firmware/`。
+2. 嵌入式车端 H5 是 `firmware/web/` / `firmware/data/`，不能和云端 H5 混用部署。
+3. DevSpace 默认 namespace 固定为 `followbox-dev`，deployment/service 固定为 `followbox-cloud`；除非用户明确指定，禁止改到 default/prod 或其他项目 namespace。
+4. SCP/rsync/删除/PM2 操作必须只指向 FollowBox 云端根目录（通常路径末尾为 `followbox-cloud`），禁止对 `/www/wwwroot`、`/www/server`、用户 home、仓库父目录或多项目目录执行覆盖/清理。
+5. 禁止 `pm2 restart all` 或重启无关服务；只能重启 FollowBox 对应进程/容器。
+6. 禁止上传 `.env`、`.env.local`、PEM/key、token、`node_modules/`、日志、缓存或其他项目目录。
+7. 云端部署后必须验证 `/api/health`、`deploy-version.txt` 或 `devspace run cloud-check`，并在交接记录写清源路径、目标路径/namespace、重启对象和未触碰其他项目的证据。
 
 ## 委派命令模板
 

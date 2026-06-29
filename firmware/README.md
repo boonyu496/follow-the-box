@@ -81,10 +81,6 @@ pio run -d firmware -e esp32-s3-devkitc-1 -t erase
 pio run -d firmware -e esp32-s3-devkitc-1 -t upload
 pio run -d firmware -e esp32-s3-devkitc-1 -t uploadfs
 
-# Older 8 MB Quad-flash DevKitC-1 boards must use the explicit fallback env:
-# pio run -d firmware -e esp32-s3-devkitc-1-n8 -t upload
-# pio run -d firmware -e esp32-s3-devkitc-1-n8 -t uploadfs
-
 # After that: connect the PC to FollowBox SoftAP and upload over OTA.
 pio run -d firmware -e ota -t upload
 

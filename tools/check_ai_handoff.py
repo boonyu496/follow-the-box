@@ -4,7 +4,8 @@ FollowBox AI handoff gate.
 
 Run after any AI/Codex/Claude/Copilot task that may have changed files.
 It verifies that AI-HANDOFF-MEMORY.md exists and, when git status is available,
-that the handoff memory is part of the current changed-file set.
+that the handoff memory is part of the current changed-file set. It also runs
+the verified-lock checker in warning mode when available.
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HANDOFF = ROOT / "AI-HANDOFF-MEMORY.md"
-REQUIRED_FIELDS = ["改动", "文件", "架构影响", "安全影响", "验证", "当前状态", "下一步"]
+REQUIRED_FIELDS = ["改动", "文件", "架构影响", "安全影响", "OTA", "验证", "当前状态", "下一步"]
 
 
 def run(cmd: list[str]) -> tuple[int, str]:
@@ -55,6 +56,14 @@ def main() -> int:
     else:
         # Project may not be a git repo yet; static checks only.
         pass
+
+    lock_checker = ROOT / "tools" / "check_verified_locks.py"
+    if lock_checker.exists():
+        code, lock_output = run([sys.executable, str(lock_checker)])
+        if code != 0:
+            issues.append("verified lock check failed: " + lock_output.strip())
+        elif lock_output.strip():
+            print(lock_output.strip())
 
     if issues:
         print("AI_HANDOFF_CHECK=FAIL")

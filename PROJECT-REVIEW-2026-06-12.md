@@ -70,7 +70,7 @@
 16. `test/00-审查结论汇总.md` 称"OTA 代码未写、分区表未改"，与当前代码（已写 ArduinoOTA、已用 ota_8MB.csv）不符，文档需同步。
 17. 命令通道 150 ms HTTP 短连接轮询开销大、延迟抖动明显，量产建议换 WebSocket/MQTT 长连接。
 18. 按交接文档自述，**从未做过真机烧录、uploadfs 和 H5 联调**；上线前必须完成架空轮真机验证清单（FIRMWARE-FLASH-FIX-HANDOFF.md 阶段1）。
-19. ESP32-S3-DevKitC 有 N8/N8R2/N16 等多种 flash 规格，分区表要求 **8MB flash**，采购/产测需锁定模块型号。
+19. ESP32-S3-DevKitC 有多种 flash/PSRAM 规格，FollowBox 主控必须锁定为 **ESP32-S3-DevKitC-1-N32R16V / ESP32-S3-WROOM-2-N32R16V**，分区表按 **32MB flash** 管理，采购/产测不得替换型号。
 
 ---
 

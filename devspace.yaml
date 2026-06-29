@@ -86,10 +86,12 @@ commands:
       printf '%s\n' \
         'GPT planning checklist:' \
         '1. Read AGENTS.md and the matching current spec.' \
-        '2. Classify the task: firmware, safety, sensor, motion, H5/cloud, vision, or docs.' \
-        '3. Keep each implementation task to no more than 3 changed files.' \
-        '4. Mark motion and safety-link tasks as safety-critical.' \
-        '5. Hand Codex exact files, constraints, validation commands, and expected telemetry fields.'
+        '2. Read VERIFIED-LOCKS.md before selecting files to edit.' \
+        '3. Classify the task: firmware, safety, sensor, motion, H5/cloud, vision, or docs.' \
+        '4. Keep each implementation task to no more than 3 changed files.' \
+        '5. Mark motion and safety-link tasks as safety-critical.' \
+        '6. For cloud H5/deploy work, target only FollowBox cloud/, cloud/public/, cloud/firmware/ and never a parent multi-project directory.' \
+        '7. Hand Codex exact files, constraints, validation commands, and expected telemetry fields.'
   doctor:
     section: devspace
     description: Check local Docker, kubectl, and Kubernetes context before DevSpace runs.

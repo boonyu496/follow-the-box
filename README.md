@@ -24,6 +24,8 @@
 | `CURRENT-FIRMWARE-SKILL-PLAN.md` | 固件模块、Profile、安装向导、测试计划、后续 skill 设计 |
 | `CURRENT-FIRMWARE-ARCHITECTURE.md` / `CURRENT-FIRMWARE-ARCHITECTURE.html` | 固件代码架构：目录结构、模块边界、状态机、任务频率 |
 | `skills/README.md` | 项目内 AI 技能包入口：给 Hermes/Claude/Copilot/其他 AI 调用，按 SaaS-Bench 风格执行开发、审查、排 bug、上电安全门控 |
+| `.agents/skills/` | Codex 自动发现的轻量包装技能：负责快速触发、计划、锁定、diff 审查和云端 H5 部署隔离；详细技能仍在 `skills/` |
+| `VERIFIED-LOCKS.md` | 已验证/安全关键方案锁定清单：板型、Pin Map、安全链、PWM 出口、UWB、OTA、云端 H5 部署、AI 技能门禁 |
 | `AI-HANDOFF-MEMORY.md` | 项目内 AI 交接记忆：任何 AI 修改代码/架构/文档后，必须用 8-12 行短记录写清改动、验证、下一步 |
 | `AI-AGENT-RUNBOOK.md` | Codex/Claude/Copilot/其他代码 AI 的固定启动 prompt 和交接记忆门禁；结束后运行 `python3 tools/check_ai_handoff.py` |
 | `UWB-LEGACY-MIGRATION-REVIEW.md` | 旧 UWB 自动跟随项目迁移评估：可照抄/可借鉴/禁止照抄清单，以及 FollowBox 后续实施任务包 |
@@ -75,6 +77,6 @@ ESP32-S3-CAM + OV5640 -> 独立视频
 2. 到货后拍 DS600 接收机、无刷控制器线标、轮毂电机线束、电池铭牌、急停背面。
 3. 按 `CURRENT-WIRING-AI.md` 分阶段上电。
 4. 写代码时以 `FIRMWARE-SPEC.md` 为唯一代码框架依据；不符合它的实现需要重构。
-5. 让任何 AI 参与开发/审查/排 bug 前，先读 `skills/README.md`，再按路由加载对应 `skills/*/SKILL.md`。
+5. 让任何 AI 参与开发/审查/排 bug 前，先读 `.agents/skills/` 包装、`skills/README.md` 和 `VERIFIED-LOCKS.md`，再按路由加载对应 `skills/*/SKILL.md`。
 6. 任何 AI 修改代码、架构、文档、Profile、协议或技能后，必须在 `AI-HANDOFF-MEMORY.md` 顶部追加 8-12 行短交接记录。
-7. 用 Codex/Claude/Copilot/其他代码 AI 前先读 `AI-AGENT-RUNBOOK.md`；任务结束后运行 `python3 tools/check_ai_handoff.py`，不通过就不能算完成。
+7. 用 Codex/Claude/Copilot/其他代码 AI 前先读 `AI-AGENT-RUNBOOK.md`；任务结束后运行 `python3 tools/check_ai_handoff.py` 和 `python3 tools/check_verified_locks.py`，不通过或未解释 warning 就不能算完成。

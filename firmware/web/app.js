@@ -147,6 +147,8 @@ const CLOUD_VIDEO_BASE_URL = "https://www.boonai.cn/fb";
 const CLOUD_VIDEO_DEVICE_ID = "followbox-001";
 const CLOUD_VIDEO_OPERATOR_TOKEN = "0b6cf31c57bc202d002b04f843c9b430";
 const PRIVATE_CAMERA_HOSTS = new Set(["192.168.4.2", "192.168.4.10"]);
+const HTTP_DIAGNOSTIC_TIMEOUT_MS = 2200;
+const BROWSER_LOG_LIMIT = 80;
 const MAX_RANGE_MM = 3000;
 const MAP_MAX_MM = 4000;
 const TOF_RATE_WINDOW_MS = 5000;
@@ -169,6 +171,13 @@ let cameraRetryDelay = 3000;
 let localAuthStatus = null;
 let latestState = null;
 let lastStateAt = 0;
+let logsApiUnavailableLogged = false;
+let stateFallbackUnavailableLogged = false;
+let lastLoggedMode = "";
+let lastLoggedCameraOnline = null;
+let lastLoggedCameraUrl = "";
+const deviceLogs = [];
+const browserLogs = [];
 const tofRateWindow = [];
 const spatialTrail = [];
 let lastSpatialTrailKey = "";
@@ -370,6 +379,43 @@ function setConn(online) {
   els.conn.classList.toggle("fb-pill--danger", !online);
 }
 
+function logTimestamp() {
+  return new Date().toTimeString().slice(0, 8);
+}
+
+function renderLogs() {
+  if (!els.logs) return;
+  const merged = deviceLogs.concat(browserLogs).slice(-120);
+  if (merged.length) {
+    els.logs.textContent = merged.join("\n");
+  } else {
+    els.logs.textContent = "-- 等待日志 --";
+  }
+}
+
+function appendBrowserLog(message, level = "I") {
+  browserLogs.push(`[${logTimestamp()}][${level}] ${message}`);
+  while (browserLogs.length > BROWSER_LOG_LIMIT) browserLogs.shift();
+  renderLogs();
+}
+
+async function fetchJsonWithTimeout(path, timeoutMs = HTTP_DIAGNOSTIC_TIMEOUT_MS) {
+  if (typeof AbortController === "undefined") {
+    const res = await fetch(path, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(path, { cache: "no-store", signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function isApPage() {
   return location.hostname === "192.168.4.1" || location.hostname === "";
 }
@@ -387,13 +433,12 @@ function shouldUseCloudVideoRelay(value) {
   return !isApPage() && isPrivateCameraUrl(value);
 }
 
-function cloudVideoLatestUrl() {
+function cloudVideoStreamUrl() {
   const url = new URL(
-    `api/device/${encodeURIComponent(CLOUD_VIDEO_DEVICE_ID)}/video/latest.jpg`,
+    `api/device/${encodeURIComponent(CLOUD_VIDEO_DEVICE_ID)}/video/stream`,
     CLOUD_VIDEO_BASE_URL.endsWith("/") ? CLOUD_VIDEO_BASE_URL : `${CLOUD_VIDEO_BASE_URL}/`,
   );
   url.searchParams.set("token", CLOUD_VIDEO_OPERATOR_TOKEN);
-  url.searchParams.set("t", String(Date.now()));
   return url.toString();
 }
 
@@ -412,15 +457,21 @@ function startCloudVideoRelay(sourceUrl) {
   if (activeCameraUrl !== relayKey) {
     activeCameraUrl = relayKey;
     els.cameraStatus.textContent = "加载云端画面";
-    els.cameraStream.src = cloudVideoLatestUrl();
+    setCameraVisible(true, "加载云端画面");
+    els.cameraStream.src = cloudVideoStreamUrl();
+    appendBrowserLog(`LAN 无法直连 ${sourceUrl} 时改用云端视频流`);
   }
-  if (!cloudVideoTimer) {
-    cloudVideoTimer = setInterval(() => {
-      if (activeCameraUrl === relayKey && els.cameraStream) {
-        els.cameraStream.src = cloudVideoLatestUrl();
-      }
-    }, 2500);
-  }
+}
+
+function retryCloudVideoRelay() {
+  if (cloudVideoTimer || !activeCameraUrl.startsWith("cloud-relay:")) return;
+  cloudVideoTimer = setTimeout(() => {
+    cloudVideoTimer = null;
+    if (!activeCameraUrl.startsWith("cloud-relay:") || !els.cameraStream) return;
+    appendBrowserLog("云端视频流断开，重试连接", "W");
+    setCameraVisible(true, "重试云端画面");
+    els.cameraStream.src = cloudVideoStreamUrl();
+  }, 5000);
 }
 
 function setCameraStream(url) {
@@ -438,6 +489,7 @@ function setCameraStream(url) {
   els.cameraStatus.textContent = "加载中";
   setCameraVisible(true, "加载中");
   els.cameraStream.src = next;
+  appendBrowserLog(`加载视频 ${next}`);
 }
 
 function saveCameraOverride(url) {
@@ -476,7 +528,11 @@ function setCameraOnline(online, text) {
 }
 
 function scheduleCameraRetry() {
-  if (cameraRetryTimer || !activeCameraUrl || activeCameraUrl.startsWith("cloud-relay:")) {
+  if (activeCameraUrl.startsWith("cloud-relay:")) {
+    retryCloudVideoRelay();
+    return;
+  }
+  if (cameraRetryTimer || !activeCameraUrl) {
     return;
   }
   const retryUrl = activeCameraUrl;
@@ -588,6 +644,10 @@ function renderState(s) {
   lastStateAt = Date.now();
   updateSpatialTrail(s);
   const mode = s.mode ?? "--";
+  if (mode !== lastLoggedMode) {
+    appendBrowserLog(`模式 ${lastLoggedMode || "--"} -> ${mode}`);
+    lastLoggedMode = mode;
+  }
   els.mode.textContent = modeLabels[mode] ?? mode;
   els.sysTime.textContent = s.now_ms != null ? `${Math.round(s.now_ms / 1000)}s` : "--";
 
@@ -796,6 +856,10 @@ function renderState(s) {
 
   const cam = s.camera ?? {};
   const cameraVisible = !!cam.online || cameraImageOnline;
+  if (cameraVisible !== lastLoggedCameraOnline) {
+    appendBrowserLog(`视频状态 ${cameraVisible ? "在线" : "离线"}`, cameraVisible ? "I" : "W");
+    lastLoggedCameraOnline = cameraVisible;
+  }
   const cameraRelayText = activeCameraUrl.startsWith("cloud-relay:")
     ? "云端转发"
     : (cam.stream_url ? cam.stream_url : "无地址");
@@ -823,6 +887,10 @@ function renderState(s) {
   }
   if (cam.stream_url) {
     lastTelemetryCameraUrl = cam.stream_url;
+    if (cam.stream_url !== lastLoggedCameraUrl) {
+      appendBrowserLog(`遥测视频地址 ${cam.stream_url}`);
+      lastLoggedCameraUrl = cam.stream_url;
+    }
     if (!userCameraOverride) setCameraStream(cam.stream_url);
   }
 
@@ -1291,17 +1359,24 @@ function connectWs() {
     return;
   }
   ws = new WebSocket(`ws://${location.host}/ws/state`);
-  ws.onopen = () => setConn(true);
+  ws.onopen = () => {
+    setConn(true);
+    appendBrowserLog("WebSocket 已连接");
+  };
   ws.onclose = () => {
     setConn(false);
+    appendBrowserLog("WebSocket 已断开，准备重连", "W");
     setTimeout(connectWs, 1000);
   };
-  ws.onerror = () => ws.close();
+  ws.onerror = () => {
+    appendBrowserLog("WebSocket 错误", "W");
+    ws.close();
+  };
   ws.onmessage = (ev) => {
     try {
       renderState(JSON.parse(ev.data));
     } catch (e) {
-      /* ignore malformed frame */
+      appendBrowserLog("收到无法解析的状态帧", "W");
     }
   };
 }
@@ -1311,28 +1386,33 @@ async function pollStateFallback() {
     return;
   }
   try {
-    const res = await fetch("/api/state", { cache: "no-store" });
-    if (!res.ok) return;
-    renderState(await res.json());
+    renderState(await fetchJsonWithTimeout("/api/state"));
     setConn(true);
+    stateFallbackUnavailableLogged = false;
   } catch (e) {
-    /* WebSocket reconnect owns the offline indicator. */
+    if (!stateFallbackUnavailableLogged) {
+      appendBrowserLog(`/api/state 不可用：${e.name === "AbortError" ? "timeout" : e.message}`, "W");
+      stateFallbackUnavailableLogged = true;
+    }
   }
 }
 
 async function refreshLogs() {
   if (!els.logs) return;
   try {
-    const res = await fetch("/api/logs", { cache: "no-store" });
-    if (!res.ok) return;
-    const body = await res.json();
+    const body = await fetchJsonWithTimeout("/api/logs");
     if (Array.isArray(body.logs) && body.logs.length) {
-      els.logs.textContent = body.logs.slice(-120).join("\n");
-    } else if (els.logs.textContent.trim() === "-- 等待日志 --") {
-      els.logs.textContent = "-- 暂无设备日志；触发一次传感器/视频/控制动作后会显示 --";
+      deviceLogs.splice(0, deviceLogs.length, ...body.logs.slice(-120));
+    } else if (!deviceLogs.length && !browserLogs.length) {
+      deviceLogs.splice(0, deviceLogs.length, "-- 暂无设备日志；等待传感器/视频/控制事件 --");
     }
+    logsApiUnavailableLogged = false;
+    renderLogs();
   } catch (e) {
-    /* keep last visible logs */
+    if (!logsApiUnavailableLogged) {
+      appendBrowserLog(`/api/logs 不可用：${e.name === "AbortError" ? "timeout" : e.message}`, "W");
+      logsApiUnavailableLogged = true;
+    }
   }
 }
 
@@ -1438,6 +1518,7 @@ document.querySelectorAll(".fb-nav-btn").forEach((btn) => {
 if (els.cameraStream) {
   els.cameraStream.addEventListener("load", () => {
     setCameraOnline(true, "画面在线");
+    appendBrowserLog("视频画面在线");
     cameraRetryDelay = 3000;
     if (cameraRetryTimer) {
       clearTimeout(cameraRetryTimer);
@@ -1446,6 +1527,7 @@ if (els.cameraStream) {
   });
   els.cameraStream.addEventListener("error", () => {
     setCameraOnline(false, "画面离线");
+    appendBrowserLog("视频加载失败", "W");
     scheduleCameraRetry();
   });
 }
@@ -1779,7 +1861,9 @@ async function copyVisibleLogs() {
 
 if (els.clearLogs) {
   els.clearLogs.addEventListener("click", () => {
-    els.logs.textContent = "";
+    deviceLogs.length = 0;
+    browserLogs.length = 0;
+    renderLogs();
   });
 }
 if (els.copyLogs) {

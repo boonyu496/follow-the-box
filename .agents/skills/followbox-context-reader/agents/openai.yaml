@@ -1,0 +1,4 @@
+interface:
+  display_name: "FollowBox Context Reader"
+  short_description: "Load minimal FollowBox context before work."
+  default_prompt: "Read the minimal FollowBox context for this task."

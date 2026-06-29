@@ -14,7 +14,11 @@ const FIRMWARE_DIR = path.join(__dirname, "firmware");
 const FIRMWARE_MANIFEST = path.join(FIRMWARE_DIR, "manifest.json");
 const COMMAND_TTL_MS = 750;
 const DEVICE_ONLINE_TTL_MS = 10000;
+const DUPLICATE_FIRMWARE_HOLD_MS = DEVICE_ONLINE_TTL_MS * 3;
 const SSE_HEARTBEAT_MS = 15000;
+const MAX_DEVICE_LOG_LINES = 160;
+const MAX_BROADCAST_LOG_LINES = 60;
+const MAX_LOG_LINE_CHARS = 512;
 
 const devices = new Map();
 const clients = new Set();
@@ -46,6 +50,7 @@ function getDevice(id) {
         updatedAt: 0,
         reason: "",
       },
+      duplicateFirmwareLogAt: 0,
       video: {
         frame: null,
         frameSeq: 0,
@@ -68,15 +73,30 @@ function validOperator(req) {
   return auth === `Bearer ${OPERATOR_TOKEN}`;
 }
 
-function broadcast(device) {
-  const now = Date.now();
-  const event = JSON.stringify({
+function sanitizeLogLine(line) {
+  return String(line).slice(0, MAX_LOG_LINE_CHARS);
+}
+
+function appendDeviceLogs(device, incoming) {
+  if (!Array.isArray(incoming) || incoming.length === 0) return;
+  const recent = new Set(device.logs.slice(-MAX_DEVICE_LOG_LINES));
+  for (const raw of incoming.slice(-50)) {
+    const line = sanitizeLogLine(raw);
+    if (!line || recent.has(line)) continue;
+    device.logs.push(line);
+    recent.add(line);
+  }
+  device.logs = device.logs.slice(-MAX_DEVICE_LOG_LINES);
+}
+
+function buildBroadcastPayload(device, now = Date.now()) {
+  return {
     id: device.id,
     at: nowIso(),
     lastIngestAt: device.lastIngestAt,
     online: device.lastIngestAt > 0 && now - device.lastIngestAt < DEVICE_ONLINE_TTL_MS,
     state: device.state,
-    logs: device.logs.slice(-200),
+    logs: device.logs.slice(-MAX_BROADCAST_LOG_LINES),
     command: device.command,
     commandAt: device.commandAt,
     ota: device.ota,
@@ -85,7 +105,11 @@ function broadcast(device) {
       frameSeq: device.video.frameSeq,
       online: Date.now() - device.video.lastFrameAt < 5000,
     },
-  });
+  };
+}
+
+function broadcast(device) {
+  const event = JSON.stringify(buildBroadcastPayload(device));
   // Only push to subscribers of THIS device; never leak other devices' data.
   for (const client of clients) {
     if (client.deviceId === device.id) {
@@ -191,6 +215,31 @@ function readFirmwareManifest(deviceId) {
 
 function currentFirmwareVersion(device) {
   return String(device.state?.firmware?.version || device.firmwareVersion || "");
+}
+
+function reportedFirmwareVersion(state) {
+  return String(state?.firmware?.version || "").slice(0, 64);
+}
+
+function shouldIgnoreDuplicateFirmwareReport(deviceId, device, reportedVersion, now = Date.now()) {
+  const manifest = readFirmwareManifest(deviceId);
+  const activeVersion = currentFirmwareVersion(device);
+  if (!manifest || !reportedVersion || reportedVersion === manifest.version) return false;
+  return activeVersion === manifest.version &&
+    device.lastIngestAt > 0 &&
+    now - device.lastIngestAt < DUPLICATE_FIRMWARE_HOLD_MS;
+}
+
+function noteIgnoredDuplicateFirmwareReport(deviceId, device, reportedVersion) {
+  const now = Date.now();
+  if (device.duplicateFirmwareLogAt && now - device.duplicateFirmwareLogAt < 10000) return;
+  device.duplicateFirmwareLogAt = now;
+  const activeVersion = currentFirmwareVersion(device);
+  appendDeviceLogs(device, [
+    `[cloud] ${nowIso()} ignored duplicate firmware report device=${deviceId} ` +
+    `version=${reportedVersion} active=${activeVersion}`
+  ]);
+  broadcast(device);
 }
 
 function firmwareSummary(deviceId, device, includeDownload, currentOverride = "") {
@@ -344,10 +393,13 @@ const server = http.createServer(async (req, res) => {
           ? queryToken === DEVICE_TOKEN
           : url.searchParams.has("current");
         const reportedCurrent = String(url.searchParams.get("current") || "").slice(0, 64);
-        if (deviceAuthenticated && reportedCurrent) {
+        if (deviceAuthenticated && reportedCurrent &&
+            !shouldIgnoreDuplicateFirmwareReport(deviceId, device, reportedCurrent)) {
           device.firmwareVersion = reportedCurrent;
         }
-        const summary = firmwareSummary(deviceId, device, false, reportedCurrent);
+        const summary = firmwareSummary(
+          deviceId, device, false, deviceAuthenticated ? reportedCurrent : ""
+        );
         if (summary && deviceAuthenticated) {
           const authorized = device.ota.status === "pending" &&
             device.ota.requestedVersion === summary.available_version;
@@ -370,7 +422,9 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         const current = String(url.searchParams.get("current") || "").slice(0, 64);
-        if (current) device.firmwareVersion = current;
+        if (current && !shouldIgnoreDuplicateFirmwareReport(deviceId, device, current)) {
+          device.firmwareVersion = current;
+        }
         const summary = firmwareSummary(deviceId, device, true, current);
         if (!summary) {
           send(res, 404, { ok: false, reason: "firmware not published" });
@@ -542,8 +596,15 @@ const server = http.createServer(async (req, res) => {
         send(res, 401, { ok: false, reason: "bad device token" });
         return;
       }
+      const incomingState = body.state || null;
+      const incomingVersion = reportedFirmwareVersion(incomingState);
+      if (shouldIgnoreDuplicateFirmwareReport(deviceId, device, incomingVersion)) {
+        noteIgnoredDuplicateFirmwareReport(deviceId, device, incomingVersion);
+        send(res, 200, { ok: true, ignored: true, reason: "duplicate firmware report" });
+        return;
+      }
       device.lastIngestAt = Date.now();
-      device.state = body.state || null;
+      device.state = incomingState;
       const reportedVersion = currentFirmwareVersion(device);
       if (reportedVersion && reportedVersion === device.ota.requestedVersion &&
           (device.ota.status === "pending" || device.ota.status === "restarting")) {
@@ -551,10 +612,7 @@ const server = http.createServer(async (req, res) => {
         device.ota.updatedAt = Date.now();
         device.ota.reason = "device confirmed new version";
       }
-      if (Array.isArray(body.logs) && body.logs.length) {
-        device.logs.push(...body.logs.map((line) => String(line)).slice(-50));
-        device.logs = device.logs.slice(-500);
-      }
+      appendDeviceLogs(device, body.logs);
       broadcast(device);
       send(res, 200, { ok: true });
       return;
@@ -602,6 +660,18 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`FollowBox cloud server listening on http://0.0.0.0:${PORT}`);
-});
+if (require.main === module) {
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`FollowBox cloud server listening on http://0.0.0.0:${PORT}`);
+  });
+}
+
+module.exports = {
+  _test: {
+    appendDeviceLogs,
+    buildBroadcastPayload,
+    MAX_BROADCAST_LOG_LINES,
+    MAX_DEVICE_LOG_LINES,
+    MAX_LOG_LINE_CHARS,
+  },
+};

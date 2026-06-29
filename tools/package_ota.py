@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FIRMWARE_DIR = ROOT / "firmware"
 CLOUD_FIRMWARE_DIR = ROOT / "cloud" / "firmware"
-DEFAULT_ENV = "esp32-s3-devkitc-1-n8"
+DEFAULT_ENV = "esp32-s3-devkitc-1"
 
 
 def run(cmd: list[str], cwd: Path) -> None:

@@ -48,6 +48,58 @@ constexpr char kAckOk[] = "{\"ok\":true}";
 constexpr char kAckRejected[] = "{\"ok\":false}";
 constexpr char kAckUnauthorized[] = "{\"ok\":false,\"reason\":\"unauthorized\"}";
 
+bool wifiModeHasAp(wifi_mode_t mode) {
+  return mode == WIFI_AP || mode == WIFI_AP_STA;
+}
+
+void formatIp(IPAddress ip, char* out, size_t out_size) {
+  if (out == nullptr || out_size == 0) {
+    return;
+  }
+  std::snprintf(out, out_size, "%u.%u.%u.%u",
+                static_cast<unsigned>(ip[0]), static_cast<unsigned>(ip[1]),
+                static_cast<unsigned>(ip[2]), static_cast<unsigned>(ip[3]));
+}
+
+bool ipReady(IPAddress ip) {
+  return ip[0] != 0 || ip[1] != 0 || ip[2] != 0 || ip[3] != 0;
+}
+
+bool softApReady() {
+  return wifiModeHasAp(WiFi.getMode()) && ipReady(WiFi.softAPIP());
+}
+
+void logWifiStatus(const char* reason) {
+  char ap_ip[16];
+  char sta_ip[16];
+  formatIp(WiFi.softAPIP(), ap_ip, sizeof(ap_ip));
+  formatIp(WiFi.localIP(), sta_ip, sizeof(sta_ip));
+  const wifi_mode_t mode = WiFi.getMode();
+  const int sta_status = static_cast<int>(WiFi.status());
+  const bool ap_ready = softApReady();
+  const int rssi = sta_status == WL_CONNECTED ? static_cast<int>(WiFi.RSSI()) : 0;
+  FB_LOGI("wifi: %s mode=%d channel=%d ap=%d ap_ip=%s ap_clients=%u sta=%d sta_ip=%s rssi=%d ssid=%s",
+          reason != nullptr ? reason : "status", static_cast<int>(mode),
+          static_cast<int>(WiFi.channel()), ap_ready ? 1 : 0, ap_ip,
+          static_cast<unsigned>(WiFi.softAPgetStationNum()), sta_status, sta_ip,
+          rssi, g_sta_ssid[0] != '\0' ? g_sta_ssid : "-");
+}
+
+bool startSoftAp(const char* reason) {
+  if (!wifiModeHasAp(WiFi.getMode())) {
+    WiFi.mode(WIFI_AP_STA);
+  }
+  const bool ok = WiFi.softAP(net::SOFT_AP_SSID, net::SOFT_AP_PASSWORD,
+                              net::SOFT_AP_CHANNEL, /*ssid_hidden=*/0,
+                              net::SOFT_AP_MAX_CONN);
+  FB_LOGI("wifi_ap: start reason=%s ok=%d ssid=%s channel=%u max_conn=%u",
+          reason != nullptr ? reason : "unknown", ok ? 1 : 0,
+          net::SOFT_AP_SSID, static_cast<unsigned>(net::SOFT_AP_CHANNEL),
+          static_cast<unsigned>(net::SOFT_AP_MAX_CONN));
+  logWifiStatus(reason);
+  return ok;
+}
+
 bool constantTimeEquals(const char* a, const char* b) {
   if (a == nullptr || b == nullptr) {
     return false;
@@ -254,8 +306,8 @@ void H5WebServer::begin(ProfileStore* profile_store, CalibrationStore* calibrati
   // once credentials have been provisioned via POST /api/wifi.
   WiFi.persistent(false);  // creds live in our own NVS namespace, not the SDK's
   WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(net::SOFT_AP_SSID, net::SOFT_AP_PASSWORD, net::SOFT_AP_CHANNEL,
-              /*ssid_hidden=*/0, net::SOFT_AP_MAX_CONN);
+  WiFi.setSleep(false);  // keep AP beacons steady while STA/cloud is active.
+  startSoftAp("boot");
   WiFi.setAutoReconnect(true);
 
   WifiCredentials creds;
@@ -460,24 +512,35 @@ void H5WebServer::begin(ProfileStore* profile_store, CalibrationStore* calibrati
                            saved ? kAckOk : kAckRejected);
                  if (saved) {
                    std::snprintf(g_sta_ssid, sizeof(g_sta_ssid), "%s",
-                                 creds.ssid);
+                                  creds.ssid);
                    WiFi.disconnect(/*wifioff=*/false, /*eraseap=*/false);
                    WiFi.begin(creds.ssid, creds.password);
+                   logWifiStatus("sta-rejoin");
                  }
                });
       });
 
   // GET /api/wifi/status -> STA join state for the provisioning UI.
   g_server.on("/api/wifi/status", HTTP_GET, [](AsyncWebServerRequest* request) {
-    char buf[256];
+    char sta_ip[16];
+    char ap_ip[16];
+    formatIp(WiFi.localIP(), sta_ip, sizeof(sta_ip));
+    formatIp(WiFi.softAPIP(), ap_ip, sizeof(ap_ip));
     const bool connected = WiFi.status() == WL_CONNECTED;
+    const bool ap_ready = softApReady();
+    char buf[384];
     std::snprintf(buf, sizeof(buf),
                   "{\"ok\":true,\"provisioned\":%s,\"sta_connected\":%s,"
-                  "\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d}",
+                  "\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,"
+                  "\"ap_ready\":%s,\"ap_ssid\":\"%s\",\"ap_ip\":\"%s\","
+                  "\"ap_clients\":%u,\"wifi_mode\":%d,\"wifi_channel\":%d}",
                   g_sta_ssid[0] != '\0' ? "true" : "false",
                   connected ? "true" : "false", g_sta_ssid,
-                  connected ? WiFi.localIP().toString().c_str() : "",
-                  connected ? static_cast<int>(WiFi.RSSI()) : 0);
+                  connected ? sta_ip : "",
+                  connected ? static_cast<int>(WiFi.RSSI()) : 0,
+                  ap_ready ? "true" : "false", net::SOFT_AP_SSID, ap_ip,
+                  static_cast<unsigned>(WiFi.softAPgetStationNum()),
+                  static_cast<int>(WiFi.getMode()), static_cast<int>(WiFi.channel()));
     request->send(200, "application/json", buf);
   });
 

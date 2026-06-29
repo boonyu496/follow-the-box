@@ -1,0 +1,4 @@
+interface:
+  display_name: "FollowBox Cloud H5 Deploy"
+  short_description: "Guard cloud H5 deployment from cross-project pollution."
+  default_prompt: "Use the FollowBox cloud H5 deployment guardrails."

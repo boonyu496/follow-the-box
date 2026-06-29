@@ -3,15 +3,19 @@
 这些技能文件放在项目目录内，供 Hermes、Claude Code、Copilot CLI、VS Code 内 AI、其他代码代理直接读取。  
 入口文件：`D:\car\Follow the box\skills\README.md`
 
+Codex 自动发现入口另有一层轻量包装：`D:\car\Follow the box\.agents\skills\`。
+`.agents/skills/` 只负责触发、路由、计划、锁定和云端部署护栏；详细项目事实仍以本目录和权威文档为准，避免重复上下文。
+
 ## 使用方式
 
 任何 AI 接到 FollowBox 开发/审查/排 bug 任务时，先读本文件，然后按任务类型加载对应 `SKILL.md`。如果要运行 Codex/Claude/Copilot/其他代码代理，先读项目根目录 `AI-AGENT-RUNBOOK.md`，使用其中的固定启动 prompt，并在结束后运行 `python3 tools/check_ai_handoff.py` 做交接门禁。
 
 ```text
 1. 先读 skills/README.md
-2. 按路由表选择一个或多个技能
-3. 再读 README.md、FIRMWARE-SPEC.md、CURRENT-WIRING-AI.md、PIN-MAP-V1.md、profiles/example_bldc_analog_36v.yaml
-4. 输出 SaaS-Bench 风格任务包/checkpoints/阻塞条件/验证步骤
+2. Codex 优先读取 `.agents/skills/` 中匹配任务的包装 skill，再按路由表选择一个或多个详细技能
+3. 读 `VERIFIED-LOCKS.md` 判断是否触及已验证/安全关键方案
+4. 再读 README.md、FIRMWARE-SPEC.md、CURRENT-WIRING-AI.md、PIN-MAP-V1.md、profiles/example_bldc_analog_36v.yaml
+5. 输出 SaaS-Bench 风格任务包/checkpoints/阻塞条件/验证步骤
 ```
 
 ### 轻量读取规则
@@ -55,6 +59,29 @@ AI-HANDOFF-MEMORY.md
 - 只读分析任务只有在发现重要结论、安全阻塞或改变后续路线时才写；普通问答不写，避免记忆文件膨胀。
 
 所有具体技能都必须把“更新 AI-HANDOFF-MEMORY.md”作为完成条件。
+
+## 已验证锁定规则（必须执行）
+
+任何 AI 在修改前都要检查：
+
+```text
+VERIFIED-LOCKS.md
+```
+
+- 触及锁定项：任务计划和交接记录必须写 `锁定影响` 与 `解锁理由`。
+- 未触及锁定项：交接记录写 `锁定影响：无`。
+- 收尾运行：`python tools/check_verified_locks.py`。
+- 干净工作区/CI 可使用严格模式：`python tools/check_verified_locks.py --strict`。
+
+## 云端 H5 部署隔离规则（必须执行）
+
+涉及 `cloud/`、`cloud/public/`、`cloud/firmware/`、DevSpace、SCP、PM2、Kubernetes、云端 OTA 发布时：
+
+- 只允许部署 FollowBox 的 `cloud/` 服务和 `cloud/public/` H5，不得把仓库父目录或其他项目目录一起上传。
+- 目标目录必须是 FollowBox 云端根目录（通常末尾为 `followbox-cloud`）；禁止覆盖 `/www/wwwroot`、`/www/server`、用户 home 或多项目目录。
+- 禁止 `pm2 restart all`；只能重启 FollowBox 对应进程/容器。
+- 禁止上传 `.env`、`.env.local`、PEM/key、token、`node_modules/`、日志、缓存或其他项目文件。
+- 部署后必须验证 `/api/health`、`deploy-version.txt` 或 `devspace run cloud-check`。
 
 ## 技能路由表
 

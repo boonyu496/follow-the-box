@@ -35,7 +35,7 @@ littlefs,   data, spiffs,  0x2F0000, 0x500000,   # ~5MB
 **需要的 OTA 分区表（`partitions/ota_8MB.csv`）：**
 
 ```
-# OTA 8MB for ESP32-S3 N8R8
+# OTA 32MB for ESP32-S3 N32R16V
 nvs,        data, nvs,     0x9000,   0x5000,
 otadata,    data, ota,     0xe000,   0x2000,
 app0,       app,  ota_0,   0x10000,  0x330000,   # ~3.2MB
@@ -44,7 +44,7 @@ littlefs,   data, spiffs,  0x670000, 0x180000,   # ~1.5MB
 coredump,   data, coredump,0x7F0000, 0x10000,
 ```
 
-**注意：** 当前固件编译后约 2.1MB（Flash 26.8%），N8R8 有 8MB Flash。3.2MB/app 足够。但 LittleFS 从 5MB 缩小到 1.5MB，需确认 H5 面板 + 日志缓存是否足够。当前 `data/` 中仅 ~50KB，1.5MB 绰绰有余。
+**注意：** 当前主控为 ESP32-S3-DevKitC-1-N32R16V / ESP32-S3-WROOM-2-N32R16V，32MB Flash。OTA 分区按 32MB 方案管理，LittleFS/H5 资源必须跟随 `firmware/partitions/ota_32MB.csv` 验证。
 
 #### 分区表变更影响
 
@@ -59,7 +59,7 @@ coredump,   data, coredump,0x7F0000, 0x10000,
 
 | 硬件 | 是否支持 OTA | 备注 |
 |------|-------------|------|
-| ESP32-S3-DevKitC-1 N8R8 | ✅ | 8MB Flash，WiFi 原生支持 |
+| ESP32-S3-DevKitC-1-N32R16V / ESP32-S3-WROOM-2-N32R16V | ✅ | 32MB Octal Flash + 16MB Octal PSRAM，WiFi 原生支持 |
 | DS600 遥控 | N/A | OTA 不影响 RC 功能 |
 | 电机控制器 | ⚠️ | OTA 中必须禁用电机输出 |
 | 急停按钮 | ⚠️ | 物理急停始终有效，覆盖 OTA 状态 |

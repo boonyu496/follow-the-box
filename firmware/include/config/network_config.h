@@ -21,7 +21,9 @@ constexpr bool USE_SOFT_AP = (FOLLOWBOX_WIFI_STA == 0);  // legacy; AP is always
 constexpr char SOFT_AP_SSID[] = "FollowBox";
 constexpr char SOFT_AP_PASSWORD[] = "followbox123";  // >= 8 chars; CHANGE BEFORE FIELD USE.
 constexpr uint8_t SOFT_AP_CHANNEL = 6;
-constexpr uint8_t SOFT_AP_MAX_CONN = 2;  // panel + spare; keep small for latency.
+// Camera + phone + laptop can all be present during bring-up. Keeping this at
+// 2 made the hotspot look unstable when a third client tried to associate.
+constexpr uint8_t SOFT_AP_MAX_CONN = 4;
 
 // --- STA (join existing WiFi) ---
 // Bench builds may inject these without committing secrets:

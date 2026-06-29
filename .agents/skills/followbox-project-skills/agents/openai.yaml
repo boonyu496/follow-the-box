@@ -1,0 +1,4 @@
+interface:
+  display_name: "FollowBox Project Skills"
+  short_description: "Route FollowBox tasks to project-local skills and gates."
+  default_prompt: "Use FollowBox project skills for this task."

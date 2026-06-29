@@ -1,0 +1,4 @@
+interface:
+  display_name: "FollowBox Diff Review"
+  short_description: "Review only the current FollowBox diff."
+  default_prompt: "Review the current FollowBox diff."
