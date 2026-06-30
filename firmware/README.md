@@ -88,8 +88,11 @@ pio run -d firmware -e ota -t upload
 pio run -d firmware -e ota -t upload --upload-port 192.168.x.x
 ```
 
-The OTA service uses `followbox` on port `3232` with the development password
-from `include/config/network_config.h`. Change the password before field use.
+The OTA service uses `followbox` on port `3232`. Bench builds have a
+development-only placeholder password; field builds should use
+`-D FOLLOWBOX_FIELD_BUILD=1` and inject `FOLLOWBOX_OTA_PASSWORD`,
+`FOLLOWBOX_SOFT_AP_PASSWORD`, `FOLLOWBOX_LOCAL_API_AUTH_REQUIRED=1`, and
+`FOLLOWBOX_LOCAL_API_KEY` via local build flags or CI secrets.
 
 Cloud telemetry reference service:
 
@@ -98,5 +101,7 @@ node cloud/server.js
 ```
 
 Cloud firmware is opt-in only. After local bring-up, set STA WiFi credentials
-and cloud endpoint/token, then build with `-D FOLLOWBOX_WIFI_STA=1` and
-`-D FOLLOWBOX_CLOUD_ENABLED=1`.
+from the H5 page or bench-only WiFi build flags, then build with
+`-D FOLLOWBOX_CLOUD_ENABLED=1`, `-D FOLLOWBOX_CLOUD_BASE_URL=\"...\"`,
+`-D FOLLOWBOX_CLOUD_DEVICE_ID=\"...\"`, and
+`-D FOLLOWBOX_CLOUD_DEVICE_TOKEN=\"...\"`. Do not commit real secrets.

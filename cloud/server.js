@@ -4,10 +4,10 @@ const path = require("path");
 const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8080);
-const DEVICE_TOKEN =
-  process.env.FOLLOWBOX_DEVICE_TOKEN || "f892ef460de624143d7d65cb5a863f84";
-const OPERATOR_TOKEN =
-  process.env.FOLLOWBOX_OPERATOR_TOKEN || "0b6cf31c57bc202d002b04f843c9b430";
+const DEVICE_TOKEN = process.env.FOLLOWBOX_DEVICE_TOKEN || "";
+const OPERATOR_TOKEN = process.env.FOLLOWBOX_OPERATOR_TOKEN || "";
+const ALLOW_INSECURE_DEV_AUTH =
+  process.env.FOLLOWBOX_ALLOW_INSECURE_DEV_AUTH === "1";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DEPLOY_VERSION_FILE = path.join(PUBLIC_DIR, "deploy-version.txt");
 const FIRMWARE_DIR = path.join(__dirname, "firmware");
@@ -64,13 +64,20 @@ function getDevice(id) {
 
 function validDeviceToken(body, url) {
   const token = body?.token || url.searchParams.get("token") || "";
-  return !DEVICE_TOKEN || token === DEVICE_TOKEN;
+  if (DEVICE_TOKEN) return token === DEVICE_TOKEN;
+  return ALLOW_INSECURE_DEV_AUTH;
 }
 
 function validOperator(req) {
-  if (!OPERATOR_TOKEN) return true;
   const auth = req.headers.authorization || "";
-  return auth === `Bearer ${OPERATOR_TOKEN}`;
+  if (OPERATOR_TOKEN) return auth === `Bearer ${OPERATOR_TOKEN}`;
+  return ALLOW_INSECURE_DEV_AUTH;
+}
+
+function validOperatorQuery(url) {
+  const token = url.searchParams.get("token") || "";
+  if (OPERATOR_TOKEN) return token === OPERATOR_TOKEN;
+  return ALLOW_INSECURE_DEV_AUTH;
 }
 
 function sanitizeLogLine(line) {
@@ -388,10 +395,7 @@ const server = http.createServer(async (req, res) => {
           send(res, 401, { ok: false, reason: "bad token" });
           return;
         }
-        const queryToken = url.searchParams.get("token") || "";
-        const deviceAuthenticated = DEVICE_TOKEN
-          ? queryToken === DEVICE_TOKEN
-          : url.searchParams.has("current");
+        const deviceAuthenticated = validDeviceToken(null, url);
         const reportedCurrent = String(url.searchParams.get("current") || "").slice(0, 64);
         if (deviceAuthenticated && reportedCurrent &&
             !shouldIgnoreDuplicateFirmwareReport(deviceId, device, reportedCurrent)) {
@@ -523,8 +527,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const token = url.searchParams.get("token") || "";
-      if (OPERATOR_TOKEN && token !== OPERATOR_TOKEN) {
+      if (!validOperatorQuery(url)) {
         send(res, 401, { ok: false, reason: "bad operator token" });
         return;
       }
@@ -566,8 +569,7 @@ const server = http.createServer(async (req, res) => {
     if (action === "events" && req.method === "GET") {
       // EventSource cannot set headers, so the operator token is accepted via
       // ?token= for this endpoint. Telemetry/logs must not be world-readable.
-      const token = url.searchParams.get("token") || "";
-      if (OPERATOR_TOKEN && token !== OPERATOR_TOKEN) {
+      if (!validOperatorQuery(url)) {
         send(res, 401, { ok: false, reason: "bad operator token" });
         return;
       }
@@ -661,6 +663,11 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
+  if (ALLOW_INSECURE_DEV_AUTH) {
+    console.warn("FOLLOWBOX_ALLOW_INSECURE_DEV_AUTH=1: auth disabled for development only");
+  } else if (!DEVICE_TOKEN || !OPERATOR_TOKEN) {
+    console.warn("FollowBox cloud auth is not fully configured; protected APIs will reject requests");
+  }
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`FollowBox cloud server listening on http://0.0.0.0:${PORT}`);
   });

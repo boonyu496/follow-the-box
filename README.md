@@ -32,6 +32,21 @@
 | `CLOUD-ASSIST-BACKLOG.md` | 后续云端困难场景协助待办：WiFi 上传 telemetry/图像，云端 AI/规则引擎给动作建议，ESP32 本地安全裁决 |
 | `FOLLOWBOX-VISION-BACKLOG.md` | 三大远景待办：云训练/远程调试、云端轨迹记录→自动驾驶、自主交互(门检测/找人帮忙/买东西) |
 
+## 文件归属与技能路由速查
+
+| 文件/区域 | 先找谁 | 说明 |
+|---|---|---|
+| `CURRENT-PROJECT-ARCHITECTURE.md`, `FIRMWARE-SPEC.md`, `firmware/src/app/` | `skills/01-firmware-architecture-guardian` | 架构地图、模块边界、`main.cpp` 拆分和运行链路 |
+| `firmware/src/safety/`, `firmware/src/control/`, `firmware/src/drive/` | `skills/03-safety-control-reviewer` | 安全门控、模式、混控、最终输出链；改动前看 `VERIFIED-LOCKS.md` |
+| `PIN-MAP-V1.md`, `CURRENT-WIRING-AI.md`, `firmware/include/config/board_pins.h`, Profile | `skills/05-drive-power-calibration-engineer` | GPIO、电源、ADC、PWM、极性和校准；禁止旧 GPIO35/36/37/47/48 |
+| `firmware/src/sensors/`, `protocols/` | `skills/04-sensor-protocol-integrator` | UWB/TOF/IMU/超声/雷达协议与 `SensorSnapshot` |
+| `firmware/web/`, `firmware/src/web/`, `protocols/H5-API.md` | `skills/06-h5-telemetry-ui-engineer` | 车端 AP/局域网 H5；`firmware/data/` 只保留 tombstone，不是源码 |
+| `cloud/`, `cloud/public/`, `cloud/firmware/`, `devspace.yaml` | `skills/06-h5-telemetry-ui-engineer` + `.agents/skills/followbox-cloud-h5-deploy` | 云端 H5、遥测、OTA 发布和 DevSpace；不能和车端 H5 混用部署 |
+| `AI-HANDOFF-MEMORY.md`, `skills/`, `.agents/skills/`, `VERIFIED-LOCKS.md` | `skills/00-dispatcher`, `skills/07-code-review-debugger` | AI 交接、技能入口和锁检查；修改后必须跑门禁脚本 |
+| `plans/cleanup/` | `skills/00-dispatcher` | 临时整理计划，完成或被新计划替代后可删除 |
+| `output/`, `v/`, `zhiliao/` | `skills/07-code-review-debugger` | 历史证据/供应商资料/调试产物；先索引，不能第一轮盲删 |
+| `firmware/.pio-core/`, `firmware/.pio/`, `vision_cam/.pio/`, `.codebuddy/db/` | `skills/07-code-review-debugger` | 本地可重建缓存；只在确认 ignored 后删除 |
+
 ## 当前硬件架构
 
 ```text

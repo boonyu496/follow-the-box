@@ -145,7 +145,8 @@ const LOCAL_KEY_STORAGE = "followbox.localApiKey"; // sessionStorage — cleared
 const CAMERA_URL_STORAGE = "followbox.cameraStreamUrl";
 const CLOUD_VIDEO_BASE_URL = "https://www.boonai.cn/fb";
 const CLOUD_VIDEO_DEVICE_ID = "followbox-001";
-const CLOUD_VIDEO_OPERATOR_TOKEN = "0b6cf31c57bc202d002b04f843c9b430";
+// Empty by default: do not bake cloud operator credentials into device H5.
+const CLOUD_VIDEO_OPERATOR_TOKEN = "";
 const PRIVATE_CAMERA_HOSTS = new Set(["192.168.4.2", "192.168.4.10"]);
 const HTTP_DIAGNOSTIC_TIMEOUT_MS = 2200;
 const BROWSER_LOG_LIMIT = 80;
@@ -430,7 +431,7 @@ function isPrivateCameraUrl(value) {
 }
 
 function shouldUseCloudVideoRelay(value) {
-  return !isApPage() && isPrivateCameraUrl(value);
+  return CLOUD_VIDEO_OPERATOR_TOKEN.length > 0 && !isApPage() && isPrivateCameraUrl(value);
 }
 
 function cloudVideoStreamUrl() {
@@ -438,7 +439,9 @@ function cloudVideoStreamUrl() {
     `api/device/${encodeURIComponent(CLOUD_VIDEO_DEVICE_ID)}/video/stream`,
     CLOUD_VIDEO_BASE_URL.endsWith("/") ? CLOUD_VIDEO_BASE_URL : `${CLOUD_VIDEO_BASE_URL}/`,
   );
-  url.searchParams.set("token", CLOUD_VIDEO_OPERATOR_TOKEN);
+  if (CLOUD_VIDEO_OPERATOR_TOKEN) {
+    url.searchParams.set("token", CLOUD_VIDEO_OPERATOR_TOKEN);
+  }
   return url.toString();
 }
 

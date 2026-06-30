@@ -4,6 +4,10 @@
 
 namespace followbox::net {
 
+#ifndef FOLLOWBOX_FIELD_BUILD
+#define FOLLOWBOX_FIELD_BUILD 0
+#endif
+
 // H5 control panel transport configuration.
 //
 // The box always runs AP+STA: the softAP below is the provisioning/local
@@ -19,7 +23,18 @@ constexpr bool USE_SOFT_AP = (FOLLOWBOX_WIFI_STA == 0);  // legacy; AP is always
 
 // --- softAP (box hotspot) ---
 constexpr char SOFT_AP_SSID[] = "FollowBox";
-constexpr char SOFT_AP_PASSWORD[] = "followbox123";  // >= 8 chars; CHANGE BEFORE FIELD USE.
+#ifndef FOLLOWBOX_SOFT_AP_PASSWORD
+#define FOLLOWBOX_SOFT_AP_PASSWORD "followbox-dev-only"
+#define FOLLOWBOX_SOFT_AP_PASSWORD_IS_DEFAULT 1
+#else
+#define FOLLOWBOX_SOFT_AP_PASSWORD_IS_DEFAULT 0
+#endif
+
+#if FOLLOWBOX_FIELD_BUILD && FOLLOWBOX_SOFT_AP_PASSWORD_IS_DEFAULT
+#error "Field builds must set FOLLOWBOX_SOFT_AP_PASSWORD via build flags"
+#endif
+
+constexpr char SOFT_AP_PASSWORD[] = FOLLOWBOX_SOFT_AP_PASSWORD;  // >= 8 chars.
 constexpr uint8_t SOFT_AP_CHANNEL = 6;
 // Camera + phone + laptop can all be present during bring-up. Keeping this at
 // 2 made the hotspot look unstable when a third client tried to associate.
@@ -53,6 +68,13 @@ constexpr uint16_t HTTP_PORT = 80;
 
 #ifndef FOLLOWBOX_LOCAL_API_KEY
 #define FOLLOWBOX_LOCAL_API_KEY ""
+#define FOLLOWBOX_LOCAL_API_KEY_IS_DEFAULT 1
+#else
+#define FOLLOWBOX_LOCAL_API_KEY_IS_DEFAULT 0
+#endif
+
+#if FOLLOWBOX_FIELD_BUILD && ((FOLLOWBOX_LOCAL_API_AUTH_REQUIRED != 1) || FOLLOWBOX_LOCAL_API_KEY_IS_DEFAULT)
+#error "Field builds must enable local API auth and set FOLLOWBOX_LOCAL_API_KEY"
 #endif
 
 constexpr bool LOCAL_API_AUTH_REQUIRED =
@@ -72,9 +94,20 @@ constexpr uint32_t STATE_PUSH_INTERVAL_MS = 100;
 #define FOLLOWBOX_OTA_ENABLED 1
 #endif
 
+#ifndef FOLLOWBOX_OTA_PASSWORD
+#define FOLLOWBOX_OTA_PASSWORD "followbox-ota-dev"
+#define FOLLOWBOX_OTA_PASSWORD_IS_DEFAULT 1
+#else
+#define FOLLOWBOX_OTA_PASSWORD_IS_DEFAULT 0
+#endif
+
+#if FOLLOWBOX_FIELD_BUILD && (FOLLOWBOX_OTA_ENABLED == 1) && FOLLOWBOX_OTA_PASSWORD_IS_DEFAULT
+#error "Field builds must set FOLLOWBOX_OTA_PASSWORD via build flags"
+#endif
+
 constexpr bool OTA_ENABLED = (FOLLOWBOX_OTA_ENABLED == 1);
 constexpr char OTA_HOSTNAME[] = "followbox";
 constexpr uint16_t OTA_PORT = 3232;
-constexpr char OTA_PASSWORD[] = "followbox-ota";  // CHANGE BEFORE FIELD USE.
+constexpr char OTA_PASSWORD[] = FOLLOWBOX_OTA_PASSWORD;
 
 }  // namespace followbox::net

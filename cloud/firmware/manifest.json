@@ -1,8 +1,8 @@
 {
-    "version":  "2026.06.30-softap-no-video.1",
-    "file":  "firmware.bin",
-    "md5":  "2e2907b69cdcceb1659f3fe2a7c74438",
-    "size":  1148592,
-    "force":  false,
-    "notes":  "Disable controller-side cloud video relay by default to keep AP/LAN HTTP stable; telemetry, logs, OTA, and cloud commands remain enabled."
+  "version": "2026.06.30-runtime-split.1",
+  "file": "firmware.bin",
+  "md5": "b2139c478dcb2d4db9d103a0b2529253",
+  "size": 987808,
+  "force": false,
+  "notes": "Split main.cpp runtime wiring into app/runtime; behavior preserved"
 }

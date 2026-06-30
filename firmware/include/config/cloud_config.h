@@ -4,10 +4,15 @@
 
 namespace followbox::cloud_config {
 
+#ifndef FOLLOWBOX_FIELD_BUILD
+#define FOLLOWBOX_FIELD_BUILD 0
+#endif
+
 // Cloud telemetry + low-speed remote command link. Enabled by default: the
 // link only becomes active once the STA leg is provisioned via the H5 panel
 // (POST /api/wifi) and actually connected, so an unprovisioned box simply
-// keeps the cloud client idle. Override any of these with -D build flags.
+// keeps the cloud client idle. Real deployment credentials must be injected
+// with -D build flags, not committed here.
 #ifndef FOLLOWBOX_CLOUD_ENABLED
 #define FOLLOWBOX_CLOUD_ENABLED 1
 #endif
@@ -28,11 +33,19 @@ constexpr char API_BASE_URL[] = FOLLOWBOX_CLOUD_BASE_URL;
 constexpr char DEVICE_ID[] = FOLLOWBOX_CLOUD_DEVICE_ID;
 
 // Shared device token. Must equal FOLLOWBOX_DEVICE_TOKEN on the server.
-// Default matches cloud/server.js's default; override both for production.
+// Empty by default so tracked firmware does not contain a reusable token.
 #ifndef FOLLOWBOX_CLOUD_DEVICE_TOKEN
-#define FOLLOWBOX_CLOUD_DEVICE_TOKEN "f892ef460de624143d7d65cb5a863f84"
+#define FOLLOWBOX_CLOUD_DEVICE_TOKEN ""
+#define FOLLOWBOX_CLOUD_DEVICE_TOKEN_IS_DEFAULT 1
+#else
+#define FOLLOWBOX_CLOUD_DEVICE_TOKEN_IS_DEFAULT 0
+#endif
+
+#if FOLLOWBOX_FIELD_BUILD && (FOLLOWBOX_CLOUD_ENABLED != 0) && FOLLOWBOX_CLOUD_DEVICE_TOKEN_IS_DEFAULT
+#error "Field cloud builds must set FOLLOWBOX_CLOUD_DEVICE_TOKEN via build flags"
 #endif
 constexpr char DEVICE_TOKEN[] = FOLLOWBOX_CLOUD_DEVICE_TOKEN;
+constexpr bool DEVICE_TOKEN_CONFIGURED = (sizeof(DEVICE_TOKEN) > 1);
 
 // The cloud H5 otherwise shows TOF changes up to one second late. 4 Hz keeps
 // telemetry visibly responsive while the local AP/LAN H5 remains 10 Hz. Failed

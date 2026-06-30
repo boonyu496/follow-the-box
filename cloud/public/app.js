@@ -144,7 +144,7 @@ const stopLabels = {
 };
 
 // ── Constants ──
-const DEFAULT_OPERATOR_TOKEN = "0b6cf31c57bc202d002b04f843c9b430"; // matches server default
+const DEFAULT_OPERATOR_TOKEN = "";
 const MAX_RANGE_MM = 3000;
 const MAP_MAX_MM = 4000;
 const DEVICE_ONLINE_TTL_MS = 10000;
@@ -153,8 +153,8 @@ const TOF_RATE_WINDOW_MS = 5000;
 // deployed under a sub-path such as https://www.boonai.cn/fb/.
 const APP_BASE_URL = new URL(".", document.currentScript?.src || window.location.href);
 
-// ── Browser storage keys (debug phase: plaintext; will move to box-ID-derived token later) ──
-const STORAGE_KEY_TOKEN = "fb_operator_token";
+// Browser storage is local convenience only; never bake operator tokens into H5.
+const STORAGE_KEY_TOKEN = "fb_operator_token_v2";
 const STORAGE_KEY_DEVICE = "fb_device_id";
 const STORAGE_KEY_CAMERA = "fb_camera_url";
 const STORAGE_KEY_CAMERA_LAST = "fb_camera_last_url";

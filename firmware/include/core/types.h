@@ -66,7 +66,7 @@ struct H5ControlInput {
   float throttle = 0.0f;
   float steering = 0.0f;
 
-  // Deferred operations — set by transport layer, executed by main.cpp
+  // Deferred operations - set by transport layer, executed by Runtime
   // in the control-loop context (CODE-REVIEW-H5-2026-06-15 P0-1).
   bool pending_calibrate = false;
   int cal_deadband_mv = 0;

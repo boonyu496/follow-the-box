@@ -37,3 +37,15 @@ tools_local/
 tools/followbox-control-center.config.json
 FollowBox-DevConsole.exe
 output/repo-sync-*/
+
+# Generated / historical artifacts
+output/
+v/
+zhiliao/pdf_images/
+zhiliao/pwm_pdf_images/
+zhiliao/**/EaiLidarTest-V1.12.3-20241220/config/
+zhiliao/**/EaiLidarTest-V1.12.3-20241220/qt.conf
+zhiliao/**/*.exe
+zhiliao/**/*.dll
+zhiliao/**/*.lib
+zhiliao/**/*.qm

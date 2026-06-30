@@ -36,6 +36,85 @@
 ```
 
 ## 最新交接记录
+### 2026-06-30 13:54 - Codex - cleanup phase F artifact index prune
+- 改动：执行 cleanup plan Phase F，先新增历史产物索引，再从 active tree 裁剪 `output/`、`v/6-3/`、解包工具运行时、重复雷达工具包和 PDF 提取图片。
+- 文件：`.gitignore`, `plans/cleanup/ARTIFACT-INDEX-2026-06-30.md`, `output/*` 删除, `v/*` 删除, `zhiliao/*` 部分裁剪, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无；不改固件、协议、H5、云部署、Profile、模块边界或 `main.cpp`。
+- 安全影响：无 motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；未触碰 `safety_manager -> applyFinalGate() -> drive_adapter`。
+- OTA：不需要设备 OTA；本次仅整理历史产物、供应商资料和忽略规则，不改设备固件、车端 H5、Profile 或协议。
+- 索引/归档：`output/` 与 `v/` 已从 active tree 删除并由 Git 历史兜底；`zhiliao/` 保留供应商 PDF/README/相机小文档，约从 399.7MB 总历史产物降到 13.6MB。
+- 锁定影响：无；未改 VERIFIED-LOCKS 硬锁路径，未执行 SCP/PM2/K8s/DevSpace/云端部署。
+- 验证：`rg` 引用扫描完成，剩余引用均为历史交接/索引/计划说明；`git status --short` 显示 Phase F 删除和既有脏改；`python tools/check_ai_handoff.py` PASS；`python tools/check_verified_locks.py` WARN（仅报告 Phase D/E 既有锁定路径脏改）。
+- 当前状态：PASS_WITH_PREEXISTING_LOCK_WARN
+- 下一步：跑完门禁后，若继续收尾，可将 cleanup plan 结论合并到长期文档后再删除临时计划文件。
+
+### 2026-06-30 13:32 - Codex - cleanup phase E main runtime split
+- 改动：执行 cleanup plan Phase E，将 `main.cpp` 的 FreeRTOS task、OTA、NVS/transport/runtime wiring 拆入 `app/runtime.*`，`main.cpp` 只保留 Arduino `setup()`/`loop()` 入口。
+- 文件：`firmware/src/main.cpp`, `firmware/src/app/runtime.{h,cpp}`, `firmware/include/core/types.h`, `firmware/src/web/h5_web_server.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；入口层瘦身到 17 行，运行期胶水归属 `app/runtime`；未改 `App::tick()` 内 `safety_manager.applyFinalGate()`，未改 mode/pipeline/mixer/safety/drive 逻辑。
+- 安全影响：高风险结构性触及控制任务归属；`Runtime::controlTaskLoop()` 仍是唯一 `drive.writeCommand()` 调用点，且写出前仍使用 `app.state().motor_command`（已由 `applyFinalGate()` 生成）；未改 GPIO、PWM 出口、急停、lost-link 或安全阈值。
+- OTA：版本 `2026.06.30-runtime-split.1` 已本地生成，`cloud/firmware/firmware.bin` size `987808`，MD5 `b2139c478dcb2d4db9d103a0b2529253`，`force=false`；未部署云端、未安装设备。
+- 锁定影响：触及 `SAFETY_GATE` 运行链路、`OTA_PACKAGE`、`CLOUD_H5_DEPLOY`（仅 `cloud/firmware/manifest.json` 本地 OTA manifest）与 `BOARD_N32R16V` 路径；解锁理由：仅拆分入口/runtime wiring 并递增设备固件版本，不改板型/flash/PSRAM/分区、pin map、安全裁决、PWM 出口或云端部署目标。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；MSYS2 runtime PATH 后重编并运行 `firmware/tools/logic_smoke_test.exe` PASS；安全链 `rg` 确认 `writeCommand()` 唯一调用在 `runtime.cpp` 控制环、旧 GPIO35/36/37/47/48 无命中；`python tools/package_ota.py --skip-build ...` PASS。
+- 当前状态：PASS
+- 下一步：如要继续 Phase F，先索引 `output/`、`v/`、`zhiliao/` 证据目录，不要盲删历史实测资料。
+
+### 2026-06-30 12:23 - Codex - cleanup phase D credential defaults
+- 改动：执行 cleanup plan Phase D，移除云端/浏览器/固件里的旧默认 token；云端未配置 env token 时默认拒绝，只有显式 `FOLLOWBOX_ALLOW_INSECURE_DEV_AUTH=1` 才允许本地开发无鉴权；固件 field build 增加凭据编译门禁。
+- 文件：`cloud/server.js`, `cloud/public/app.js`, `firmware/include/config/cloud_config.h`, `firmware/include/config/network_config.h`, `firmware/web/app.js`, `firmware/platformio.ini`, `firmware/include/config/ota_config.h`, `CLOUD-TELEMETRY-SPEC.md`, `firmware/README.md`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：中；只改鉴权/config/H5 fallback 与 OTA 版本，不改模块边界、GPIO、协议 schema、`main.cpp` 或运动链路。
+- 安全影响：凭据安全增强；无 motor/e-stop/PWM/ADC/I2C/电源输出改动，未触碰 `safety_manager -> applyFinalGate() -> drive_adapter`。
+- OTA：版本 `2026.06.30-credential-cleanup.1` 已本地生成，`cloud/firmware/firmware.bin` size `987920`，MD5 `025e9fc5a620261d90a87fecf4c60c47`，`force=false`；未部署云端、未安装设备。
+- 云端：未执行 SCP/PM2/K8s/DevSpace 部署；后续部署前必须在服务器设置 `FOLLOWBOX_DEVICE_TOKEN`/`FOLLOWBOX_OPERATOR_TOKEN`，固件构建用匹配的 `FOLLOWBOX_CLOUD_DEVICE_TOKEN`。
+- 锁定影响：触及 `CLOUD_H5_DEPLOY`、`OTA_PACKAGE`、`BOARD_N32R16V` 路径；解锁理由：清理硬编码凭据并同步 OTA 版本/本地打包，只改 `platformio.ini` 的 OTA auth，不改板型/flash/PSRAM/分区。
+- 验证：`node --check cloud/server.js`/`cloud/public/app.js`/`firmware/web/app.js` PASS；`node cloud/server.log-dedup.test.js` PASS；`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS；`python tools/package_ota.py ...` PASS；旧默认 token/password 残留扫描 PASS。
+- 当前状态：PASS_NEEDS_SECRET_ROTATION_AND_DEPLOY_CONFIG
+- 下一步：真实部署前轮换旧设备/操作员 token，并在服务器 env、本地构建 flags 或 CI secret 中配置新值；不要把真实凭据写入 tracked 文件或聊天记录。
+
+### 2026-06-30 12:06 - Codex - cleanup phase C firmware data tombstone
+- 改动：执行 cleanup plan Phase C，删除 `firmware/data` 旧 H5 副本资源，仅保留 README tombstone，确认车端 H5 源仍为 `firmware/web/`。
+- 文件：`firmware/data/README.md`, `firmware/data/*` 旧副本删除, `CURRENT-PROJECT-ARCHITECTURE.md`, `README.md`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：低；收敛嵌入式 H5 源码归属，不改 `firmware/platformio.ini`、H5 API、固件模块边界、云端部署或运动链路。
+- 安全影响：无 motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；未触碰 `safety_manager -> applyFinalGate() -> drive_adapter`。
+- OTA：不需要设备 OTA；本次删除的是非权威旧副本并新增说明文件，未改当前 `firmware/web/` 车端 H5、固件、Profile 或协议。
+- 锁定影响：无
+- 验证：`node --check firmware/web/app.js` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS，FS image 仅含 `/app.js`, `/index.html`, `/pico.min.css`, `/shared/helpers.js`, `/style.css`；`python tools/check_ai_handoff.py` PASS；`python tools/check_verified_locks.py` PASS。
+- 当前状态：PASS
+- 下一步：完成验证后进入 Phase D；凭据/default token cleanup 必须单独处理，不混入 H5 tombstone 清理。
+
+### 2026-06-30 12:05 - Codex - cleanup phase B cache purge
+- 改动：执行 cleanup plan Phase B，仅删除 ignored 的本地可重建缓存目录，减少本机磁盘噪声。
+- 文件：`firmware/.pio-core/`, `firmware/.pio/`, `vision_cam/.pio/`, `.codebuddy/db/`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无代码架构变更；未改模块边界、GPIO、协议、H5 API、云端部署或运动链路。
+- 安全影响：无 motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；未触碰 `safety_manager -> applyFinalGate() -> drive_adapter`。
+- OTA：不需要设备 OTA；本次只清理本地 ignored 缓存和交接记录，不改设备固件、车端 H5、Profile 或协议。
+- 锁定影响：无
+- 验证：`git status --short` 保留 Phase A/plan 基线；`git status --ignored --short` 剩 9 行且四个缓存路径已消失；四路径 `Test-Path=False`；`python tools/check_ai_handoff.py` PASS；`python tools/check_verified_locks.py` PASS。
+- 当前状态：PASS
+- 下一步：完成验证后进入 Phase C；处理 `firmware/data` 前先做独立任务，不触碰 `output/`、`v/`、`zhiliao/`。
+
+### 2026-06-30 11:50 - Codex - cleanup phase A ownership map
+- 改动：执行 cleanup plan Phase A，在 README 和当前架构地图新增文件归属/技能路由表，标明临时计划、遗留 H5 副本、证据目录和可重建缓存边界。
+- 文件：`CURRENT-PROJECT-ARCHITECTURE.md`, `README.md`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无代码架构变更；只补文档路由，不改模块边界、GPIO、协议、H5 API、云端部署或运动链路。
+- 安全影响：无 motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；未触碰 `safety_manager -> applyFinalGate() -> drive_adapter`。
+- OTA：不需要设备 OTA；本次只改文档和交接记录，不改设备固件、车端 H5、Profile 或协议。
+- 锁定影响：无
+- 验证：`python tools/check_ai_handoff.py` PASS；`python tools/check_verified_locks.py` PASS；`git diff -- README.md CURRENT-PROJECT-ARCHITECTURE.md AI-HANDOFF-MEMORY.md` 仅 Phase A 文档路由表和本记录。
+- 当前状态：PASS
+- 下一步：完成验证后进入 Phase B；只删除 ignored 本地缓存，不触碰 `output/`、`v/`、`zhiliao/`。
+
+### 2026-06-30 10:25 - Codex - cleanup plan document
+- 改动：复查项目整理计划并新增临时分类文档，明确已有框架继续完善、缓存/遗留 H5/凭据/main.cpp/历史产物分阶段处理。
+- 文件：`plans/cleanup/PROJECT-CLEANUP-PLAN-2026-06-30.md`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无代码架构变更；仅新增 cleanup plan 文档，文档归类为 `plans/cleanup/` 临时规划材料，后续完成或替换后可删除。
+- 安全影响：无 motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；未触碰 `safety_manager -> applyFinalGate() -> drive_adapter`。
+- OTA：不需要设备 OTA；本次只改项目整理计划文档和交接记录，不改设备固件、车端 H5、Profile 或协议。
+- 锁定影响：无
+- 验证：`python tools/check_ai_handoff.py` PASS；`python tools/check_verified_locks.py` PASS；`git diff` 仅新增临时整理计划文档和本交接记录。
+- 当前状态：PASS
+- 下一步：用户确认后先做 Phase A ownership map，再清理 ignored 本地缓存；不要先删 `output/`、`v/`、`zhiliao/`。
+
 ### 2026-06-30 01:05 - Codex - softAP no-video OTA published
 - 改动：排查 `softap-stable.1` 仍掉热点；复现 `192.168.134.132:80` TCP 可连但 `/`、`/api/state`、`/api/wifi/status` 均 `Empty reply`，云端 SSE 显示设备约 `now_ms=117s` 后停止 ingest，最后视频 relay 帧贴近离线点；先关闭主控侧 cloud video relay 默认值，保留遥测/日志/OTA/云控。
 - 文件：`firmware/include/config/cloud_config.h`, `firmware/src/cloud/cloud_client.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`

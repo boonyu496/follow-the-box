@@ -723,7 +723,7 @@ H5ControlInput H5WebServer::pollInput(uint32_t now_ms, App& app, DriveAdapterAna
   g_handler.update(now_ms);
   snapshot = g_handler.input();
 
-  // Defer calibrate/wizard to main.cpp control loop — the transport layer
+  // Defer calibrate/wizard to the Runtime control loop; the transport layer
   // must not call drive/app directly (CODE-REVIEW-H5-2026-06-15 P0-1).
   if (g_handler.hasPendingCalibrate()) {
     const auto& cal = g_handler.getPendingCalibrate();

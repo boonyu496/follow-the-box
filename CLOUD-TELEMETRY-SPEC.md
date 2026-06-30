@@ -22,8 +22,11 @@ build_flags =
 
 Then set:
 
-- `firmware/include/config/network_config.h`: `STA_SSID` / `STA_PASSWORD`
-- `firmware/include/config/cloud_config.h`: `API_BASE_URL` / `DEVICE_ID` / `DEVICE_TOKEN`
+- STA WiFi credentials via H5 `/api/wifi`, or bench-only build flags
+  `FOLLOWBOX_WIFI_STA_SSID` / `FOLLOWBOX_WIFI_STA_PASSWORD`.
+- Cloud values via build flags, not by editing tracked headers:
+  `FOLLOWBOX_CLOUD_BASE_URL`, `FOLLOWBOX_CLOUD_DEVICE_ID`, and
+  `FOLLOWBOX_CLOUD_DEVICE_TOKEN`.
 
 ## Device -> Cloud
 
@@ -32,7 +35,7 @@ Then set:
 ```json
 {
   "device_id": "followbox-001",
-  "token": "CHANGE_ME",
+  "token": "<FOLLOWBOX_CLOUD_DEVICE_TOKEN>",
   "seq": 1,
   "state": {
     "now_ms": 123456,
@@ -89,7 +92,11 @@ node cloud/server.js
 Environment variables:
 
 - `PORT=8080`
-- `FOLLOWBOX_DEVICE_TOKEN=...`
-- `FOLLOWBOX_OPERATOR_TOKEN=...`
+- `FOLLOWBOX_DEVICE_TOKEN=...` (must match firmware build flag)
+- `FOLLOWBOX_OPERATOR_TOKEN=...` (used by cloud H5/operator APIs)
+
+If those tokens are missing, protected APIs reject requests by default. For a
+local-only bench server, `FOLLOWBOX_ALLOW_INSECURE_DEV_AUTH=1` can temporarily
+disable auth; never use that flag on an internet-facing service.
 
 For internet use, put the service behind HTTPS reverse proxy and set strict tokens.

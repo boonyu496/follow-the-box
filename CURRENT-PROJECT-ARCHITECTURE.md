@@ -25,6 +25,21 @@ FIRMWARE-SPEC.md
 | `CLOUD-TELEMETRY-SPEC.md` | 云端遥测、远程低速点动、安全边界 |
 | `AI-HANDOFF-MEMORY.md` | 每次 AI 改动后的短交接记录 |
 
+### 1.1 文件归属和技能路由
+
+| 文件/区域 | 归属 | 优先技能 | 当前状态 |
+|---|---|---|---|
+| `firmware/src/app/`, `firmware/src/safety/`, `firmware/src/control/`, `firmware/src/drive/` | 固件运行链路与运动安全 | `skills/01-firmware-architecture-guardian`, `skills/03-safety-control-reviewer` | 已验证边界，改动前先看 `VERIFIED-LOCKS.md` |
+| `firmware/include/config/board_pins.h`, `PIN-MAP-V1.md`, `CURRENT-WIRING-AI.md` | GPIO、接线和电气事实 | `skills/01-firmware-architecture-guardian`, `skills/05-drive-power-calibration-engineer` | 锁定源，禁止顺手清理 |
+| `firmware/src/sensors/`, `protocols/` | UWB/TOF/IMU/超声/雷达协议和快照 | `skills/04-sensor-protocol-integrator` | 协议证据优先，禁止补猜 parser |
+| `firmware/web/`, `firmware/src/web/`, `protocols/H5-API.md` | 车端 AP/局域网 H5 和本地控制 API | `skills/06-h5-telemetry-ui-engineer` | `firmware/web/` 是权威静态源 |
+| `cloud/`, `cloud/public/`, `cloud/firmware/`, `devspace.yaml` | 云端控制台、遥测中转和云端 OTA | `skills/06-h5-telemetry-ui-engineer`, `.agents/skills/followbox-cloud-h5-deploy` | 部署隔离区，不能和车端 H5 混用 |
+| `AI-HANDOFF-MEMORY.md`, `skills/`, `.agents/skills/`, `VERIFIED-LOCKS.md` | AI 协作、交接和锁定门禁 | `skills/00-dispatcher`, `skills/07-code-review-debugger` | 修改后必须跑 handoff/lock 检查 |
+| `plans/cleanup/` | 临时整理计划 | `skills/00-dispatcher` | 临时文档，完成或被替代后可删除 |
+| `firmware/data/` | 旧车端 H5 副本 tombstone | `skills/06-h5-telemetry-ui-engineer` | 只保留 README 说明；不要放 H5 源码或生成资源 |
+| `output/`, `v/`, `zhiliao/` | 历史日志、截图、视频、供应商资料或工具 | `skills/07-code-review-debugger` | 证据目录，先建索引再决定归档/删除 |
+| `firmware/.pio-core/`, `firmware/.pio/`, `vision_cam/.pio/`, `.codebuddy/db/` | 本地可重建缓存 | `skills/07-code-review-debugger` | 只在确认 ignored 后按 Phase B 删除 |
+
 ## 2. 三个 H5 访问入口
 
 这里的“三个页面”按访问方式分，不按源码份数分：
@@ -38,7 +53,7 @@ FIRMWARE-SPEC.md
 关键结论：
 
 - AP 页和局域网页不是两套前端。改本地车端 H5 时，只改 `firmware/web/`，然后重新 `pio run -d firmware -e esp32-s3-devkitc-1 -t uploadfs`。
-- `firmware/data/` 是遗留副本。当前 `firmware/platformio.ini` 已设置 `data_dir = web`，所以 `firmware/data/` 不再是权威源，后续不要手改它。
+- `firmware/data/` 已收敛为 tombstone。当前 `firmware/platformio.ini` 已设置 `data_dir = web`，所以 `firmware/data/` 不再包含或同步 H5 源码。
 - 云端页是独立前端。凡是状态字段、新传感器卡片、文案标签、OTA 显示等跨端体验改动，通常要同时检查 `firmware/web/` 和 `cloud/public/`。
 
 ## 3. 车端固件运行链路
@@ -208,7 +223,7 @@ rg -n "字段名" protocols firmware/src firmware/web cloud/public
 
 - 本地 AP/局域网页面的权威源：`firmware/web/`。
 - 云端页面的权威源：`cloud/public/`。
-- 遗留非权威副本：`firmware/data/`。
+- 遗留路径 tombstone：`firmware/data/README.md`。
 - 固件状态 schema 输出点：`firmware/src/web/telemetry_api.cpp`。
 - 本地静态资源服务点：`firmware/src/web/h5_web_server.cpp`。
 - 云端服务入口：`cloud/server.js`。
