@@ -1,8 +1,8 @@
 {
-  "version": "2026.06.30-runtime-split.1",
+  "version": "2026.07.01-h5-telemetry-split.1",
   "file": "firmware.bin",
-  "md5": "b2139c478dcb2d4db9d103a0b2529253",
-  "size": 987808,
+  "md5": "3e158bb0028df020ba7dc13a0c75df8f",
+  "size": 995776,
   "force": false,
-  "notes": "Split main.cpp runtime wiring into app/runtime; behavior preserved"
+  "notes": "P4b embedded H5 telemetry helper split; no H5 API behavior change"
 }

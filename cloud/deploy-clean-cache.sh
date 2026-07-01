@@ -23,7 +23,13 @@ rm -rf .cache tmp cache public/.cache public/.vite 2>/dev/null || true
 
 if command -v pm2 >/dev/null 2>&1; then
   pm2 flush "$APP_NAME" >/dev/null 2>&1 || true
-  pm2 restart "$APP_NAME" --update-env || pm2 start server.js --name "$APP_NAME" --update-env
+  # Preserve the PM2-managed secret environment. A plain SSH deploy shell does
+  # not contain FOLLOWBOX_* tokens, so --update-env would erase working auth.
+  if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
+    pm2 restart "$APP_NAME"
+  else
+    pm2 start server.js --name "$APP_NAME"
+  fi
   pm2 save || true
 else
   echo "pm2 not found; start manually with: node server.js" >&2

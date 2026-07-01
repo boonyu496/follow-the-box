@@ -36,6 +36,240 @@
 ```
 
 ## 最新交接记录
+
+### 2026-07-01 16:09 - Codex - P4b 车端 H5 telemetry helper 拆分
+- 改动：按模块拆分计划 P4b，将车端 H5 的传感器/遥测显示 helper 从 `firmware/web/app.js` 搬到 `firmware/web/js/telemetry.js`，`app.js` 继续保留渲染、WebSocket、控制与 OTA 事件。
+- 文件：`firmware/web/index.html`, `firmware/web/app.js`, `firmware/web/js/state.js`, `firmware/web/js/telemetry.js`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；车端 H5 前端职责继续拆分，API 路径、WebSocket 路径、点动/OTA/安装向导 JSON 字段保持不变；LittleFS build 已确认包含 `/js/state.js` 与 `/js/telemetry.js`。
+- 安全影响：无 motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；本次只搬显示 helper，H5 仍不能设置 PWM、清安全锁或绕过安装向导。
+- OTA：版本 `2026.07.01-h5-telemetry-split.1` 已生成，`firmware.bin` size `995776`，MD5 `3e158bb0028df020ba7dc13a0c75df8f`，force=false；注意车端 H5 静态资源真机生效仍需后续 LittleFS/uploadfs 或等效 FS 更新。
+- 锁定影响：触及 `OTA_PACKAGE`、`BOARD_N32R16V` 路径和 `CLOUD_H5_DEPLOY` 的 `cloud/firmware` 本地产物；解锁理由：车端 H5 静态资源拆分按规则递增版本并生成 OTA，不改板型/flash/PSRAM/分区/部署路径，未部署云端。
+- 验证：`node --check firmware/web/js/{state,telemetry}.js firmware/web/app.js` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS 且含两段新 JS；`python tools/package_ota.py --notes ...` PASS；MSYS2 PATH 后 `logic_smoke_test.exe` exit 0；安全链 `rg` 无新增旁路；`git diff --check` 仅 CRLF 提示。
+- 当前状态：PASS_BUILD_NEEDS_UNIFIED_DEVICE_FS_VERIFY
+- 下一步：继续 P4c 拆控制/连接事件模块，或暂停进入统一车端 FS 更新后浏览器实测；最终要验证 `http://192.168.4.1/` 首页/JS、`/api/state`、WebSocket、传感器页、点动按钮状态和 OTA 面板。
+
+### 2026-07-01 16:05 - Codex - P4a 车端 H5 state 拆分
+- 改动：按模块拆分计划 P4a，将车端 H5 的运行态常量和可变状态从 `firmware/web/app.js` 搬到 `firmware/web/js/state.js`，`index.html` 先加载 state 再加载 app。
+- 文件：`firmware/web/index.html`, `firmware/web/app.js`, `firmware/web/js/state.js`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；车端 H5 前端开始按职责拆分，API 路径、WebSocket 路径、点动/OTA/安装向导 JSON 字段和渲染逻辑保持不变；确认 `data_dir=web` 且 LittleFS build 包含 `/js/state.js`。
+- 安全影响：无 motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；H5 仍只提交低速 jog/模式/OTA 授权请求，不新增 PWM、清安全锁或绕过安装向导入口。
+- OTA：版本 `2026.07.01-h5-state-split.1` 已生成，`firmware.bin` size `995776`，MD5 `8c898f41ae8a8c546370a6e02366ebd6`，force=false；注意车端 H5 静态资源真机生效仍需后续 LittleFS/uploadfs 或等效 FS 更新。
+- 锁定影响：触及 `OTA_PACKAGE`、`BOARD_N32R16V` 路径和 `CLOUD_H5_DEPLOY` 的 `cloud/firmware` 本地产物；解锁理由：车端 H5 静态资源拆分按规则递增版本并生成 OTA，不改板型/flash/PSRAM/分区/部署路径，未部署云端。
+- 验证：`node --check firmware/web/js/state.js firmware/web/app.js` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS 且含 `/js/state.js`；`python tools/package_ota.py --notes ...` PASS；MSYS2 PATH 后 `logic_smoke_test.exe` exit 0；安全链 `rg` 无新增旁路；`git diff --check` 仅 CRLF 提示。
+- 当前状态：PASS_BUILD_NEEDS_UNIFIED_DEVICE_FS_VERIFY
+- 下一步：继续 P4b 拆遥测渲染模块或先做统一车端验证；最终真机需更新 LittleFS 后访问 `http://192.168.4.1/`，验证首页/JS、`/api/state`、WebSocket、点动按钮状态和 OTA 面板。
+
+### 2026-07-01 15:56 - Codex - P5d 云端 H5 realtime/control/log 拆分
+- 改动：按模块拆分计划 P5d，将云端 H5 的 SSE 连接重试、遥测在线判定、低速 command/点动摇杆、设备日志复制和页面日志捕获从 `app.js` 拆到 `cloud/public/js/realtime_controls.js`。
+- 文件：`cloud/public/index.html`, `cloud/public/app.js`, `cloud/public/js/realtime_controls.js`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；云端 H5 前端职责继续拆分，`app.js` 保留渲染/页面装配，API 路径、SSE 路径、command body、Bearer token、本地 config 自动填充语义保持不变。
+- 安全影响：无固件/motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；云端 H5 仍只通过既有低速 command API 请求设备侧安全链裁决，不新增 PWM/GPIO/清安全锁入口。
+- OTA：不需要设备 OTA；纯云端 H5 静态资源拆分，未改设备固件、车端 H5、协议或 Profile，未重新打包 `cloud/firmware`。
+- 锁定影响：触及 `CLOUD_H5_DEPLOY`；解锁理由：本地维护性拆分 `cloud/public/`，未部署、未 SCP/PM2、未改 namespace/远端目录/token/云端 OTA 产物。
+- 验证：`node --check cloud/server.js cloud/public/app.js cloud/public/js/{shared,spatial_map,ota,realtime_controls}.js` PASS；`node cloud/server.log-dedup.test.js` PASS；本地 127.0.0.1:18090 health/index/app/realtime/SSE smoke PASS；Playwright 浏览器截图未完成（Chromium 未安装、Edge channel 超时）。
+- 当前状态：PASS_LOCAL_NEEDS_UNIFIED_CLOUD_VERIFY
+- 下一步：P5 本地拆分基本收尾；按总表进入 P4 车端 H5 前端拆分前，先确认 `firmware/web/` 多 JS 文件会被当前文件系统/OTA 打包流程带入，最终再统一公网 `/fb/`、`/api/health` 与真机页面/控制实测。
+
+### 2026-07-01 15:44 - Codex - P5a-c 云端 H5 前端模块拆分
+- 改动：按模块拆分计划 P5 下一阶段，将云端 H5 公共标签/格式化/存储 helper、空间地图 canvas 绘制、OTA 面板逻辑从 `cloud/public/app.js` 拆到 `cloud/public/js/`。
+- 文件：`cloud/public/index.html`, `cloud/public/app.js`, `cloud/public/js/shared.js`, `cloud/public/js/spatial_map.js`, `cloud/public/js/ota.js`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；云端 H5 前端职责拆分，API 路径、SSE 路径、command body、OTA 检查/安装授权语义、token 本地读取方式保持不变。
+- 安全影响：无固件/motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；云端 H5 仍只通过既有低速 command 与 OTA install consent API 请求设备侧安全链裁决。
+- OTA：不需要设备 OTA；纯云端 H5 静态资源拆分，未改设备固件、车端 H5、协议或 Profile，未重新打包 `cloud/firmware`。
+- 锁定影响：触及 `CLOUD_H5_DEPLOY`；解锁理由：本地维护性拆分 `cloud/public/`，未部署、未 SCP/PM2、未改 namespace/远端目录/token/云端 OTA 产物。
+- 验证：`node --check cloud/server.js cloud/public/app.js cloud/public/js/{shared,spatial_map,ota}.js` PASS；本地 127.0.0.1:18084 health/index/js 资源 smoke PASS；Chrome headless dump-dom 在本机超时，浏览器实测留到统一云端验证。
+- 当前状态：PASS_LOCAL_NEEDS_UNIFIED_CLOUD_VERIFY
+- 下一步：继续 P5d 可拆连接/SSE/日志/点动控制小模块，或先对本次 P5 前端拆分做公网 `/fb/` 页面与 `/api/health` 统一实测后再进入 P4/P7。
+
+### 2026-07-01 15:12 - Codex - P6c3 云端 health/config 路由拆分
+- 改动：完成 P6c 路由拆分收尾，将 `/api/health` 与本地 `/api/config` 抽到 `cloud/routes/health.js`，`server.js` 收敛为入口、依赖装配、静态资源兜底。
+- 文件：`cloud/server.js`, `cloud/routes/health.js`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；健康检查、firmware manifest 标记、本地 operator token 暴露规则、静态首页服务、API 路径与 JSON 字段不变。
+- 安全影响：无固件/motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；未改变云端 command/OTA 授权语义，设备侧安全门控不变。
+- OTA：不需要设备 OTA；纯云端 Node 源码拆分，未改设备固件、车端 H5、协议或 Profile，未重新打包 `cloud/firmware`。
+- 锁定影响：触及 `CLOUD_H5_DEPLOY`；解锁理由：本地维护性拆分 `cloud/server.js`，未部署、未 SCP/PM2、未改 namespace/远端目录/token 读取方式/云端 H5 资源。
+- 验证：`node --check cloud/server.js cloud/routes/{health,device,firmware}.js cloud/services/{device_store,firmware_manifest}.js cloud/public/app.js` PASS；`node cloud/server.log-dedup.test.js` PASS；本地 127.0.0.1:18080 health/config/static/ingest/command/video/firmware smoke PASS。
+- 当前状态：PASS_LOCAL_NEEDS_UNIFIED_CLOUD_VERIFY
+- 下一步：P6 本地拆分已完成；统一复查后可进入 P5 云端 H5 前端拆分，或先做一次公网 `/api/health` 与云端页面部署决策。
+
+### 2026-07-01 15:09 - Codex - P6c2 云端 device 路由拆分
+- 改动：按模块拆分计划 P6c 子阶段，将云端设备 ingest/events/command 与 video upload/latest/stream 路由抽到 `cloud/routes/device.js`，`server.js` 继续只做入口装配。
+- 文件：`cloud/server.js`, `cloud/routes/device.js`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；设备状态、SSE 广播、低速 command、video relay、deadman TTL、token 校验与 JSON 字段保持不变；未触碰 `cloud/public/`。
+- 安全影响：无固件/motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；云端 command 仍只是既有低速请求，设备侧安全门控不变。
+- OTA：不需要设备 OTA；纯云端 Node 源码拆分，未改设备固件、车端 H5、协议或 Profile，未重新打包 `cloud/firmware`。
+- 锁定影响：触及 `CLOUD_H5_DEPLOY`；解锁理由：本地维护性拆分 `cloud/server.js`，未部署、未 SCP/PM2、未改 namespace/远端目录/token 读取方式/云端 H5 资源。
+- 验证：`node --check cloud/server.js cloud/routes/{device,firmware}.js cloud/services/{device_store,firmware_manifest}.js cloud/public/app.js` PASS；`node cloud/server.log-dedup.test.js` PASS；本地 127.0.0.1:18080 health/ingest/command/video/firmware smoke PASS，SSE `/events` 返回 200 + `text/event-stream` + 初始 data。
+- 当前状态：PASS_LOCAL_NEEDS_UNIFIED_CLOUD_VERIFY
+- 下一步：继续 P6c3 抽 health/config 路由文件；全部 P6 完成后再统一云端页面/公网 `/api/health` 实测与部署决策。
+
+### 2026-07-01 15:03 - Codex - P6c1 云端 firmware 路由拆分
+- 改动：按模块拆分计划 P6c 子阶段，将云端 `/api/device/:id/firmware/*` 与 `/ota-result` 路由抽到 `cloud/routes/firmware.js`，`server.js` 只做入口装配。
+- 文件：`cloud/server.js`, `cloud/routes/firmware.js`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；API 路径、JSON 字段、device/operator token 分离、OTA install consent 与固件下载校验语义不变；未触碰 `cloud/public/`。
+- 安全影响：无固件/motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；云端只保持既有 OTA 授权/状态回报，不绕过设备侧安全门控。
+- OTA：不需要设备 OTA；纯云端 Node 源码拆分，未改设备固件、车端 H5、协议或 Profile，未重新打包 `cloud/firmware`。
+- 锁定影响：触及 `CLOUD_H5_DEPLOY`；解锁理由：本地维护性拆分 `cloud/server.js`，未部署、未 SCP/PM2、未改 namespace/远端目录/token 读取方式/云端 H5 资源。
+- 验证：`node --check cloud/server.js cloud/routes/firmware.js cloud/services/{device_store,firmware_manifest}.js cloud/public/app.js` PASS；`node cloud/server.log-dedup.test.js` PASS；本地 127.0.0.1:18080 health、ingest、firmware version/request/install/download、ota-result smoke PASS。
+- 当前状态：PASS_LOCAL_NEEDS_UNIFIED_CLOUD_VERIFY
+- 下一步：继续 P6c2 抽 device/events/command 路由文件；每步仍最多 3 个文件，全部 P6 完成后再统一云端页面/公网 `/api/health` 实测与部署决策。
+
+### 2026-07-01 13:16 - Codex - P6b 云端 firmware_manifest 拆分
+- 改动：按模块拆分计划第四段 P6b，将云端固件 manifest 读取、BOM 去除、MD5/size 校验和默认下载 URL 生成抽到 `cloud/services/firmware_manifest.js`。
+- 文件：`cloud/server.js`, `cloud/services/firmware_manifest.js`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；`server.js` 继续保留 OTA consent、download 响应、HTTP 路由和鉴权，`/api/device/:id/firmware/*` 路径与 JSON 字段不变。
+- 安全影响：无固件/motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；未改变设备拉取 OTA 前必须由 operator install consent 置 pending 的逻辑。
+- OTA：不需要设备 OTA；纯云端 Node 源码拆分，未改设备固件、车端 H5、协议或 Profile，未重新打包 `cloud/firmware`。
+- 锁定影响：触及 `CLOUD_H5_DEPLOY` 路径；解锁理由：本地维护性拆分 `cloud/server.js`，未部署、未 SCP/PM2、未改 namespace/远端目录/部署脚本/云端 H5 资源。
+- 验证：`node --check cloud/server.js cloud/services/{device_store,firmware_manifest}.js cloud/public/app.js` PASS；`node cloud/server.log-dedup.test.js` PASS；本地 127.0.0.1:18080 `/api/health`、`/`、`firmware/version`、ingest、command smoke PASS。
+- 当前状态：PASS_LOCAL_NEEDS_UNIFIED_CLOUD_VERIFY
+- 下一步：继续 P6c 拆 health/device/firmware 路由文件；每步仍最多 3 个文件，全部 P6 完成后再统一云端页面/公网 `/api/health` 实测与部署决策。
+
+### 2026-07-01 13:14 - Codex - P6a 云端 device_store 拆分
+- 改动：按模块拆分计划第四段 P6a，将云端设备内存状态、日志截断/去重、broadcast payload、固件版本读取与 command stop helper 从 `server.js` 抽到 `cloud/services/device_store.js`。
+- 文件：`cloud/server.js`, `cloud/services/device_store.js`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；`server.js` 继续保留 HTTP/SSE/鉴权/路由装配，API 路径、JSON 字段、token 读取方式、云端 OTA consent 逻辑不变；未触碰 `cloud/public/`。
+- 安全影响：无固件/motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；云端低速命令仍只通过既有 command API 下发，固件侧安全门控不变。
+- OTA：不需要设备 OTA；纯云端 Node 源码拆分，未改设备固件、车端 H5、协议或 Profile。
+- 锁定影响：触及 `CLOUD_H5_DEPLOY` 路径；解锁理由：本地维护性拆分 `cloud/server.js`，未部署、未 SCP/PM2、未改 namespace/远端目录/部署脚本/云端 H5 资源。
+- 验证：`node --check cloud/server.js cloud/services/device_store.js cloud/public/app.js` PASS；`node cloud/server.log-dedup.test.js` PASS；本地 127.0.0.1:18080 `/api/health`、`/`、ingest、command smoke PASS。
+- 当前状态：PASS_LOCAL_NEEDS_UNIFIED_CLOUD_VERIFY
+- 下一步：继续 P6b 抽 `firmware_manifest`，仍控制单步最多 3 个文件；全部 P6 完成后再统一云端页面/公网 `/api/health` 实测与部署决策。
+
+### 2026-07-01 12:58 - Codex - P2 H5 控制路由拆分
+- 改动：按模块拆分计划第三段，将 `/api/jog`、`/api/mode-request`、`/api/reset-fault`、`/api/calibrate`、`/api/wizard-complete` 路由抽到 `h5_control_routes`，`h5_web_server` 只保留装配和状态推送。
+- 文件：`firmware/src/web/h5_web_server.cpp`, `firmware/src/web/h5_control_routes.{h,cpp}`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；H5 控制/API 路由独立；未改 H5 API 字段、解析器、`h5_command_handler`、`main.cpp`、传感器、WiFi/OTA 路由或云端服务源码。
+- 安全影响：无 motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；H5 写接口仍本地鉴权，控制请求仍只进 handler，由 `safety_manager -> applyFinalGate() -> drive_adapter` 最终门控。
+- OTA：版本 `2026.07.01-h5-control-routes.1` 已生成，`firmware.bin` size `995776`，MD5 `182cde79d59f56f06fc883b068a01042`，force=false；未部署云端/未安装设备。
+- 锁定影响：触及 `OTA_PACKAGE`、`BOARD_N32R16V` 路径和 `CLOUD_H5_DEPLOY` 的 `cloud/firmware` 本地产物；解锁理由：固件源码变更按规则打 OTA，不改板型/flash/PSRAM/分区/部署路径。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --notes ...` PASS；MSYS2 PATH 后 `logic_smoke_test.exe` exit 0；安全链 `rg` 无新增旁路；`check_ai_handoff.py` PASS；`check_verified_locks.py` WARN 已记录解锁理由。
+- 当前状态：PASS_BUILD_NEEDS_UNIFIED_DEVICE_VERIFY
+- 下一步：按用户要求等后续拆分完成后统一真机实测；届时复测 `/`, `/api/state`, `/api/wifi/status`, `/api/ota/status` 和五个 H5 控制 POST 的鉴权/响应。
+
+### 2026-07-01 12:14 - Codex - P1 HTTP/OTA 路由拆分
+- 改动：按模块拆分计划第二段，将 H5 HTTP ack/auth/body helper 抽到 `h5_http_common`，将 `/ota-upload` 与 `/api/ota/*` 路由抽到 `local_ota_routes`，`h5_web_server` 只保留装配调用。
+- 文件：`firmware/src/web/h5_web_server.cpp`, `firmware/src/web/h5_http_common.{h,cpp}`, `firmware/src/web/local_ota_routes.{h,cpp}`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；Web 公共工具和 OTA 路由独立；未改 `main.cpp`、H5 API 字段、WiFi 策略、传感器、云端服务源码、safety/drive 链路。
+- 安全影响：无 motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；H5 写接口仍走本地鉴权，运动链仍是 `safety_manager -> applyFinalGate() -> drive_adapter`。
+- OTA：版本 `2026.07.01-wifi-web-split.1` 已生成，`firmware.bin` size `995104`，MD5 `1ae74a621d29d8ae65e80be51c0c22e6`，force=false；未部署云端/未安装设备。
+- 锁定影响：触及 `OTA_PACKAGE`、`BOARD_N32R16V` 路径和 `CLOUD_H5_DEPLOY` 的 `cloud/firmware` 本地产物；解锁理由：固件源码变更按规则打 OTA，不改板型/flash/PSRAM/分区/部署路径。
+- 验证：`python tools/package_ota.py --notes ...` PASS（含 `pio run -d firmware -e esp32-s3-devkitc-1`）；MSYS2 PATH 后 `logic_smoke_test.exe` exit 0；安全链 `rg` 无新增旁路；`python tools/check_ai_handoff.py` PASS；`check_verified_locks.py` WARN 已记录解锁理由。
+- 当前状态：PASS_BUILD_NEEDS_UNIFIED_DEVICE_VERIFY
+- 下一步：最终统一实测时连接 `FollowBox` AP 连续 3 分钟，验证 `/`, `/api/state`, `/api/wifi/status`, `/api/ota/status`, `/ota-upload` 200；本地/云 OTA 安装需用户授权后再测。
+
+### 2026-07-01 11:20 - Codex - P0 WiFi AP supervisor 拆分
+- 改动：按模块拆分计划第一段，将 SoftAP/STA retry/DNS captive portal 和 `/api/wifi*` 路由从 `h5_web_server.cpp` 原样搬到 `wifi_ap_supervisor`，H5 server 只保留装配调用。
+- 文件：`firmware/src/web/h5_web_server.cpp`, `firmware/src/web/wifi_ap_supervisor.{h,cpp}`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；Web/WiFi 边界独立；未改 main.cpp、H5 API JSON 字段、传感器、Profile、云端服务源码。
+- 安全影响：无 motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；未触碰 safety_manager、drive_adapter、board_pins。
+- OTA：版本 `2026.07.01-wifi-ap-split.1` 已生成，`firmware.bin` size `994736`，MD5 `b56aa538903b6f541ea20a7833ad6834`，force=false；未部署云端/未安装设备。
+- 锁定影响：触及 `OTA_PACKAGE`、`BOARD_N32R16V` 路径和 `CLOUD_H5_DEPLOY` 的 `cloud/firmware` 本地产物；解锁理由：固件源码变更按规则打 OTA，不改板型/flash/PSRAM/分区/部署路径。
+- 验证：`pio run -d firmware -e esp32-s3-devkitc-1` PASS；`python tools/package_ota.py --notes ...` PASS；MSYS2 PATH 后重编并运行 `logic_smoke_test.exe` PASS；安全链 `rg` 无新增旁路。
+- 当前状态：PASS_BUILD_NEEDS_HOTSPOT_DEVICE_VERIFY
+- 下一步：真机连接 `FollowBox` AP，验证 `/`, `/api/state`, `/api/wifi/status`, `/api/ota/status` 200 且热点 3 分钟不掉线；再开始 P1。
+
+### 2026-07-01 11:05 - Copilot - 模块拆分计划审查与补全
+- 改动：审查拆分计划并补全遗漏项——新增“推荐执行顺序总表”；补 P7b 控制中心 HTML；把 cloud_ota_manager.cpp、cloud_client.cpp 列入“不建议拆”表；P3(LiDAR) 降级为末位 P8；新增“同一文件必须串行拆分”注意事项。
+- 文件：`plans/MODULE-SPLIT-PLAN-2026-07-01.md`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：仅文档；未改任何固件/云端/H5/传感器业务代码。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源改动；未触碰 safety_manager、drive_adapter、board_pins。
+- OTA：不需要设备 OTA；纯文档改动，不涉及设备固件、车端 H5、协议或 Profile。
+- 依据：实测行数确认最大文件为 control-center.ps1(1823)/firmware app.js(1742)/cloud app.js(1433)/h5_web_server.cpp(975)；核对 platformio 环境名 `esp32-s3-devkitc-1` 与验收命令一致。
+- 验证：未跑 check 脚本（纯计划文档修改）；建议后续执行者跑 `python tools/check_ai_handoff.py` 与 `python tools/check_verified_locks.py`。
+- 当前状态：PASS_DOC_READY
+- 下一步：执行代码拆分时严格按总表顺序，P0 热点模块单独开任务；TOF/LiDAR 出数据链路保持冻结保护。
+
+### 2026-07-01 10:21 - Codex - 模块拆分计划文档
+- 改动：新增本地模块拆分计划，明确热点、H5、云端、控制中心等可拆项，并把“写 md 文档默认落本地文件”的约定同步到协作文档。
+- 文件：`plans/MODULE-SPLIT-PLAN-2026-07-01.md`, `AGENTS.md`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：仅文档和协作约定；未改固件/云端/H5/传感器业务代码，计划中特别标注 TOF、LiDAR 当前能出数据，拆分时优先保护。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源输出改动；未触碰 safety_manager、drive_adapter、board_pins。
+- OTA：不需要设备 OTA；本次是纯文档/AI 协作约定，不涉及设备固件、车端 H5、协议或 Profile。
+- 锁定影响：触及 `AI_SKILLS_HANDOFF`；解锁理由：用户明确要求本地 md 约定长期生效，仅更新 `AGENTS.md` 协作规则，不改技能树行为、不削弱锁定规则。
+- 验证：`python tools/check_ai_handoff.py` PASS；`python tools/check_verified_locks.py` WARN 含本次有理由的 `AGENTS.md`，另有本轮前已存在的 cloud/OTA/board 脏文件；`git diff --check` 无空白错误，仅 CRLF 提示。
+- 当前状态：PASS_DOC_READY_WITH_LOCK_WARN
+- 下一步：如要执行代码拆分，先按 P0 热点模块单独开任务；TOF/LiDAR 出数据链路保持冻结保护。
+
+### 2026-06-30 23:00 - Copilot - 云端部署 OTA 2026.06.30-hotspot-captive.1
+- 改动：将 `2026.06.30-hotspot-captive.1` OTA 固件部署到生产服务器，使设备可通过 H5 OTA 安装。
+- 文件：`cloud/firmware/firmware.bin`, `cloud/firmware/manifest.json`（仅远端更新，本地未改）
+- 架构影响：无；不改固件源码、协议、GPIO、运动链路、云端服务代码。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源输出改动。
+- OTA：版本 `2026.06.30-hotspot-captive.1`，MD5 `20dd258a6c02d48b666d86f159d17030`，size `994864`，force=false；已部署到 `/www/wwwroot/followbox-cloud/firmware/`。
+- 锁定影响：触及 `OTA_PACKAGE`、`CLOUD_H5_DEPLOY`、`BOARD_N32R16V`；解锁理由：标准 OTA 固件云端发布流程，SCP `boonai` 别名仅上传 firmware.bin+manifest.json 到 `/www/wwwroot/followbox-cloud/firmware/`，未重启 PM2、未触碰 expense-tracker 或其他项目。
+- 验证：远端 MD5 匹配；`/fb/api/health` 返回 200 + `firmware_manifest:true`；`node --check cloud/server.js` PASS；server.js 无需重启（OTA 规范：仅固件文件变更时运行时自动重读 manifest）。
+- 当前状态：PASS_DEPLOYED
+- 下一步：设备端打开 `https://www.boonai.cn/fb/` → OTA 检查更新 → 确认显示新版本 `2026.06.30-hotspot-captive.1` → 用户授权安装。
+
+### 2026-06-30 22:46 - Codex - 手机打开 192.168.4.1 热点掉线修复
+- 改动：在车端 SoftAP 固件加入 wildcard DNS/captive probe 兼容层，固定 AP `192.168.4.1/24`，响应 Android/iOS/Windows 常见联网探测，降低手机打开 H5 后自动切离无公网热点的概率；保留既有 STA 重连节流。
+- 文件：`firmware/src/web/h5_web_server.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：低；只改 Web/AP transport，不改 H5 控制语义、云端服务源码、main.cpp、GPIO、协议或运动链路。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源输出改动；H5 仍不能设 PWM/清急停/绕过安装向导。
+- OTA：版本 `2026.06.30-hotspot-captive.1`，`cloud/firmware/firmware.bin` size `994864`，MD5 `20dd258a6c02d48b666d86f159d17030`；已通过设备本地 OTA 上传接口安装到当前 COM18/FollowBox 设备。
+- 锁定影响：触及 `OTA_PACKAGE`、`BOARD_N32R16V`、`CLOUD_H5_DEPLOY`（仅本地 `cloud/firmware` OTA 产物）路径；解锁理由：固件 WiFi/AP 修复必须递增版本并生成 OTA，不改板型/flash/PSRAM/分区、不部署云端；WARN 中 `cloud/deploy-clean-cache.sh`/`cloud/public/app.js` 为本轮前既有脏改。
+- 验证：`python tools/package_ota.py --notes ...` PASS；`firmware/tools/logic_smoke_test.exe` 经 `cmd /c` exit 0；本地 OTA 返回 `{"ok":true,"rebooting":true}`，`/api/state` 确认运行版本 `2026.06.30-hotspot-captive.1`。
+- 实测：真实连接 `FollowBox` 并打开 `http://192.168.4.1/` 浏览器 90s，根页面/静态资源/WebSocket/轮询全 200/OK，`drop_observed=false`；`/api/wifi/status` 结束为 `ap_ready=true`, `ap_recoveries=0`, `ap_clients=2`。
+- DNS：`nslookup connectivitycheck.gstatic.com 192.168.4.1` 返回 `192.168.4.1`；`/generate_204` 返回 204，`/connecttest.txt` 返回 200。
+- 当前状态：PASS_DEVICE_INSTALLED；下一步若用户手机仍掉，优先关闭手机“自动切换到移动数据/忽略无互联网 WiFi”并用手机复测，同时抓手机型号和掉线时间戳。
+
+### 2026-06-30 22:10 - Codex - FollowBox 热点断网自动采集与3分钟实测
+- 改动：新增本机自动采集脚本，按“断开有网 WiFi→连接 FollowBox→离线访问 192.168.4.1→恢复有网 WiFi→抓云端健康”闭环记录；未改固件/云端源码、未部署。
+- 文件：`tools/capture-followbox-hotspot.ps1`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无；仅本机诊断工具，不改 H5 API、WebSocket 协议、WiFi supervisor、main.cpp、GPIO 或运动链路。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源输出改动；实测期间设备仍处安全停机/FAULT 状态，不发运动命令。
+- OTA：不需要设备 OTA；本次未改设备固件、车端 H5、Profile 或协议。
+- 锁定影响：无；`check_verified_locks.py` WARN 来自本轮开始前已有的云端/OTA/板型相关脏改，本次未触碰这些锁定路径。
+- 验证：隐藏 SSID profile 45s、普通可见 profile 60s、普通可见 profile 180s 均连接 `FollowBox` 成功并获得 `192.168.4.2`；根页面/静态资源 `/api/wifi/status` 全部 200，WebSocket 收到 3 条 state。
+- 结果：最长 180s 轮次 `local_tests=96`、`local_failures=0`、`drop_observed=false`；结束后自动恢复 `quanyuxixi2022` 并拿到 `192.168.135.42`，公网 `/api/health` ok。
+- 当前状态：PASS_HOTSPOT_NORMAL_PROFILE；PC 侧未复现“打开 192.168.4.1 后热点断开”，FollowBox 当前可见 RSSI 99%、BSSID `92:e5:b1:ce:23:74`、channel 4。
+- 下一步：若手机仍断开，优先让手机忘记旧 `FollowBox`/关闭随机 MAC 或换另一台手机复测；设备云端仍显示 `FAULT_LOCKOUT/WATCHDOG_TIMEOUT`，如要处理运动安全锁需单独排 WDT，不混入 WiFi 热点任务。
+
+### 2026-06-30 21:28 - Codex - FollowBox 热点连接实测通过
+- 改动：只追加排错结论；未改固件/云端源码、未部署、未重启服务；本机新增/使用 Windows `FollowBox` WLAN profile 做实测。
+- 文件：`AI-HANDOFF-MEMORY.md`
+- 架构影响：无；不改 WiFi 实现、H5 API、云端 API、协议、GPIO、main.cpp 或运动链路。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源输出改动；云端仍为 `ESTOP_ACTIVE`、`motor.enable=false`、`brake=true`。
+- OTA：不需要设备 OTA；本次只做现场连接/API/云端日志验证，设备已运行并上报 `2026.06.30-wifi-cloud-diag.1`。
+- 验证：Windows `netsh` 扫到并连接 `FollowBox`（BSSID `92:e5:b1:ce:23:74`，DHCP `192.168.4.2`）；绑定 WLAN 源地址 curl `http://192.168.4.1/api/wifi/status` 返回 200，首页 `/` 返回 200；云端 SSE 摘要 `online=true`、`ap_ready=true`、`ap_clients=1`、`sta_status=3`、`sta_connected=true`、`sta_ip=192.168.135.132`。
+- 当前状态：PASS_HOTSPOT_CONNECTS；先前 empty reply 是电脑已切回家庭 WiFi/Meta Tunnel 路由到错误源地址造成的测试假象，不能作为设备 AP 失败证据。
+- 下一步：若用户手机仍无法加入，优先排查手机保存的旧密码/随机 MAC/自动切网；PC 侧测试请先确认 `netsh wlan show interfaces` 仍是 `SSID: FollowBox`，必要时 curl 绑定 `192.168.4.2`。
+
+### 2026-06-30 20:48 - Codex - COM18 云端连接恢复
+- 改动：定位云端未连接根因之一为远端 PM2 `followbox-cloud` 缺少 `FOLLOWBOX_DEVICE_TOKEN`/`FOLLOWBOX_OPERATOR_TOKEN`；已只重启该 PM2 进程并用本地配置 token 修复 env，随后用 COM18 USB 刷入带同 token 的 `wifi-supervisor.1` 构建。
+- 文件：`AI-HANDOFF-MEMORY.md`；未改固件源码/云端源码，生成物仅在 `firmware/.pio/`；远端仅更新 PM2 env 并 `pm2 save`。
+- 架构影响：无；不改模块边界、GPIO、H5 API、云端 API、协议或运动链路。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源输出改动；云端实测状态为 `ESTOP_ACTIVE`、`motor.enable=false`、`brake=true`。
+- OTA：未生成新 OTA；本次为 USB 直刷当前源码版本 `2026.06.30-wifi-supervisor.1` 的 token 注入构建，云端 manifest 仍是既有发布包。
+- 锁定影响：触及 `CLOUD_H5_DEPLOY`/`OTA_PACKAGE` 操作边界；解锁理由：恢复 FollowBox 云端鉴权与单板在线，远端目标仅 `/www/wwwroot/followbox-cloud` 的 PM2 进程 env，未上传/删除/重启其他项目。
+- 验证：远端 PM2 token 长度/hash 与本地配置匹配；`/api/health` PASS；`/api/device/followbox-001/firmware/version` 返回 current=`2026.06.30-wifi-supervisor.1`；SSE 返回 `online=true`、`cloud.connected=true`、传感器/电池遥测持续上报。
+- 当前状态：PASS_CLOUD_ONLINE；本机 WiFi 扫描未看到 `FollowBox` SSID，因电脑仍连家庭 WiFi，AP 可见性需手机/第二网卡或后续加云端 WiFi 诊断字段复核。
+- 下一步：若用户手机仍看不到 `FollowBox` 热点，优先在云端 state 增加 WiFi/AP 诊断字段或用第二设备连接 AP 读 `/api/wifi/status`，不要再猜。
+
+### 2026-06-30 20:10 - Codex - 云端部署 OTA 2026.06.30-wifi-supervisor.1
+- 改动：云端部署 `cloud/` 全部文件（server.js、package.json、public/、firmware/）到生产服务器。
+- 文件：`cloud/server.js`, `cloud/package.json`, `cloud/deploy-clean-cache.sh`, `cloud/public/*`, `cloud/firmware/firmware.bin`, `cloud/firmware/manifest.json`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：无；仅云端部署，不改固件源码、协议、GPIO、运动链路。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源输出改动。
+- OTA：版本 `2026.06.30-wifi-supervisor.1`，MD5 `f0ecf715ebfdb32c4b3d2bc81550acd0`，size `989376`，force=false；已部署到 `/www/wwwroot/followbox-cloud/`。
+- 锁定影响：触及 `CLOUD_H5_DEPLOY`、`OTA_PACKAGE`；解锁理由：标准 OTA 固件云端发布流程，目标路径 `/www/wwwroot/followbox-cloud/`，只重启 `followbox-cloud` PM2 进程，未触碰 expense-tracker 或其他项目。
+- 部署：SCP 上传至 `root@82.156.85.60:51400` `/www/wwwroot/followbox-cloud/`，执行 `deploy-clean-cache.sh` + `pm2 restart followbox-cloud`，`/api/health` 返回 ok，远端 MD5 匹配。
+- 验证：`node --check cloud/server.js` PASS；OTA 一致性校验 PASS（version/manifest MD5/size/binary 全部匹配）；`/api/health` 公网返回 ok + firmware_manifest=true；PM2 followbox-cloud online。
+- 当前状态：PASS_DEPLOYED
+- 下一步：设备端打开 `https://www.boonai.cn/fb/` → OTA 检查更新 → 确认显示新版本 `2026.06.30-wifi-supervisor.1` → 用户授权安装 → 观察 WiFi 稳定性（ap_recoveries/sta_failures）。
+
+### 2026-06-30 19:54 - Codex - softAP STA reconnect supervisor
+- 改动：修复热点反复掉线的主要根因候选：禁用 SDK STA 自动无限重连，改为 12s 连接窗口 + 30s~300s 退避；配网时不再先 `WiFi.disconnect()`，并保留 SoftAP 自愈与高 TX power。
+- 文件：`firmware/src/web/h5_web_server.cpp`, `firmware/include/config/ota_config.h`, `cloud/firmware/manifest.json`, `cloud/firmware/firmware.bin`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：低；只改 WiFi/H5 transport 层，不改 `main.cpp`、H5 API 控制语义、云端服务、GPIO、协议或运动链路。
+- 安全影响：无 motor/e-stop/PWM/ADC/I2C/电源输出改动；未触碰 `safety_manager -> applyFinalGate() -> drive_adapter`。
+- OTA：版本 `2026.06.30-wifi-supervisor.1` 已本地生成，`cloud/firmware/firmware.bin` size `989376`，MD5 `f0ecf715ebfdb32c4b3d2bc81550acd0`，`force=false`；未部署云端、未安装设备。
+- 锁定影响：触及 `OTA_PACKAGE`、`CLOUD_H5_DEPLOY`（仅本地 `cloud/firmware` OTA artifact）与 `BOARD_N32R16V` 路径；解锁理由：固件 WiFi transport 修复需要递增版本并生成本地 OTA 包，不改板型/flash/PSRAM/分区或云端部署目标。
+- 验证：`python tools/package_ota.py --notes ...` PASS（含 `pio run -d firmware -e esp32-s3-devkitc-1`）；静态回归检查 PASS（无 `setAutoReconnect(true)`、`POST /api/wifi` 无 `WiFi.disconnect`、状态含 retry/ap 诊断）；MSYS2 PATH 下 `firmware/tools/logic_smoke_test.exe` PASS；manifest/bin MD5/size 校验 PASS。
+- 当前状态：PASS_BUILD_NEEDS_DEVICE_INSTALL
+- 下一步：发布/安装 OTA 后，观察 `FollowBox` SSID 与 `/api/wifi/status` 至少 5 分钟；重点看 `sta_failures`、`sta_retry_in_ms`、`ap_recoveries`、`wifi_channel`，确认 STA 弱信号/错密码时 AP 不再持续掉线。
+
 ### 2026-06-30 13:54 - Codex - cleanup phase F artifact index prune
 - 改动：执行 cleanup plan Phase F，先新增历史产物索引，再从 active tree 裁剪 `output/`、`v/6-3/`、解包工具运行时、重复雷达工具包和 PDF 提取图片。
 - 文件：`.gitignore`, `plans/cleanup/ARTIFACT-INDEX-2026-06-30.md`, `output/*` 删除, `v/*` 删除, `zhiliao/*` 部分裁剪, `AI-HANDOFF-MEMORY.md`

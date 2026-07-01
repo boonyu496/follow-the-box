@@ -21,6 +21,7 @@ namespace followbox {
 namespace {
 
 constexpr size_t kStateJsonSize = 3072;
+constexpr size_t kCloudStateJsonSize = 3600;
 constexpr size_t kLogsJsonSize = 2600;
 constexpr size_t kPayloadSize = 6400;
 constexpr size_t kCommandBodySize = 384;
@@ -109,6 +110,62 @@ bool parseUintField(const char* body, size_t length, const char* key,
 
 void buildUrl(char* out, size_t out_size, const char* suffix) {
   std::snprintf(out, out_size, "%s%s", cloud_config::API_BASE_URL, suffix);
+}
+
+bool wifiModeHasAp(wifi_mode_t mode) {
+  return mode == WIFI_AP || mode == WIFI_AP_STA;
+}
+
+void formatIp(IPAddress ip, char* out, size_t out_size) {
+  if (out == nullptr || out_size == 0) {
+    return;
+  }
+  std::snprintf(out, out_size, "%u.%u.%u.%u",
+                static_cast<unsigned>(ip[0]), static_cast<unsigned>(ip[1]),
+                static_cast<unsigned>(ip[2]), static_cast<unsigned>(ip[3]));
+}
+
+bool ipReady(IPAddress ip) {
+  return ip[0] != 0 || ip[1] != 0 || ip[2] != 0 || ip[3] != 0;
+}
+
+bool softApReady() {
+  return wifiModeHasAp(WiFi.getMode()) && ipReady(WiFi.softAPIP());
+}
+
+size_t buildCloudStateJson(const char* base_state, char* out, size_t out_size) {
+  if (base_state == nullptr || out == nullptr || out_size == 0) {
+    return 0;
+  }
+  const size_t base_len = std::strlen(base_state);
+  if (base_len < 2 || base_state[base_len - 1] != '}') {
+    return 0;
+  }
+
+  char ap_ip[16];
+  char sta_ip[16];
+  formatIp(WiFi.softAPIP(), ap_ip, sizeof(ap_ip));
+  formatIp(WiFi.localIP(), sta_ip, sizeof(sta_ip));
+  const int sta_status = static_cast<int>(WiFi.status());
+  const bool sta_connected = sta_status == WL_CONNECTED;
+  const int rssi = sta_connected ? static_cast<int>(WiFi.RSSI()) : 0;
+
+  const int written = std::snprintf(
+      out, out_size,
+      "%.*s,\"wifi\":{\"ap_ready\":%s,\"ap_clients\":%u,"
+      "\"sta_status\":%d,\"sta_connected\":%s,\"wifi_mode\":%d,"
+      "\"wifi_channel\":%d,\"ap_ip\":\"%s\",\"sta_ip\":\"%s\",\"rssi\":%d}}",
+      static_cast<int>(base_len - 1), base_state,
+      softApReady() ? "true" : "false",
+      static_cast<unsigned>(WiFi.softAPgetStationNum()), sta_status,
+      sta_connected ? "true" : "false", static_cast<int>(WiFi.getMode()),
+      static_cast<int>(WiFi.channel()), ap_ip, sta_connected ? sta_ip : "",
+      rssi);
+  if (written < 0 || static_cast<size_t>(written) >= out_size) {
+    out[0] = '\0';
+    return 0;
+  }
+  return static_cast<size_t>(written);
 }
 
 }  // namespace
@@ -309,6 +366,7 @@ bool CloudClient::uploadTelemetry(const SystemState& state, uint32_t /*now_ms*/)
   // Static: ~8 KB combined would overflow the comm task stack. Safe because
   // CloudClient is a singleton and uploadTelemetry runs only in the comm task.
   static char state_json[kStateJsonSize];
+  static char cloud_state_json[kCloudStateJsonSize];
   static char logs_json[kLogsJsonSize];
   static char payload[kPayloadSize];
 
@@ -316,6 +374,13 @@ bool CloudClient::uploadTelemetry(const SystemState& state, uint32_t /*now_ms*/)
       buildStateJson(state, state_json, sizeof(state_json));
   if (state_len == 0) {
     return false;
+  }
+  const char* state_for_upload = state_json;
+  if (buildCloudStateJson(state_json, cloud_state_json,
+                          sizeof(cloud_state_json)) != 0) {
+    state_for_upload = cloud_state_json;
+  } else {
+    FB_LOGW("cloud_client: wifi diagnostics omitted");
   }
   if (DebugConsole::copyRecentJson(logs_json, sizeof(logs_json)) == 0) {
     std::snprintf(logs_json, sizeof(logs_json), "[]");
@@ -326,7 +391,7 @@ bool CloudClient::uploadTelemetry(const SystemState& state, uint32_t /*now_ms*/)
       "{\"device_id\":\"%s\",\"token\":\"%s\",\"seq\":%lu,"
       "\"state\":%s,\"logs\":%s}",
       cloud_config::DEVICE_ID, cloud_config::DEVICE_TOKEN,
-      static_cast<unsigned long>(++upload_seq_), state_json, logs_json);
+      static_cast<unsigned long>(++upload_seq_), state_for_upload, logs_json);
   if (written < 0 || static_cast<size_t>(written) >= sizeof(payload)) {
     FB_LOGW("cloud_client: telemetry payload too large");
     return false;

@@ -114,82 +114,73 @@ const els = {
   otaStatus: $("ota-status"),
 };
 
-let checkedOtaVersion = "";
+const {
+  DEFAULT_OPERATOR_TOKEN,
+  DEVICE_ONLINE_TTL_MS,
+  STORAGE_KEY_CAMERA,
+  STORAGE_KEY_CAMERA_LAST,
+  STORAGE_KEY_DEVICE,
+  STORAGE_KEY_TOKEN,
+  TOF_RATE_WINDOW_MS,
+  ageText,
+  batteryDisplayText,
+  batteryVoltageSupported,
+  bitCount3,
+  channelMm,
+  channelValid,
+  estimateBatteryPercent,
+  fmt,
+  fmtAge,
+  fmtHz,
+  fmtLatency,
+  fmtMm,
+  fmtRcPercent,
+  fmtRcPulse,
+  fmtWallAge,
+  loadSetting,
+  modeLabels,
+  positiveNumber,
+  saveSetting,
+  stopLabels,
+  validCountLabel,
+  validityLabel,
+  wifiDiagText,
+} = window.FollowBoxCloudShared || {};
 
-// ── Mode / Stop labels (same as firmware shared/helpers.js) ──
-const modeLabels = {
-  BOOT_SELF_TEST: "启动自检",
-  SAFE_IDLE: "安全停",
-  MANUAL_RC: "遥控手动",
-  MANUAL_H5_LOW_SPEED: "H5 手动",
-  MANUAL_CLOUD_LOW_SPEED: "云端低速",
-  AUTO_FOLLOW: "自动跟随",
-  FAULT_LOCKOUT: "故障锁定",
-  ESTOP_ACTIVE: "急停触发",
-};
+if (!window.FollowBoxCloudShared) {
+  throw new Error("FollowBoxCloudShared failed to load");
+}
 
-const stopLabels = {
-  NONE: "无停车原因",
-  ESTOP: "急停",
-  RC_LOST: "遥控丢失",
-  H5_LOST: "H5 断线",
-  CLOUD_LOST: "云端断线",
-  UWB_LOST: "UWB 丢失",
-  OBSTACLE_STOP: "障碍停车",
-  LOW_BATTERY: "低电压",
-  SENSOR_TIMEOUT: "传感器超时",
-  MOTOR_FAULT: "电机故障",
-  INSTALL_WIZARD_NOT_DONE: "安装向导未完成",
-  WATCHDOG_TIMEOUT: "看门狗超时",
-};
+const {
+  drawSpatialMap,
+  setupCanvasDPI,
+} = window.FollowBoxCloudSpatial || {};
 
-// ── Constants ──
-const DEFAULT_OPERATOR_TOKEN = "";
-const MAX_RANGE_MM = 3000;
-const MAP_MAX_MM = 4000;
-const DEVICE_ONLINE_TTL_MS = 10000;
-const TOF_RATE_WINDOW_MS = 5000;
+if (!window.FollowBoxCloudSpatial) {
+  throw new Error("FollowBoxCloudSpatial failed to load");
+}
+
+const {
+  initOtaPanel,
+} = window.FollowBoxCloudOta || {};
+
+if (!window.FollowBoxCloudOta) {
+  throw new Error("FollowBoxCloudOta failed to load");
+}
+
+const {
+  initCloudLogTools,
+  initRealtimeControls,
+} = window.FollowBoxCloudRealtime || {};
+
+if (!window.FollowBoxCloudRealtime) {
+  throw new Error("FollowBoxCloudRealtime failed to load");
+}
+
 // Resolve API URLs relative to app.js, so the cloud console keeps working when
 // deployed under a sub-path such as https://www.boonai.cn/fb/.
 const APP_BASE_URL = new URL(".", document.currentScript?.src || window.location.href);
 
-// Browser storage is local convenience only; never bake operator tokens into H5.
-const STORAGE_KEY_TOKEN = "fb_operator_token_v2";
-const STORAGE_KEY_DEVICE = "fb_device_id";
-const STORAGE_KEY_CAMERA = "fb_camera_url";
-const STORAGE_KEY_CAMERA_LAST = "fb_camera_last_url";
-
-function loadSetting(storageKey, defaultValue) {
-  try {
-    const stored = localStorage.getItem(storageKey);
-    if (stored !== null && stored !== "") return stored;
-  } catch (e) { /* localStorage disabled */ }
-  try {
-    const legacy = sessionStorage.getItem(storageKey);
-    if (legacy !== null && legacy !== "") {
-      saveSetting(storageKey, legacy);
-      return legacy;
-    }
-  } catch (e) { /* sessionStorage disabled */ }
-  return defaultValue;
-}
-
-function saveSetting(storageKey, value) {
-  try { localStorage.setItem(storageKey, value); }
-  catch (e) { /* storage full or disabled */ }
-  try { sessionStorage.setItem(storageKey, value); }
-  catch (e) { /* sessionStorage disabled */ }
-}
-
-let events = null;
-let sseRetryDelay = 2000;
-let sseReconnectTimer = null;
-let sseConnectAttempt = 0;
-let manualReconnectPending = false;
-let jogTimer = null;
-let joyPointerId = null;
-let joyForward = 0;
-let joyTurn = 0;
 let isFullscreen = false;
 let fullscreenOrientationLocked = false;
 let activeCameraUrl = "";
@@ -198,11 +189,9 @@ let cameraRetryTimer = null;
 let cameraRetryDelay = 3000;
 let cameraImageOnline = false;
 let latestState = null;
-let latestLastIngestAt = 0;
-let latestTelemetryFreshAt = 0;
-let sseTransportOpen = false;
 let latestVideoFrameSeq = -1;
 const tofRateWindow = [];
+let realtime = null;
 
 // ── Spatial Map state (RAF throttled) ──
 let spatialDirty = false;
@@ -210,79 +199,10 @@ let latestSpatialData = null;
 
 // ── Helpers ──
 
-function fmt(value, suffix = "", digits = 0) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? `${value.toFixed(digits)}${suffix}` : "--";
-}
-
-function fmtMm(value) {
-  return typeof value === "number" && value > 0 ? `${Math.round(value)}mm` : "--";
-}
-
-function positiveNumber(value) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0;
-}
-
-function channelValid(snapshot, validKey, valueKey) {
-  if (!snapshot) return false;
-  if (typeof snapshot[validKey] === "boolean") return snapshot[validKey];
-  return !!snapshot.valid && positiveNumber(snapshot[valueKey]);
-}
-
-function channelMm(snapshot, validKey, valueKey) {
-  return channelValid(snapshot, validKey, valueKey) ? `${snapshot[valueKey]}` : "--";
-}
-
-function validityLabel(validCount, totalCount) {
-  if (validCount === totalCount) return "有效";
-  if (validCount > 0) return "部分";
-  return "无效";
-}
-
 function setStatus(el, text, ok, warn = false) {
   if (!el) return;
   el.textContent = text;
   setTextState(el, ok, warn);
-}
-
-function ageText(now, last) {
-  const age = fmtAge(now, last);
-  return age === "--" ? "未更新" : age;
-}
-
-function validCountLabel(validCount, totalCount) {
-  return `${validCount}/${totalCount}`;
-}
-
-function bitCount3(value) {
-  let v = Number(value || 0) & 0x7;
-  let count = 0;
-  while (v) {
-    count += v & 1;
-    v >>= 1;
-  }
-  return count;
-}
-
-function fmtHz(value) {
-  if (!Number.isFinite(value) || value < 0) return "--";
-  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)}Hz`;
-}
-
-function fmtLatency(value) {
-  if (!Number.isFinite(value) || value < 0) return "--";
-  if (value >= 1000) return `${(value / 1000).toFixed(1)}s`;
-  return `${Math.round(value)}ms`;
-}
-
-function fmtRcPulse(value) {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? `${Math.round(n)}us` : "--";
-}
-
-function fmtRcPercent(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? `${Math.round(n * 100)}%` : "--";
 }
 
 function updateTofRealtimeStats(state, tof, validCount, initMask) {
@@ -323,32 +243,6 @@ function updateTofRealtimeStats(state, tof, validCount, initMask) {
   return { sampleHz, channelHz, telemetryHz, ageMs };
 }
 
-function fmtAge(now, last) {
-  if (typeof now !== "number" || typeof last !== "number" || last <= 0) return "--";
-  return `${Math.max(0, Math.round((now - last) / 1000))}s 前`;
-}
-
-function fmtWallAge(last) {
-  if (typeof last !== "number" || last <= 0) return "--";
-  return `${Math.max(0, Math.round((Date.now() - last) / 1000))}s 前`;
-}
-
-function estimateBatteryPercent(voltage) {
-  if (typeof voltage !== "number" || !Number.isFinite(voltage)) return 0;
-  return Math.max(0, Math.min(100, ((voltage - 30) / (42 - 30)) * 100));
-}
-
-function batteryVoltageSupported(voltage) {
-  return typeof voltage === "number" && Number.isFinite(voltage) &&
-    voltage > 0 && voltage <= 62;
-}
-
-function batteryDisplayText(voltage) {
-  if (typeof voltage !== "number" || !Number.isFinite(voltage)) return "--";
-  if (!batteryVoltageSupported(voltage)) return `${voltage.toFixed(1)}V 异常`;
-  return `${voltage.toFixed(1)}V ${Math.round(estimateBatteryPercent(voltage))}%`;
-}
-
 function setTextState(el, ok, warn) {
   if (!el) return;
   el.classList.toggle("ok-text", !!ok);
@@ -387,22 +281,6 @@ function cloudVideoLatestUrl(frameSeq = latestVideoFrameSeq) {
   return url.toString();
 }
 
-function deviceTelemetryOnline(lastIngestAt) {
-  return typeof lastIngestAt === "number" && lastIngestAt > 0 &&
-    Date.now() - lastIngestAt < DEVICE_ONLINE_TTL_MS;
-}
-
-function refreshDeviceConnectionStatus() {
-  if (!sseTransportOpen) return;
-  const online = latestTelemetryFreshAt > 0 &&
-    Date.now() - latestTelemetryFreshAt < DEVICE_ONLINE_TTL_MS;
-  setOnline(
-    online,
-    online ? "小车遥测在线" :
-      (latestLastIngestAt > 0 ? "云端已连接，小车遥测已超时" : "云端已连接，等待小车首次上报"),
-  );
-}
-
 function setConnectionHint(text, state = "warn") {
   if (!els.connectionHint) return;
   els.connectionHint.textContent = text;
@@ -420,10 +298,6 @@ function setOnline(online, hint) {
     hint || (online ? "云端 SSE 已连接" : (navigator.onLine ? "云端 SSE 未连接" : "浏览器离线")),
     online ? "ok" : "danger",
   );
-  if (online && manualReconnectPending) {
-    flashStatus(els.saveStatus, "✅ 重连成功", true);
-    manualReconnectPending = false;
-  }
 }
 
 function setConnecting(hint = "正在连接云端 SSE...") {
@@ -470,7 +344,7 @@ function switchView(name) {
   if (name === "sensors") {
     requestAnimationFrame(() => {
       setupCanvasDPI(els.spatialMap);
-      if (latestSpatialData) drawSpatialMap(latestSpatialData);
+      if (latestSpatialData) drawSpatialMap(els.spatialMap, latestSpatialData);
     });
   }
 }
@@ -479,7 +353,7 @@ document.querySelectorAll(".fb-nav-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     const tabName = btn.dataset.view;
     // ── Safety: auto-stop jog when leaving drive tab ──
-    if (tabName !== "drive" && jogTimer) stopJog();
+    if (tabName !== "drive" && realtime?.isJogging()) realtime.stopJog();
     switchView(tabName);
   });
 });
@@ -624,7 +498,7 @@ function handleFullscreenChange() {
   if (!isFullscreen) unlockFullscreenOrientation();
   els.fullscreenBtn.textContent = isFullscreen ? "退出" : "全屏";
   setupCanvasDPI(els.spatialMap);
-  setTimeout(initJoystick, 100);
+  setTimeout(() => realtime?.initJoystick(), 100);
 }
 
 document.addEventListener("fullscreenchange", handleFullscreenChange);
@@ -634,11 +508,7 @@ els.fullscreenBtn.addEventListener("click", (e) => { e.stopPropagation(); toggle
 // ── Render ──
 
 function render(payload) {
-  latestLastIngestAt = Number(payload.lastIngestAt) || 0;
-  const serverSaysOnline = typeof payload.online === "boolean"
-    ? payload.online : deviceTelemetryOnline(latestLastIngestAt);
-  latestTelemetryFreshAt = serverSaysOnline ? Date.now() : 0;
-  refreshDeviceConnectionStatus();
+  const serverSaysOnline = realtime.noteTelemetry(payload);
   const s = payload.state || {};
   const safety = s.safety || {};
   const power = s.power || {};
@@ -651,6 +521,7 @@ function render(payload) {
   const obstacle = s.obstacle || {};
   const rc = s.rc || {};
   const cloudLink = s.cloud || {};
+  const wifi = s.wifi || {};
   const command = payload.command || {};
 
   latestState = s;
@@ -741,7 +612,10 @@ function render(payload) {
     setTextState(els.cloudTelemetry, !!cloudLink.connected, !cloudLink.connected);
   }
   if (els.cloudTelemetryAge) {
-    els.cloudTelemetryAge.textContent = `轮询 ${fmtAge(s.now_ms, cloudLink.last_update_ms)}`;
+    const wifiText = wifiDiagText(wifi);
+    els.cloudTelemetryAge.textContent =
+      `轮询 ${fmtAge(s.now_ms, cloudLink.last_update_ms)}` +
+      (wifiText ? ` / ${wifiText}` : "");
   }
 
   // UWB
@@ -916,7 +790,7 @@ function render(payload) {
   if (!spatialDirty) {
     spatialDirty = true;
     requestAnimationFrame(() => {
-      drawSpatialMap(latestSpatialData);
+      drawSpatialMap(els.spatialMap, latestSpatialData);
       spatialDirty = false;
     });
   }
@@ -929,54 +803,6 @@ function render(payload) {
   // Raw JSON
   els.raw.textContent = JSON.stringify(s, null, 2);
 }
-
-// ── SSE Connection ──
-
-function connectEvents() {
-  const attempt = ++sseConnectAttempt;
-  if (sseReconnectTimer) {
-    clearTimeout(sseReconnectTimer);
-    sseReconnectTimer = null;
-  }
-  if (events) events.close();
-  setConnecting("正在重连云端 SSE...");
-  const token = operatorTokenValue();
-  const source = new EventSource(`${apiPath("events")}?token=${token}`);
-  events = source;
-  source.onopen = () => {
-    if (attempt !== sseConnectAttempt || events !== source) return;
-    sseTransportOpen = true;
-    sseRetryDelay = 2000;
-    setConnecting("SSE 已打开，等待首包遥测...");
-  };
-  source.onmessage = (ev) => {
-    if (attempt !== sseConnectAttempt || events !== source) return;
-    try {
-      render(JSON.parse(ev.data));
-    } catch (error) {
-      console.warn("FollowBox telemetry parse failed", error);
-      setOnline(false, "云端遥测格式错误，请检查服务器日志");
-    }
-  };
-  source.onerror = () => {
-    if (attempt !== sseConnectAttempt || events !== source) return;
-    sseTransportOpen = false;
-    const delay = sseRetryDelay;
-    setOnline(false, `连接失败，${Math.round(delay / 1000)} 秒后自动重试（请检查 Token / 网络 / 设备上报）`);
-    if (manualReconnectPending) {
-      flashStatus(els.saveStatus, `❌ 重连失败，${Math.round(delay / 1000)} 秒后重试`, false);
-      manualReconnectPending = false;
-    }
-    source.close();
-    sseRetryDelay = Math.min(sseRetryDelay * 2, 30000);
-    sseReconnectTimer = setTimeout(() => {
-      connectEvents();
-    }, delay);
-  };
-}
-
-els.deviceId.addEventListener("change", connectEvents);
-els.operatorToken.addEventListener("change", connectEvents);
 
 // ── Settings: Save & Reconnect ──
 
@@ -992,6 +818,20 @@ function setSaveStatus(el, text, state) {
   el.className = `fb-save-status fb-save-status--${state}`;
 }
 
+initOtaPanel({ els, apiPath, flashStatus, setSaveStatus });
+realtime = initRealtimeControls({
+  els,
+  apiPath,
+  operatorTokenValue,
+  render,
+  setOnline,
+  setConnecting,
+  setTextState,
+  flashStatus,
+  deviceOnlineTtlMs: DEVICE_ONLINE_TTL_MS,
+});
+initCloudLogTools({ els });
+
 els.saveConnection.addEventListener("click", () => {
   const token = els.operatorToken.value.trim();
   const devId = els.deviceId.value.trim() || "followbox-001";
@@ -1002,9 +842,9 @@ els.saveConnection.addEventListener("click", () => {
     latestVideoFrameSeq = -1;
     useCloudCameraRelay();
   }
-  manualReconnectPending = true;
+  realtime.markManualReconnectPending();
   setSaveStatus(els.saveStatus, "💾 已保存，正在重连...", "warn");
-  connectEvents();
+  realtime.connectEvents();
 });
 
 els.saveCameraUrl.addEventListener("click", () => {
@@ -1021,292 +861,6 @@ els.saveCameraUrl.addEventListener("click", () => {
   flashStatus(els.cameraUrlState, "✅ 视频地址已保存", true);
 });
 
-// ── OTA Version Check ──
-
-async function checkOtaVersion() {
-  if (!els.otaVersion) return;
-  try {
-    els.otaVersion.textContent = "检查中...";
-    els.otaStatus.textContent = "";
-    const token = els.operatorToken.value.trim();
-    const headers = {};
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const resp = await fetch(apiPath("firmware/version"), { headers, cache: "no-store" });
-    if (resp.status === 404) {
-      els.otaVersion.textContent = "未发布";
-      checkedOtaVersion = "";
-      flashStatus(els.otaStatus, "暂无固件更新", true);
-      return;
-    }
-    if (!resp.ok) {
-      els.otaVersion.textContent = "获取失败";
-      flashStatus(els.otaStatus, "❌ " + (resp.status === 401 ? "Token 无效" : "服务器错误"), false);
-      return;
-    }
-    const data = await resp.json();
-    if (data.ok) {
-      els.otaCurrentVersion.textContent = data.current_version || "--";
-      els.otaVersion.textContent = data.available_version || data.version || "--";
-      checkedOtaVersion = data.update_available ? data.available_version : "";
-      els.installOta.hidden = !checkedOtaVersion;
-      els.laterOta.hidden = !checkedOtaVersion;
-      if (!data.current_version) {
-        setSaveStatus(els.otaStatus, "设备离线或尚未上报版本，不能安装", "warn");
-      } else if (data.update_available) {
-        setSaveStatus(els.otaStatus, `发现新版本 ${data.available_version}，请选择安装或暂不安装`, "warn");
-      } else {
-        flashStatus(els.otaStatus, "已是最新版本", true);
-      }
-    } else {
-      els.otaVersion.textContent = "未发布";
-      flashStatus(els.otaStatus, "暂无固件更新", true);
-    }
-  } catch (e) {
-    els.otaVersion.textContent = "网络错误";
-    flashStatus(els.otaStatus, "❌ 无法连接服务器", false);
-  }
-}
-
-els.checkOta.addEventListener("click", checkOtaVersion);
-
-els.installOta.addEventListener("click", async () => {
-  if (!checkedOtaVersion) return;
-  if (!confirm(`安装固件 ${checkedOtaVersion}？设备将强制停车、写入校验并自动重启。`)) return;
-  const token = els.operatorToken.value.trim();
-  const headers = { "Content-Type": "application/json" };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  els.installOta.disabled = true;
-  try {
-    const resp = await fetch(apiPath("firmware/install"), {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ version: checkedOtaVersion }),
-    });
-    const data = await resp.json();
-    if (!resp.ok || !data.ok) throw new Error(data.reason || `HTTP ${resp.status}`);
-    setSaveStatus(els.otaStatus, "安装请求已提交，等待设备拉取", "warn");
-    els.laterOta.hidden = true;
-  } catch (e) {
-    setSaveStatus(els.otaStatus, `安装请求失败：${e.message}`, "err");
-    els.installOta.disabled = false;
-  }
-});
-
-els.laterOta.addEventListener("click", () => {
-  checkedOtaVersion = "";
-  els.installOta.hidden = true;
-  els.laterOta.hidden = true;
-  setSaveStatus(els.otaStatus, "已暂不安装；未向设备提交任何写入请求", "ok");
-});
-
-// ── Command API ──
-
-async function sendCommand(body) {
-  const headers = { "Content-Type": "application/json" };
-  const token = els.operatorToken.value.trim();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  try {
-    const resp = await fetch(apiPath("command"), {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-    if (!resp.ok && els.commandStatus) {
-      els.commandStatus.textContent = resp.status === 401 ? "命令失败：Token 无效" : `命令失败：HTTP ${resp.status}`;
-      setTextState(els.commandStatus, false, false);
-    }
-  } catch (e) {
-    if (els.commandStatus) {
-      els.commandStatus.textContent = "命令失败：网络错误";
-      setTextState(els.commandStatus, false, false);
-    }
-  }
-}
-
-// ── Jog ──
-
-function jogBody() {
-  return {
-    deadman: !!jogTimer,
-    forward: Math.round(joyForward * 100) / 100,
-    turn: Math.round(joyTurn * 100) / 100,
-  };
-}
-
-function startJog() {
-  if (jogTimer) return;
-  els.deadman.classList.add("active");
-  sendCommand(jogBody());
-  jogTimer = setInterval(() => sendCommand(jogBody()), 150);
-}
-
-function stopJog() {
-  if (jogTimer) clearInterval(jogTimer);
-  jogTimer = null;
-  els.deadman.classList.remove("active");
-  joyForward = 0;
-  joyTurn = 0;
-  moveStick(0, 0);
-  sendCommand({ deadman: false, forward: 0, turn: 0 });
-}
-
-// Deadman button events
-["mousedown", "touchstart"].forEach((e) =>
-  els.deadman.addEventListener(e, (ev) => { ev.preventDefault(); startJog(); })
-);
-["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((e) =>
-  els.deadman.addEventListener(e, (ev) => { ev.preventDefault(); stopJog(); })
-);
-
-// Safe idle button
-els.safeIdle.addEventListener("click", () =>
-  sendCommand({ safe_idle: true, deadman: false, forward: 0, turn: 0 })
-);
-
-// ── Safety: auto-stop jog when tab hidden / screen locked ──
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden && jogTimer) stopJog();
-});
-document.addEventListener("pagehide", () => { if (jogTimer) stopJog(); });
-
-// ── Joystick ──
-
-function moveStick(x, y) {
-  if (!els.stick) return;
-  els.stick.style.transform = `translate(${x}px, ${y}px)`;
-}
-
-function updateJoystick(ev) {
-  const rect = els.joy.getBoundingClientRect();
-  const radius = rect.width / 2;
-  const max = radius * 0.62;
-  let x = ev.clientX - rect.left - radius;
-  let y = ev.clientY - rect.top - radius;
-  const mag = Math.hypot(x, y);
-  if (mag > max) {
-    x = (x / mag) * max;
-    y = (y / mag) * max;
-  }
-  moveStick(x, y);
-  joyTurn = Math.max(-1, Math.min(1, x / max));
-  joyForward = Math.max(-1, Math.min(1, -y / max));
-}
-
-function initJoystick() {
-  if (!els.joy) return;
-  els.joy.addEventListener("pointerdown", (ev) => {
-    ev.preventDefault();
-    joyPointerId = ev.pointerId;
-    els.joy.setPointerCapture(joyPointerId);
-    els.joy.classList.add("pressed");
-    updateJoystick(ev);
-    startJog();
-  });
-  els.joy.addEventListener("pointermove", (ev) => {
-    if (ev.pointerId !== joyPointerId) return;
-    ev.preventDefault();
-    updateJoystick(ev);
-  });
-  const release = (ev) => {
-    if (ev.pointerId !== joyPointerId) return;
-    ev.preventDefault();
-    els.joy.classList.remove("pressed");
-    joyPointerId = null;
-    stopJog();
-  };
-  els.joy.addEventListener("pointerup", release);
-  els.joy.addEventListener("pointercancel", release);
-  els.joy.addEventListener("lostpointercapture", () => {
-    els.joy.classList.remove("pressed");
-    joyPointerId = null;
-    stopJog();
-  });
-}
-
-// ── Log actions ──
-
-async function copyVisibleLogs() {
-  const text = els.logs.textContent || "";
-  const trimmed = text.trim();
-  const button = els.copyLogs;
-  if (!trimmed || trimmed === "-- 等待日志 --") {
-    button.textContent = "无日志";
-    setTimeout(() => { button.textContent = "复制"; }, 1200);
-    return;
-  }
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.setAttribute("readonly", "");
-      textarea.style.position = "fixed";
-      textarea.style.left = "-9999px";
-      document.body.appendChild(textarea);
-      textarea.select();
-      const copied = document.execCommand("copy");
-      document.body.removeChild(textarea);
-      if (!copied) throw new Error("copy command failed");
-    }
-    button.textContent = "已复制";
-  } catch (e) {
-    button.textContent = "复制失败";
-  }
-  setTimeout(() => { button.textContent = "复制"; }, 1200);
-}
-
-els.copyLogs.addEventListener("click", copyVisibleLogs);
-els.clearLogs.addEventListener("click", () => { els.logs.textContent = ""; });
-
-// ── Browser / page console log capture ──
-const pageLogBuffer = [];
-const MAX_PAGE_LOGS = 300;
-
-function appendPageLog(level, argsArr) {
-  const ts = new Date().toLocaleTimeString("zh-CN", { hour12: false });
-  const text = argsArr.map((a) => {
-    try {
-      return typeof a === "object" && a !== null ? JSON.stringify(a) : String(a);
-    } catch (_e) { return String(a); }
-  }).join(" ");
-  pageLogBuffer.push(`[${ts}][${level}] ${text}`);
-  if (pageLogBuffer.length > MAX_PAGE_LOGS) pageLogBuffer.shift();
-  if (els.browserLogs) {
-    els.browserLogs.textContent = pageLogBuffer.join("\n");
-    els.browserLogs.scrollTop = els.browserLogs.scrollHeight;
-  }
-}
-
-["log", "info", "warn", "error"].forEach((level) => {
-  const orig = console[level].bind(console);
-  console[level] = (...args) => { orig(...args); appendPageLog(level.toUpperCase(), args); };
-});
-
-window.addEventListener("error", (ev) => {
-  appendPageLog("RUNTIME", [`${ev.message} @${ev.filename}:${ev.lineno}`]);
-});
-window.addEventListener("unhandledrejection", (ev) => {
-  appendPageLog("PROMISE", [String(ev.reason)]);
-});
-
-if (els.copyBrowserLogs) {
-  els.copyBrowserLogs.addEventListener("click", async () => {
-    const text = pageLogBuffer.join("\n");
-    try {
-      await navigator.clipboard.writeText(text);
-      els.copyBrowserLogs.textContent = "已复制";
-    } catch (_e) { els.copyBrowserLogs.textContent = "复制失败"; }
-    setTimeout(() => { els.copyBrowserLogs.textContent = "复制"; }, 1200);
-  });
-}
-if (els.clearBrowserLogs) {
-  els.clearBrowserLogs.addEventListener("click", () => {
-    pageLogBuffer.length = 0;
-    if (els.browserLogs) els.browserLogs.textContent = "";
-  });
-}
-
 // ── Local config: auto-fill operator token from server on local network ──
 async function initLocalConfig() {
   if (els.operatorToken && els.operatorToken.value) return; // Already filled
@@ -1319,219 +873,10 @@ async function initLocalConfig() {
       saveSetting(STORAGE_KEY_TOKEN, data.operator_token);
       console.info("[config] 本地 Token 已从服务器自动填入");
       // Reconnect with the correct token
-      connectEvents();
+      realtime.connectEvents();
       if (!userCameraOverride) { activeCameraUrl = ""; useCloudCameraRelay(); }
     }
   } catch (_e) { /* network error – ignore */ }
-}
-
-// ── Online/Offline detection ──
-
-window.addEventListener("online", () => {
-  connectEvents();
-});
-window.addEventListener("offline", () => {
-  sseTransportOpen = false;
-  setOnline(false);
-});
-
-setInterval(refreshDeviceConnectionStatus, 1000);
-
-// ═══════════════════════════════════════════════
-// Spatial Map (cloud-unique: top-down bird's eye)
-// ═══════════════════════════════════════════════
-
-function distColor(mm) {
-  if (mm == null || mm <= 0) return "rgba(128,128,128,0.25)";
-  if (mm < 500) return "#dc2626";
-  if (mm < 1000) return "#dd5b00";
-  return "#1aae39";
-}
-
-function distGlow(mm, rgb) {
-  if (mm == null || mm <= 0) return "rgba(128,128,128,0)";
-  return `rgba(${rgb},0.2)`;
-}
-
-function setupCanvasDPI(canvas) {
-  if (!canvas) return;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const rect = canvas.getBoundingClientRect();
-  if (rect.width === 0) return;
-  const w = Math.round(rect.width * dpr);
-  const h = Math.round(rect.height * dpr);
-  if (canvas.width === w && canvas.height === h) return;
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
-
-function drawSpatialMap(telemetry) {
-  const canvas = els.spatialMap;
-  if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  const W = canvas.clientWidth || canvas.width;
-  const H = canvas.clientHeight || canvas.height;
-  if (W === 0) return;
-  const cx = W / 2, cy = H * 0.52;
-  const maxPx = Math.min(cx, cy) * 0.88;
-  const scale = maxPx / MAP_MAX_MM;
-
-  ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = "#0a0e18";
-  ctx.fillRect(0, 0, W, H);
-
-  // Grid & Rings
-  ctx.strokeStyle = "rgba(255,255,255,0.05)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(cx, 0); ctx.lineTo(cx, H);
-  ctx.moveTo(0, cy); ctx.lineTo(W, cy);
-  ctx.stroke();
-
-  const rings = [
-    { mm: 500, label: "0.5m", alpha: 0.35 },
-    { mm: 1000, label: "1m", alpha: 0.25 },
-    { mm: 2000, label: "2m", alpha: 0.15 },
-    { mm: 3000, label: "3m", alpha: 0.10 },
-  ];
-  rings.forEach((r) => {
-    const px = r.mm * scale;
-    ctx.strokeStyle = `rgba(255,255,255,${r.alpha})`;
-    ctx.lineWidth = r.mm <= 1000 ? 1.5 : 0.5;
-    ctx.setLineDash(r.mm <= 1000 ? [] : [4, 6]);
-    ctx.beginPath();
-    ctx.arc(cx, cy, px, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = "rgba(255,255,255,0.5)";
-    ctx.font = "10px system-ui, sans-serif";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
-    ctx.fillText(r.label, cx + px + 4, cy - 4);
-  });
-
-  // Direction labels
-  ctx.fillStyle = "rgba(255,255,255,0.35)";
-  ctx.font = "11px system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("前", cx, cy - maxPx - 14);
-  ctx.fillText("后", cx, cy + maxPx + 14);
-  ctx.fillText("左", cx - maxPx - 14, cy);
-  ctx.fillText("右", cx + maxPx + 14, cy);
-
-  // TOF sector
-  ctx.strokeStyle = "rgba(0,117,222,0.08)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.arc(cx, cy, maxPx, -Math.PI * 0.35, Math.PI * 0.35);
-  ctx.stroke();
-
-  // Vehicle icon
-  const vSize = 20;
-  ctx.fillStyle = "#d7dde8";
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - vSize);
-  ctx.lineTo(cx - vSize * 0.6, cy + vSize * 0.5);
-  ctx.lineTo(cx, cy + vSize * 0.15);
-  ctx.lineTo(cx + vSize * 0.6, cy + vSize * 0.5);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.5)";
-  ctx.beginPath();
-  ctx.arc(cx, cy, 3, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Parse telemetry
-  const s = telemetry?.state || {};
-  const uwb = s.uwb || {};
-  const tof = s.tof || {};
-  const ultrasonic = s.ultrasonic || {};
-  const obstacle = s.obstacle || {};
-
-  function plotSensor(angleDeg, distance_mm, label, sensorType) {
-    if (distance_mm == null || distance_mm <= 0) return;
-    const distPx = Math.min(distance_mm, MAP_MAX_MM) * scale;
-    const a = (-90 - angleDeg) * Math.PI / 180;
-    const x = cx + Math.cos(a) * distPx;
-    const y = cy + Math.sin(a) * distPx;
-    const color = distColor(distance_mm);
-    const r = sensorType === "uwb" ? 7 : 5;
-
-    const rgb = distance_mm < 500 ? "220,38,38" : distance_mm < 1000 ? "221,91,0" : "26,174,57";
-    const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 3);
-    glow.addColorStop(0, distGlow(distance_mm, rgb));
-    glow.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(x, y, r * 3, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
-
-    if (sensorType === "uwb") {
-      ctx.strokeStyle = "rgba(255,255,255,0.6)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = "#d7dde8";
-    ctx.font = sensorType === "uwb" ? "bold 12px system-ui" : "10px system-ui";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    const lx = x + (sensorType === "uwb" ? 14 : 0);
-    const ly = y - r - 4;
-    ctx.fillText(label, lx, ly);
-
-    ctx.fillStyle = "rgba(255,255,255,0.5)";
-    ctx.font = "9px system-ui";
-    ctx.textBaseline = "top";
-    if (sensorType === "uwb") {
-      ctx.fillText(`${distance_mm}mm`, lx, ly + 12);
-    } else {
-      ctx.fillText(`${Math.round(distance_mm / 10) / 100}m`, lx, ly + 12);
-    }
-  }
-
-  if (channelValid(tof, "front_left_valid", "front_left_mm") ||
-      channelValid(tof, "front_center_valid", "front_center_mm") ||
-      channelValid(tof, "front_right_valid", "front_right_mm")) {
-    plotSensor(-35, tof.front_left_mm, "TOF左", "tof");
-    plotSensor(0, tof.front_center_mm, "TOF中", "tof");
-    plotSensor(35, tof.front_right_mm, "TOF右", "tof");
-  }
-
-  if (obstacle.valid || positiveNumber(obstacle.front_left_mm) ||
-      positiveNumber(obstacle.front_center_mm) ||
-      positiveNumber(obstacle.front_right_mm)) {
-    plotSensor(-30, obstacle.front_left_mm, "障左", "obstacle");
-    plotSensor(0, obstacle.front_center_mm, "障前", "obstacle");
-    plotSensor(30, obstacle.front_right_mm, "障右", "obstacle");
-  }
-
-  if (channelValid(ultrasonic, "left_valid", "left_mm") ||
-      channelValid(ultrasonic, "right_valid", "right_mm")) {
-    plotSensor(-90, ultrasonic.left_mm, "超声左", "ultra");
-    plotSensor(90, ultrasonic.right_mm, "超声右", "ultra");
-  }
-
-  if (uwb.valid && uwb.distance_mm > 0) {
-    const bearing = Math.max(-85, Math.min(85, uwb.bearing_deg || 0));
-    plotSensor(bearing, uwb.distance_mm, "目标", "uwb");
-  }
-
-  ctx.fillStyle = "rgba(255,255,255,0.2)";
-  ctx.font = "9px system-ui";
-  ctx.textAlign = "right";
-  ctx.textBaseline = "bottom";
-  ctx.fillText(`范围 ${MAP_MAX_MM / 1000}m`, W - 8, H - 8);
 }
 
 // ── Init ──
@@ -1547,13 +892,13 @@ const initialCloudCameraUrl = cloudVideoStreamUrl();
 if (els.cameraUrl) els.cameraUrl.value = savedCamera || initialCloudCameraUrl;
 
 setupCanvasDPI(els.spatialMap);
-drawSpatialMap({});
-initJoystick();
+drawSpatialMap(els.spatialMap, {});
+realtime.initJoystick();
 const initialView = (location.hash || "").slice(1);
 if (["drive", "sensors", "status", "settings"].includes(initialView)) {
   switchView(initialView);
 }
-connectEvents();
+realtime.connectEvents();
 if (savedCamera) {
   userCameraOverride = true;
   updateCamStream(savedCamera);

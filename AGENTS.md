@@ -65,6 +65,9 @@ Coordinator (hermes default, deepseek-v4-flash)
 ### 上下文传递
 每个子代理只能看到传入的 context —— 传足够的文件路径和约束。
 
+### 文档落地约定
+- 用户说“写 md 文档 / 写 Markdown 文档 / 生成 .md”时，默认创建或更新本地 `.md` 文件，不只在聊天中展示；除非用户明确说只展示内容。
+
 ### 硬约束（所有角色遵守）
 1. 项目路径：`D:\car\Follow the box` → WSL `/mnt/d/car/Follow the box`
 2. 当前主控板固定为 `ESP32-S3-DevKitC-1-N32R16V` / `ESP32-S3-WROOM-2-N32R16V`：32 MB Octal Flash + 16 MB Octal PSRAM，OPI/1.8 V；禁止改成其他 Flash/PSRAM/电压配置
