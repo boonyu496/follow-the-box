@@ -1,8 +1,8 @@
 {
-  "version": "2026.07.01-h5-telemetry-split.1",
+  "version": "2026.07.01-h5-ota-split.1",
   "file": "firmware.bin",
-  "md5": "3e158bb0028df020ba7dc13a0c75df8f",
-  "size": 995776,
+  "md5": "3995babedca521681f3aa1529d0c1661",
+  "size": 996176,
   "force": false,
-  "notes": "P4b embedded H5 telemetry helper split; no H5 API behavior change"
+  "notes": "P4d embedded H5 OTA split: moved explicit-consent OTA status/check/install/direct-upload UI logic from firmware/web/app.js into firmware/web/js/ota.js; API paths and safety semantics unchanged."
 }

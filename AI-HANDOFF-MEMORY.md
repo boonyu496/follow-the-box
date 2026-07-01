@@ -37,6 +37,51 @@
 
 ## 最新交接记录
 
+### 2026-07-01 20:25 - Codex - P7B-E 控制中心动作拆分
+- 改动：继续模块拆分计划 P7，将 Git、OTA、cloud deploy、HTTP/common helper 从 `tools/followbox-control-center.ps1` 拆到 `tools/control-center/{git,ota,cloud,http}.ps1`，主脚本保留 preflight、health 与 API 路由入口。
+- 文件：`tools/followbox-control-center.ps1`, `tools/control-center/{git,ota,cloud,http}.ps1`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；本地控制中心后端按职责分段，API 路径、请求体、Git/OTA/SSH/SCP/PM2 命令参数和 preflight 判定保持不变。
+- 安全影响：无固件、motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；未执行 git pull/push、刷机、LAN OTA、云端部署、SCP/SSH/PM2 或设备运动命令。
+- OTA：不需要设备 OTA；纯本机工具脚本维护性拆分，未改设备固件、车端 H5、协议或 Profile，未重新打包或发布 `cloud/firmware`。
+- 锁定影响：触及 `CLOUD_H5_DEPLOY` 的 `tools/followbox-control-center.ps1` 本地工具入口；解锁理由：只搬迁工具 helper/动作到同目录子模块，未扩大 remote path、未改 token/namespace/PM2/SSH/SCP 目标。
+- 验证：PowerShell parser PASS；`tools\start-followbox-control-center.cmd help` PASS；临时端口首页 200、`/api/state`、`/api/git/status` 与 git/cloud/OTA/upload preflight smoke PASS（git-pull/upload-network 因当前 dirty worktree/板端 endpoint 条件按预期阻断）。
+- 当前状态：PASS_LOCAL_NEEDS_FINAL_UI_REAL_DEVICE_VERIFY
+- 下一步：P7 脚本拆分已收尾；进入 P7b 控制中心 HTML 拆分前，可先用真实 UI 逐面板点检，最终再统一做云端/车端/设备实测。
+
+### 2026-07-01 19:05 - Codex - P7A 控制中心配置拆分
+- 改动：按模块拆分计划 P7 第一段，将 control-center 配置归一化、路径 helper、版本/token 读取和 UTF-8 no BOM 写入从 `tools/followbox-control-center.ps1` 移到 `tools/control-center/config.ps1`，执行类 Git/OTA/cloud 命令保持原文件不变。
+- 文件：`tools/followbox-control-center.ps1`, `tools/control-center/config.ps1`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；本地控制中心开始按职责拆分，主脚本通过 dot-source 加载配置 helper；API 路径、按钮请求体、SSH/SCP/PM2/Git/OTA 执行逻辑未改。
+- 安全影响：无固件、motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；未执行刷机、LAN OTA、云端部署或设备运动相关命令。
+- OTA：不需要设备 OTA；纯本机工具脚本维护性拆分，未改设备固件、车端 H5、协议或 Profile，未重新打包 `cloud/firmware`。
+- 锁定影响：触及 `CLOUD_H5_DEPLOY` 的 `tools/followbox-control-center.ps1` 本地工具入口；解锁理由：只搬迁配置 helper，未扩大 cloud path、未执行 SSH/SCP/PM2、未改 token/远端目录。
+- 验证：PowerShell parse PASS；`tools\start-followbox-control-center.cmd help` PASS；临时端口 `/api/state` PASS；只读 `/api/preflight` 覆盖 git-pull/cloud-deploy/ota-publish-cloud PASS（git-pull 因当前脏工作区按预期阻止）。
+- 当前状态：PASS_LOCAL_NEEDS_NEXT_P7_SEGMENT
+- 下一步：继续 P7B 拆 Git 相关 helper/动作到 `tools/control-center/git.ps1`，仍不改变命令参数和 preflight 行为；最终统一跑 control-center UI 面板实测。
+
+### 2026-07-01 18:35 - Codex - P4d 车端 H5 OTA 拆分
+- 改动：按模块拆分计划 P4d，将车端 H5 的显式授权 OTA 状态、检查、安装和直传上传逻辑从 `firmware/web/app.js` 搬到 `firmware/web/js/ota.js`，`app.js` 继续保留渲染和共享 helper。
+- 文件：`firmware/web/index.html`, `firmware/web/app.js`, `firmware/web/js/ota.js`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；车端 H5 前端职责继续拆分，`/api/ota/status`、`/api/ota/check`、`/api/ota/install`、`/api/ota/local-upload` 路径、请求体和显式授权语义保持不变。
+- 安全影响：无 motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；H5 仍只请求既有 OTA API，设备侧 Flash 写入和安全停车由固件 OTA 路径负责，不新增清安全锁或 PWM 入口。
+- OTA：版本 `2026.07.01-h5-ota-split.1` 已生成，`firmware.bin` size `996176`，MD5 `3995babedca521681f3aa1529d0c1661`，force=false；仅本地 `cloud/firmware` 产物，未发布云端、未安装设备。
+- 锁定影响：触及 `OTA_PACKAGE`、`BOARD_N32R16V` 路径和 `CLOUD_H5_DEPLOY` 的本地 `cloud/firmware` 产物；解锁理由：车端 H5 静态资源拆分按规则递增版本并生成 OTA，不改板型/flash/PSRAM/分区/部署路径。
+- 验证：`node --check firmware/web/js/{state,telemetry,ota,controls}.js firmware/web/app.js` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS 且包含 `/js/ota.js`；`python tools/package_ota.py --notes ...` PASS。
+- 当前状态：PASS_BUILD_NEEDS_UNIFIED_DEVICE_FS_VERIFY
+- 下一步：P4 车端 H5 本地拆分收尾；统一更新 LittleFS/等效 FS 后实测 `http://192.168.4.1/` 静态资源、WebSocket、`/api/state`、jog/mode/settings/WiFi/OTA 按钮和日志复制。
+
+### 2026-07-01 18:24 - Codex - P4c 车端 H5 controls/event 拆分
+- 改动：按模块拆分计划 P4c，将车端 H5 的 WebSocket/poll/log/joystick/mode/settings/WiFi/browser event 绑定从 `firmware/web/app.js` 搬到 `firmware/web/js/controls.js`，`app.js` 保留渲染、状态展示和 OTA 显式授权逻辑。
+- 文件：`firmware/web/index.html`, `firmware/web/app.js`, `firmware/web/js/controls.js`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`
+- 架构影响：有；车端 H5 前端职责继续拆分，API 路径、WebSocket 路径、H5 command body、OTA 授权语义和 LittleFS `data_dir=web` 保持不变。
+- 安全影响：无 motor/e-stop/GPIO/PWM/ADC/I2C/电源输出改动；H5 仍只请求低速 jog/mode/calibrate/wizard/WiFi/OTA API，由设备侧安全链裁决，不新增 PWM 或清安全锁入口。
+- OTA：版本 `2026.07.01-h5-controls-split.1` 已生成，`firmware.bin` size `996192`，MD5 `1f333eadbf1bcabe016761d1d472e241`，force=false；车端 H5 静态资源真机生效仍需后续 LittleFS/uploadfs 或等效 FS 更新。
+- 锁定影响：触及 `OTA_PACKAGE`、`BOARD_N32R16V` 路径和 `CLOUD_H5_DEPLOY` 的本地 `cloud/firmware` 产物；解锁理由：车端 H5 静态资源拆分按规则递增版本并生成 OTA，不改板型/flash/PSRAM/分区/部署路径，未发布云端。
+- 验证：`node --check firmware/web/js/{state,telemetry,controls}.js firmware/web/app.js` PASS；`pio run -d firmware -e esp32-s3-devkitc-1 -t buildfs` PASS 且包含 `/js/controls.js`；`python tools/package_ota.py --notes ...` PASS；manifest/bin MD5 匹配；安全链 `rg` 无新增旁路；`git diff --check` 仅 CRLF 提示。
+- 验证缺口：host `logic_smoke_test` 未完成；当前 `firmware/tools/logic_smoke_test` 是 ELF，`logic_smoke_test.exe` 不存在，本机未找到 `g++`/`clang++`/`cl` 可重编译 Windows smoke。
+- 当前状态：PASS_BUILD_NEEDS_UNIFIED_DEVICE_FS_VERIFY
+- 下一步：继续 P4d 拆 OTA 模块，或暂停进入统一车端 FS 更新后浏览器实测；最终需验证 `http://192.168.4.1/` 静态资源、WebSocket、`/api/state`、jog/mode/settings/WiFi/OTA 按钮和日志复制。
+
 ### 2026-07-01 16:09 - Codex - P4b 车端 H5 telemetry helper 拆分
 - 改动：按模块拆分计划 P4b，将车端 H5 的传感器/遥测显示 helper 从 `firmware/web/app.js` 搬到 `firmware/web/js/telemetry.js`，`app.js` 继续保留渲染、WebSocket、控制与 OTA 事件。
 - 文件：`firmware/web/index.html`, `firmware/web/app.js`, `firmware/web/js/state.js`, `firmware/web/js/telemetry.js`, `firmware/include/config/ota_config.h`, `cloud/firmware/{firmware.bin,manifest.json}`, `AI-HANDOFF-MEMORY.md`
