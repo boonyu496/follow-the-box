@@ -158,7 +158,6 @@
 - 验证：`node --check cloud/server.js cloud/routes/firmware.js cloud/services/{device_store,firmware_manifest}.js cloud/public/app.js` PASS；`node cloud/server.log-dedup.test.js` PASS；本地 127.0.0.1:18080 health、ingest、firmware version/request/install/download、ota-result smoke PASS。
 - 当前状态：PASS_LOCAL_NEEDS_UNIFIED_CLOUD_VERIFY
 - 下一步：继续 P6c2 抽 device/events/command 路由文件；每步仍最多 3 个文件，全部 P6 完成后再统一云端页面/公网 `/api/health` 实测与部署决策。
-
 ### 2026-07-01 13:16 - Codex - P6b 云端 firmware_manifest 拆分
 - 改动：按模块拆分计划第四段 P6b，将云端固件 manifest 读取、BOM 去除、MD5/size 校验和默认下载 URL 生成抽到 `cloud/services/firmware_manifest.js`。
 - 文件：`cloud/server.js`, `cloud/services/firmware_manifest.js`, `AI-HANDOFF-MEMORY.md`
