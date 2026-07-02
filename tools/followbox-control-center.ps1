@@ -10,6 +10,7 @@ $ErrorActionPreference = "Stop"
 $script:RepoRoot = Split-Path -Parent $PSScriptRoot
 $script:ConfigPath = Join-Path $PSScriptRoot "followbox-control-center.config.json"
 $script:HtmlPath = Join-Path $PSScriptRoot "followbox-control-center.html"
+$script:AppJsPath = Join-Path $PSScriptRoot "control-center\app.js"
 $script:Listener = $null
 $script:LastConfigNormalization = @()
 
@@ -233,6 +234,26 @@ function Merge-Config {
   return (Normalize-Config -Config $Base)
 }
 
+function Get-AppJavaScript {
+  Assert-PathExists -Path $script:AppJsPath -Label "control center JavaScript file"
+  return [System.IO.File]::ReadAllText($script:AppJsPath, [System.Text.Encoding]::UTF8)
+}
+
+function New-JavaScriptResponse {
+  param(
+    [System.Net.HttpListenerResponse]$Response,
+    [string]$JavaScript
+  )
+
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($JavaScript)
+  $Response.StatusCode = 200
+  $Response.ContentType = "application/javascript; charset=utf-8"
+  $Response.ContentEncoding = [System.Text.Encoding]::UTF8
+  $Response.AddHeader("Cache-Control", "no-store")
+  $Response.OutputStream.Write($bytes, 0, $bytes.Length)
+  $Response.Close()
+}
+
 function Handle-ApiRequest {
   param([System.Net.HttpListenerContext]$Context)
 
@@ -242,6 +263,11 @@ function Handle-ApiRequest {
 
   if ($path -eq "/" -or $path -eq "/index.html") {
     New-HtmlResponse -Response $response -Html (Get-AppHtml)
+    return
+  }
+
+  if ($path -eq "/control-center/app.js") {
+    New-JavaScriptResponse -Response $response -JavaScript (Get-AppJavaScript)
     return
   }
 

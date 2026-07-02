@@ -19,12 +19,23 @@ struct WifiCredentials {
 // NVS persistence for WifiCredentials. Same contract as ProfileStore:
 // load() once at boot, save() only on an explicit provisioning request, no
 // high-frequency Flash writes, no motion/safety logic.
+//
+// The box also persists the user's chosen network mode here:
+//   - link disabled (default): pure hotspot (AP-only), rock-solid local
+//     control with zero AP+STA radio contention.
+//   - link enabled: hotspot + join the user's WiFi (AP+STA) for the cloud /
+//     remote-control link, chosen explicitly from the H5 panel.
 class WifiStore {
  public:
   bool begin();
   WifiCredentials load();
   bool save(const WifiCredentials& creds);
   bool clear();
+
+  // Persisted network mode. false = hotspot-only (default), true = link mode
+  // (AP+STA). Load once at boot; save only on an explicit H5 mode switch.
+  bool loadLinkEnabled();
+  bool saveLinkEnabled(bool enabled);
 
  private:
   bool opened_ = false;

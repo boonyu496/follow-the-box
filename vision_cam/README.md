@@ -7,7 +7,7 @@ the H5 browser.
 ## Network
 
 - SSID: `FollowBox`
-- Password: `followbox123`
+- Password: `followbox-dev-only`
 - Static IP: `192.168.4.10`
 - Stream: `http://192.168.4.10/stream`
 - Legacy stream: `http://192.168.4.10:81/stream`

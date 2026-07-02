@@ -17,6 +17,11 @@
       <span id="conn" class="fb-pill fb-pill--danger">未连接</span>
     </header>
 
+    <div id="reconnect-banner" class="fb-reconnect-banner" hidden>
+      <span id="reconnect-text">与小车断开，正在自动重连…</span>
+      <span class="fb-reconnect-hint">若长时间无响应，请确认手机仍连着 <strong>FollowBox</strong> 热点。</span>
+    </div>
+
     <div class="fb-quick-strip">
       <div><span>许可</span><strong id="motion-allowed">--</strong></div>
       <div><span>停车</span><strong id="stop-reason">--</strong></div>
@@ -261,11 +266,19 @@
             <span id="wifi-sta-status">未配置</span>
           </header>
           <div class="fb-status-row">
+            <span>连接模式</span><strong id="wifi-net-mode">热点模式</strong>
+          </div>
+          <div class="fb-mode-switch">
+            <button id="btn-net-hotspot" class="fb-net-btn" data-mode="hotspot" aria-pressed="true">纯热点（稳定）</button>
+            <button id="btn-net-link" class="fb-net-btn" data-mode="link" aria-pressed="false">联网模式（云端遥控）</button>
+          </div>
+          <small id="wifi-mode-hint" class="fb-mode-hint">纯热点模式下热点最稳定，仅本地控制。切到联网模式后小车会连接下方 WiFi 上云，切换瞬间热点可能短暂波动。</small>
+          <div class="fb-status-row">
             <span>STA IP</span><strong id="wifi-sta-ip">--</strong>
           </div>
           <label>WiFi 名称 <input id="wifi-ssid" type="text" maxlength="32" placeholder="2.4G SSID" /></label>
           <label>WiFi 密码 <input id="wifi-pass" type="password" maxlength="63" placeholder="8-63 位" /></label>
-          <button id="btn-wifi-save">保存并连接</button>
+          <button id="btn-wifi-save">保存 WiFi</button>
         </article>
 
         <article class="fb-panel">

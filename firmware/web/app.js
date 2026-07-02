@@ -122,6 +122,15 @@ const wifiEls = {
   ssid: $("wifi-ssid"),
   pass: $("wifi-pass"),
   save: $("btn-wifi-save"),
+  netMode: $("wifi-net-mode"),
+  modeHint: $("wifi-mode-hint"),
+  btnHotspot: $("btn-net-hotspot"),
+  btnLink: $("btn-net-link"),
+};
+
+const reconnectEls = {
+  banner: $("reconnect-banner"),
+  text: $("reconnect-text"),
 };
 
 const otaEls = {
@@ -193,6 +202,9 @@ function setConn(online) {
   els.conn.textContent = online ? "已连接" : "未连接";
   els.conn.classList.toggle("fb-pill--ok", online);
   els.conn.classList.toggle("fb-pill--danger", !online);
+  if (reconnectEls.banner) {
+    reconnectEls.banner.hidden = online;
+  }
 }
 
 function logTimestamp() {
@@ -294,6 +306,13 @@ function retryCloudVideoRelay() {
 
 function setCameraStream(url) {
   if (!els.cameraStream || !els.cameraUrl) return;
+  if (!CAMERA_ENABLED) {
+    stopCloudVideoRelay();
+    els.cameraStream.removeAttribute("src");
+    activeCameraUrl = "";
+    setCameraVisible(false, "摄像头已停用");
+    return;
+  }
   const next = (url || els.cameraUrl.value || "").trim();
   if (!next || next === activeCameraUrl) return;
   if (shouldUseCloudVideoRelay(next)) {
@@ -346,6 +365,7 @@ function setCameraOnline(online, text) {
 }
 
 function scheduleCameraRetry() {
+  if (!CAMERA_ENABLED) return;
   if (activeCameraUrl.startsWith("cloud-relay:")) {
     retryCloudVideoRelay();
     return;

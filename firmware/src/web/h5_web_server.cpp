@@ -80,7 +80,12 @@ void H5WebServer::begin(ProfileStore* profile_store, CalibrationStore* calibrati
   // This mirrors /ws/state and exists only for AP/LAN UI diagnostics when a
   // browser, proxy, or captive portal interferes with WebSocket transport.
   g_server.on("/api/state", HTTP_GET, [](AsyncWebServerRequest* request) {
-    char state[sizeof(g_state_buf)];
+    // static: AsyncTCP runs every HTTP callback on the single "async_tcp" task
+    // (no reentrancy), and request->send() copies the payload into its own
+    // String before returning. Keeping this 3 KB scratch off the task stack
+    // (16 KB) is what prevents the async_tcp stack overflow / PANIC reboot that
+    // manifested as the hotspot dropping when a phone opened 192.168.4.1.
+    static char state[sizeof(g_state_buf)];
     bool valid = false;
     portENTER_CRITICAL(&g_state_mux);
     valid = g_state_valid;
@@ -115,11 +120,14 @@ void H5WebServer::begin(ProfileStore* profile_store, CalibrationStore* calibrati
   // GET /api/logs -> read-only local diagnostics. It does not drain the ring,
   // so cloud telemetry can still upload the same recent lines.
   g_server.on("/api/logs", HTTP_GET, [](AsyncWebServerRequest* request) {
-    char logs[2600];
+    // static: see /api/state above. These two buffers total ~5.3 KB and were
+    // the dominant async_tcp stack consumer; keeping them off the task stack
+    // is the primary fix for the stack-overflow PANIC.
+    static char logs[2600];
     if (DebugConsole::copyRecentJson(logs, sizeof(logs)) == 0) {
       std::snprintf(logs, sizeof(logs), "[]");
     }
-    char body[2720];
+    static char body[2720];
     const int written = std::snprintf(body, sizeof(body),
                                       "{\"ok\":true,\"logs\":%s}", logs);
     if (written < 0 || static_cast<size_t>(written) >= sizeof(body)) {

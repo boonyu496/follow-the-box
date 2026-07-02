@@ -23,12 +23,20 @@ function connectWs() {
   ws = new WebSocket(`ws://${location.host}/ws/state`);
   ws.onopen = () => {
     setConn(true);
+    wsRetryDelay = 1000;
+    wsRetryCount = 0;
     appendBrowserLog("WebSocket 已连接");
   };
   ws.onclose = () => {
     setConn(false);
-    appendBrowserLog("WebSocket 已断开，准备重连", "W");
-    setTimeout(connectWs, 1000);
+    wsRetryCount += 1;
+    updateReconnectBanner();
+    appendBrowserLog(`WebSocket 已断开，${Math.round(wsRetryDelay / 1000)}s 后重连`, "W");
+    if (wsRetryTimer) clearTimeout(wsRetryTimer);
+    wsRetryTimer = setTimeout(connectWs, wsRetryDelay);
+    // Exponential backoff capped at 5s so we reconnect fast but do not hammer
+    // the box while the phone is still re-associating to the FollowBox hotspot.
+    wsRetryDelay = Math.min(wsRetryDelay * 1.5, 5000);
   };
   ws.onerror = () => {
     appendBrowserLog("WebSocket 错误", "W");
@@ -41,6 +49,14 @@ function connectWs() {
       appendBrowserLog("收到无法解析的状态帧", "W");
     }
   };
+}
+
+function updateReconnectBanner() {
+  if (!reconnectEls.text) return;
+  reconnectEls.text.textContent =
+    wsRetryCount > 3
+      ? "与小车断开，仍在重连…请确认手机已连回 FollowBox 热点。"
+      : "与小车断开，正在自动重连…";
 }
 
 async function pollStateFallback() {
@@ -166,8 +182,16 @@ async function refreshWifiStatus() {
   try {
     const res = await fetch("/api/wifi/status");
     const st = await res.json();
+    const linkMode = st.net_mode === "link" || st.link_enabled === true;
+    updateNetModeUi(linkMode);
+    if (!linkMode) {
+      wifiEls.status.textContent = st.provisioned ? "热点模式（已存 WiFi）" : "热点模式";
+      setTextState(wifiEls.status, true);
+      if (wifiEls.ip) wifiEls.ip.textContent = "--";
+      return;
+    }
     if (!st.provisioned) {
-      wifiEls.status.textContent = "未配置";
+      wifiEls.status.textContent = "联网模式：未配置 WiFi";
       setTextState(wifiEls.status, false, true);
     } else if (st.sta_connected) {
       wifiEls.status.textContent = `${st.ssid} 已连接 (${st.rssi}dBm)`;
@@ -176,10 +200,57 @@ async function refreshWifiStatus() {
       wifiEls.status.textContent = `${st.ssid} 连接中`;
       setTextState(wifiEls.status, false, true);
     }
-    wifiEls.ip.textContent = st.sta_connected && st.ip ? st.ip : "--";
+    if (wifiEls.ip) {
+      wifiEls.ip.textContent = st.sta_connected && st.ip ? st.ip : "--";
+    }
   } catch (e) {
     /* keep last status */
   }
+}
+
+function updateNetModeUi(linkMode) {
+  if (wifiEls.netMode) {
+    wifiEls.netMode.textContent = linkMode ? "联网模式" : "热点模式";
+  }
+  if (wifiEls.btnHotspot) {
+    wifiEls.btnHotspot.classList.toggle("fb-net-btn--active", !linkMode);
+    wifiEls.btnHotspot.setAttribute("aria-pressed", String(!linkMode));
+  }
+  if (wifiEls.btnLink) {
+    wifiEls.btnLink.classList.toggle("fb-net-btn--active", linkMode);
+    wifiEls.btnLink.setAttribute("aria-pressed", String(linkMode));
+  }
+}
+
+async function switchNetMode(mode) {
+  if (wifiSwitching) return;
+  if (mode === "link" && !wifiEls.ssid?.value.trim()) {
+    // Warn early; the firmware also rejects link mode with no stored WiFi.
+    if (!confirm("联网模式需要先保存家庭 WiFi。仍要切换吗？")) return;
+  }
+  wifiSwitching = true;
+  try {
+    const res = await fetch("/api/wifi/mode", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ mode }),
+    });
+    if (res.status === 409) {
+      alert("请先在下方保存家庭 WiFi，再切换到联网模式。");
+    } else if (!res.ok || !(await res.json()).ok) {
+      alert("切换失败，请重试。");
+    } else if (mode === "link") {
+      appendBrowserLog("已切到联网模式，热点可能短暂波动", "W");
+      updateNetModeUi(true);
+    } else {
+      appendBrowserLog("已切回纯热点模式");
+      updateNetModeUi(false);
+    }
+  } catch (e) {
+    alert("请求失败，请确认已连接小车热点。");
+  }
+  wifiSwitching = false;
+  setTimeout(refreshWifiStatus, 2500);
 }
 
 function bindSafetyStopEvents() {
@@ -322,14 +393,25 @@ function bindSettingsEvents() {
           body: JSON.stringify({ ssid, password: pass }),
         });
         const ok = res.ok && (await res.json()).ok;
-        alert(ok ? "已保存，小车正在连接该 WiFi。" : "保存失败，请检查输入。");
+        alert(
+          ok
+            ? "已保存。切到“联网模式”后小车会连接该 WiFi。"
+            : "保存失败，请检查输入。"
+        );
       } catch (e) {
         alert("请求失败，请确认已连接小车热点。");
       }
       wifiEls.save.disabled = false;
-      wifiEls.save.textContent = "保存并连接";
+      wifiEls.save.textContent = "保存 WiFi";
       setTimeout(refreshWifiStatus, 3000);
     });
+  }
+
+  if (wifiEls.btnHotspot) {
+    wifiEls.btnHotspot.addEventListener("click", () => switchNetMode("hotspot"));
+  }
+  if (wifiEls.btnLink) {
+    wifiEls.btnLink.addEventListener("click", () => switchNetMode("link"));
   }
 }
 

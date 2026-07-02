@@ -1,8 +1,8 @@
 {
-  "version": "2026.07.01-h5-ota-split.1",
+  "version": "2026.07.02-camera-ap-video.1",
   "file": "firmware.bin",
-  "md5": "3995babedca521681f3aa1529d0c1661",
-  "size": 996176,
+  "md5": "9caea6580c334562eb46d92033ac448f",
+  "size": 1158368,
   "force": false,
-  "notes": "P4d embedded H5 OTA split: moved explicit-consent OTA status/check/install/direct-upload UI logic from firmware/web/app.js into firmware/web/js/ota.js; API paths and safety semantics unchanged."
+  "notes": "camera AP video gate + vision_cam AP password sync"
 }

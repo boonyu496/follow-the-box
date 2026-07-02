@@ -13,6 +13,7 @@ constexpr char kNamespace[] = "fb_wifi";
 constexpr char kKeySchema[] = "schema";
 constexpr char kKeySsid[] = "ssid";
 constexpr char kKeyPass[] = "pass";
+constexpr char kKeyLinkOn[] = "link_on";
 constexpr uint16_t kSchemaVersion = 1;
 
 }  // namespace
@@ -78,6 +79,28 @@ bool WifiStore::clear() {
   prefs.clear();
   prefs.end();
   FB_LOGI("wifi_store: cleared");
+  return true;
+}
+
+bool WifiStore::loadLinkEnabled() {
+  Preferences prefs;
+  if (!prefs.begin(kNamespace, /*readOnly=*/true)) {
+    return false;  // default: hotspot-only
+  }
+  const bool enabled = prefs.getBool(kKeyLinkOn, false);
+  prefs.end();
+  return enabled;
+}
+
+bool WifiStore::saveLinkEnabled(bool enabled) {
+  Preferences prefs;
+  if (!prefs.begin(kNamespace, /*readOnly=*/false)) {
+    FB_LOGE("wifi_store: link-mode save open failed");
+    return false;
+  }
+  prefs.putBool(kKeyLinkOn, enabled);
+  prefs.end();
+  FB_LOGI("wifi_store: link_enabled=%d", enabled ? 1 : 0);
   return true;
 }
 

@@ -8,7 +8,7 @@
 #endif
 
 #ifndef FOLLOWBOX_CAM_WIFI_PASS
-#define FOLLOWBOX_CAM_WIFI_PASS "followbox123"
+#define FOLLOWBOX_CAM_WIFI_PASS "followbox-dev-only"
 #endif
 
 #ifndef FOLLOWBOX_CAM_STATIC_IP

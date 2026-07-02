@@ -7,6 +7,7 @@
 #include "hal/gpio_in.h"
 #include "hal/uart_bus.h"
 #include "sensors/camera_link.h"
+#include "sensors/lidar_bringup_probe.h"
 #include "sensors/jy61p_imu.h"
 #include "sensors/lidar_eai_s2.h"
 #include "sensors/obstacle_fusion.h"
@@ -66,12 +67,6 @@ class SensorTask {
   void drainUwb(uint32_t now_ms);
   void drainLidar(uint32_t now_ms);
   void drainImu(uint32_t now_ms);
-  void clearLidarInput();
-  size_t sendLidarStartupSequence();
-  void restartLidarCandidate(uint8_t candidate_index, uint32_t now_ms,
-                             const char* reason);
-  void probeNextLidarCandidate(uint32_t now_ms, const char* reason);
-  void logLidarDiagnostics(uint32_t now_ms);
 
   UartBus uwb_uart_;
   UartBus lidar_uart_;
@@ -79,6 +74,7 @@ class SensorTask {
   GpioIn estop_status_;
   UwbGcP2304Parser uwb_parser_;
   LidarEaiS2 lidar_;
+  LidarBringupProbe lidar_probe_;
   Jy61pImu imu_;
   PowerMonitor power_monitor_;
   TofVl53l1xArray tof_;
@@ -88,22 +84,7 @@ class SensorTask {
   bool estop_active_ = true;
   uint32_t sensor_heartbeat_ms_ = 0;
   uint32_t uwb_heartbeat_ms_ = 0;
-  uint32_t last_lidar_diag_ms_ = 0;
-  uint32_t last_lidar_rx_bytes_ = 0;
-  uint32_t last_lidar_packets_ = 0;
-  uint32_t last_lidar_scans_ = 0;
-  uint32_t last_lidar_checksum_errors_ = 0;
-  uint32_t last_lidar_framing_errors_ = 0;
-  uint32_t last_lidar_start_retry_ms_ = 0;
-  uint32_t last_lidar_raw_diag_ms_ = 0;
   uint32_t last_slow_update_log_ms_ = 0;
-  uint32_t lidar_current_baud_ = 0;
-  int lidar_active_rx_pin_ = -1;
-  int lidar_active_tx_pin_ = -1;
-  const char* lidar_active_wiring_label_ = nullptr;
-  uint8_t lidar_probe_index_ = 0;
-  uint8_t lidar_probe_rounds_ = 0;
-  bool lidar_healthy_logged_ = false;
 };
 
 }  // namespace followbox

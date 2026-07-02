@@ -489,6 +489,63 @@ textarea {
   box-shadow: 0 0 0 3px rgba(31, 143, 138, 0.18);
 }
 
+/* Reconnect banner: shown while the H5 has lost its link to the box. */
+.fb-reconnect-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 14px;
+  background: var(--fb-amber-soft);
+  color: var(--fb-amber);
+  font-size: 13px;
+  font-weight: 700;
+  border-bottom: 1px solid rgba(185, 90, 0, 0.25);
+}
+
+.fb-reconnect-banner[hidden] {
+  display: none;
+}
+
+.fb-reconnect-hint {
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+/* Hotspot / link network mode switch inside the WiFi panel. */
+.fb-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 6px 0 4px;
+}
+
+.fb-net-btn {
+  min-height: 46px;
+  border-radius: var(--fb-r) !important;
+  font-size: 14px;
+  font-weight: 800 !important;
+  white-space: normal;
+  border: 1px solid var(--pico-card-border-color) !important;
+  background: var(--fb-panel-soft) !important;
+  color: var(--fb-ink) !important;
+}
+
+.fb-net-btn--active {
+  border-color: var(--fb-teal) !important;
+  background: var(--fb-teal) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 0 3px rgba(31, 143, 138, 0.18);
+}
+
+.fb-mode-hint {
+  display: block;
+  margin: 2px 0 6px;
+  color: var(--pico-muted-color);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .fb-panel,
 .fb-metric,
 details {

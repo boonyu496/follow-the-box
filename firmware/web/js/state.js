@@ -8,6 +8,10 @@ const CLOUD_VIDEO_DEVICE_ID = "followbox-001";
 // Empty by default: do not bake cloud operator credentials into device H5.
 const CLOUD_VIDEO_OPERATOR_TOKEN = "";
 const PRIVATE_CAMERA_HOSTS = new Set(["192.168.4.2", "192.168.4.10"]);
+// Camera video is enabled for AP-side diagnosis. It still shares the single
+// SoftAP radio, so if WS/API timeouts return during live video tests, disable
+// this flag again until the transport is reworked.
+const CAMERA_ENABLED = true;
 const HTTP_DIAGNOSTIC_TIMEOUT_MS = 2200;
 const BROWSER_LOG_LIMIT = 80;
 const MAX_RANGE_MM = 3000;
@@ -17,6 +21,10 @@ const TOF_RATE_WINDOW_MS = 5000;
 let ws = null;
 let jogSeq = 1;
 let jogTimer = null;
+let wsRetryTimer = null;
+let wsRetryDelay = 1000;
+let wsRetryCount = 0;
+let wifiSwitching = false;
 let joyPointerId = null;
 let joyForward = 0;
 let joyTurn = 0;
